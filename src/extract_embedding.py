@@ -1,400 +1,404 @@
 import argparse
-from model import TinyBird
-from data_loader import SpectogramDataset
-from utils import load_model_from_checkpoint
-import torch
-import torch.nn.functional as F
-import umap
-import numpy as np
-import matplotlib.pyplot as plt
 import json
 from pathlib import Path
+
+import numpy as np
+import torch
 import torch.nn.functional as F
-from matplotlib import colors as mcolors
 
-def iter_label_runs(labels_1d: torch.Tensor):
-    """
-    Yield contiguous runs in a 1D label tensor.
+from utils import load_audio_params, load_model_from_checkpoint
 
-    Returns tuples of (start_idx, end_idx_exclusive, label_value).
-    """
-    if labels_1d.numel() == 0:
-        return
-    prev = int(labels_1d[0].item())
-    start = 0
-    for idx in range(1, labels_1d.numel()):
-        cur = int(labels_1d[idx].item())
-        if cur != prev:
-            yield start, idx, prev
-            start = idx
-            prev = cur
-    yield start, labels_1d.numel(), prev
 
 def ms_to_timebins(ms_value, audio_params):
-    """
-    purpose: converts ms value to timebin value 
-
-    the formula of converting ms to timebins:
-    time_bin = (time_ms / 1000) × sample_rate / hop_length
-
-    audio_params (tuple) = sr, n_mels, hop_size, fft
-    """
-
     sr = audio_params[0]
     hop_size = audio_params[2]
-
-    # int rounding is floor rounding ... could be a point of error 
     return int((ms_value / 1000) * sr / hop_size)
 
+
 def load_json_events(json_path, audio_params, selected_bird=None):
-    """
-    Json format 
-    {
-      "metadata": {"units":"ms"},
-      "recordings":[
-        {"recording":{"filename": str ,"bird_id": str "detected_vocalizations": int},
-         "detected_events":[
-            {"onset_ms":float,"offset_ms":float,
-             "units":[{"onset_ms":...,"offset_ms":...,"id":int}, ...]}]}]}
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    Returns: dict mapping filename -> list of events:
-      event = {"on_tb": int, "off_tb": int, "units": [(on_tb, off_tb, id), ...]}
-
-    filename will always contain stem 
-    
-    Args:
-        json_path: Path to the JSON file
-        selected_bird: is the bird_id, must be a direct match 
-    """
-    with open(json_path, "r") as f:
-        jd = json.load(f)
-
-    # Build exact map keyed by (bird_num, clip_num) -> [events]
     event_map = {}
-    for rec in jd.get("recordings", []):
-    
-        file_name = rec.get("recording", {}).get("filename", "") 
-        bird_id = rec.get("recording", {}).get("bird_id", "") 
+    for rec in data.get("recordings", []):
+        recording = rec.get("recording", {})
+        bird_id = recording.get("bird_id", "")
+        filename = recording.get("filename", "")
+        stem = Path(filename).stem
+        if selected_bird is not None:
+            if bird_id != selected_bird:
+                continue
 
-        file_name = file_name.split(".")[:-1]
-        file_name = ".".join(file_name)
-
-        # Filter by selected bird if specified
-        if selected_bird is not None and bird_id != selected_bird:
-            continue
-
-        event_list = []
+        events = []
         for event in rec.get("detected_events", []):
-            event_on_ms = event["onset_ms"]
-            event_off_ms = event["offset_ms"]
-            event_on_timebins = ms_to_timebins(event_on_ms, audio_params)
-            event_off_timebins = ms_to_timebins(event_off_ms, audio_params)
             units = []
             for unit in event.get("units", []):
-                units_on_ms = unit["onset_ms"]
-                units_off_ms = unit["offset_ms"]
-                units_on_timebins = ms_to_timebins(units_on_ms, audio_params)
-                units_off_timebins = ms_to_timebins(units_off_ms, audio_params)
-                units.append((units_on_timebins, units_off_timebins, int(unit["id"])))
-            event_list.append({"on_timebins": event_on_timebins, "off_timebins": event_off_timebins, "units": units})
-        event_map.setdefault((file_name), []).extend(event_list)
+                units.append(
+                    (
+                        ms_to_timebins(unit["onset_ms"], audio_params),
+                        ms_to_timebins(unit["offset_ms"], audio_params),
+                        int(unit["id"]),
+                    )
+                )
+            events.append(
+                {
+                    "on_timebins": ms_to_timebins(event["onset_ms"], audio_params),
+                    "off_timebins": ms_to_timebins(event["offset_ms"], audio_params),
+                    "units": units,
+                }
+            )
+        event_map[stem] = events
     return event_map
 
-def create_label_arr(matched_event, rounded_spec_length, device=None):
-    # create an array of labels 
-    labels = torch.full(
-        (rounded_spec_length,),
-        fill_value=-1,
-        device=device,
-    )  # -1 represents silence / non song element 
 
-    units = matched_event["units"]
-
-    for start, end, unit_id in units:
-        labels[start:end+1] = unit_id # the +1 is because its inclusive 
-
+def create_label_arr(event, rounded_spec_length):
+    labels = np.full((rounded_spec_length,), fill_value=-1, dtype=np.int64)
+    for start, end, unit_id in event["units"]:
+        lo = max(0, int(start))
+        hi = min(int(end) + 1, rounded_spec_length)
+        if lo >= hi:
+            continue
+        labels[lo:hi] = int(unit_id)
     return labels
 
-def main(args):
 
-    # Load model and config from checkpoint
-    model, config = load_model_from_checkpoint(
-        run_dir=args["run_dir"],
-        checkpoint_file=args["checkpoint"]
+def _resolve_recording_mode(args):
+    mode = args.get("recording_mode")
+    if mode is None:
+        mode = "full_recordings" if args.get("full_recordings", False) else "events"
+    assert mode in {"events", "full_recordings"}
+    return mode
+
+
+def _resolve_spec_paths(spec_dir, recording_stem):
+    spec_dir = Path(spec_dir)
+    if recording_stem is None:
+        paths = sorted(spec_dir.glob("*.npy"))
+        assert paths
+        return paths
+
+    path = spec_dir / f"{recording_stem}.npy"
+    assert path.exists(), f"Recording not found: {recording_stem}"
+    return [path]
+
+
+def load_recording_segments(args, patch_width):
+    spec_dir = Path(args["spec_dir"])
+    audio = load_audio_params(spec_dir)
+    audio_params = (
+        audio["sr"],
+        audio["mels"],
+        audio["hop_size"],
+        audio["fft"],
     )
-
-    # Run encoder inference on GPU when available (CPU fallback).
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-
-    patch_height, patch_width, mels, model_num_timebins = config["patch_height"], config["patch_width"], config["mels"], config["num_timebins"]
-    # number of time patches
-
-    # not sure why its getting casted into a float 
-    num_patches_time= int(model_num_timebins / patch_width)
-    num_patches_height = int(config["max_seq"] / num_patches_time) 
-    
-    # this has to be done first to get the audio params etc 
-    # Create embedding dataset using a large max_context, then batch-chunk per file
-    embedding_dataset = SpectogramDataset(
-        dir=args["spec_dir"],
-        n_timebins=None
-    )
-
-    audio_params = embedding_dataset.sr, embedding_dataset.n_mels, embedding_dataset.hop_size, embedding_dataset.fft
-
-    # Load JSON with labels and detected events 
     event_map = {}
-    if args.get("json_path"):
-        event_map = load_json_events(args["json_path"], selected_bird=args.get("bird"), audio_params=audio_params)
-    
-    model.eval()
+    json_path = args.get("json_path")
+    if json_path:
+        event_map = load_json_events(
+            json_path,
+            audio_params=audio_params,
+            selected_bird=args.get("bird"),
+        )
 
-    # Lists to store results
-    latent_list = []
-    patch_list = []
-    label_list_original = []
-    label_list_downsampled = []
-    spec_list = []
-    pos_ids_list = []
+    recording_mode = _resolve_recording_mode(args)
+    recording_stem = args.get("recording_stem")
+    segments = []
 
-    total_timebins = 0
-    i = 0
+    for path in _resolve_spec_paths(spec_dir, recording_stem):
+        stem = path.stem
+        spec = np.load(path, mmap_mode="r")
+        rounded_spec_length = spec.shape[1] - (spec.shape[1] % patch_width)
+        if rounded_spec_length == 0:
+            continue
+        spec = np.array(spec[:, :rounded_spec_length], dtype=np.float32, copy=True)
+        events = event_map.get(stem, [])
 
-    while i < len(embedding_dataset) and total_timebins < args["num_timebins"]:
-        spec, file_name = embedding_dataset[i]
-        spec = spec.to(device)
-        
-        # spec shape 1, mels, time
-        spec_timebins = spec.shape[-1]
-        spec_mels = spec.shape[-2]
-        
-        remainder = spec_timebins % patch_width
+        if recording_mode == "full_recordings":
+            units = []
+            for event in events:
+                units.extend(event["units"])
+            selected_events = [
+                {
+                    "on_timebins": 0,
+                    "off_timebins": rounded_spec_length,
+                    "units": units,
+                }
+            ]
+        else:
+            selected_events = events
 
-        # cut off small parts of end of spectrograms as they don't fit in the patch dim 
-        if remainder != 0: 
-            spec = spec[:,:,:spec_timebins-remainder]
-
-        # new spec length, cuts off bits that wont fit in the patches neatly 
-        rounded_spec_length = spec.shape[-1]
-
-        # match the current spec file with the labels, gets list of detected vocalizations 
-        matched_events = event_map.get(file_name, [])
-
-        # skip the file if it has no labels 
-        if not matched_events:
-            i += 1
+        if not selected_events:
             continue
 
-        if matched_events:
-            for matched_event in matched_events: # could be multiple songs for each file 
-                # crop the non song elements 
-                labels = create_label_arr(matched_event, rounded_spec_length, device=device)
+        for event in selected_events:
+            labels = create_label_arr(event, rounded_spec_length)
+            start = max(0, min(int(event["on_timebins"]), rounded_spec_length))
+            end = max(start, min(int(event["off_timebins"]), rounded_spec_length))
+            if start == end:
+                continue
+            spec_segment = spec[:, start:end]
+            labels_segment = labels[start:end]
+            if spec_segment.shape[1] == 0:
+                continue
+            segments.append(
+                {
+                    "recording_stem": stem,
+                    "spectrogram": spec_segment,
+                    "labels_original": labels_segment,
+                }
+            )
 
-                # converts to spectrogram timebins 
-                spec_detected = spec[:,:,matched_event["on_timebins"]:matched_event["off_timebins"]]
-                # since the labels are based off the rounded spec, but not based off the detected event, we crop it further to match the dim of spec
-                labels = labels[matched_event["on_timebins"]:matched_event["off_timebins"]]                
-                
-                if spec_detected.shape[-1] == 0:
-                    continue
+    return {
+        "audio_params": audio_params,
+        "segments": segments,
+    }
 
-                # Optionally split the detected event into contiguous unit/silence segments.
-                if args.get("segment_units", False):
-                    segments = []
-                    for seg_start, seg_end, _seg_label in iter_label_runs(labels):
-                        segments.append((seg_start, seg_end))
-                else:
-                    segments = [(0, labels.numel())]
 
-                for seg_start, seg_end in segments:
-                    spec_segment = spec_detected[:, :, seg_start:seg_end]
-                    labels_segment = labels[seg_start:seg_end]
+def _extract_segment_arrays(
+    spec_segment,
+    labels_segment,
+    model,
+    device,
+    model_num_timebins,
+    patch_width,
+    num_patches_height,
+    num_patches_time,
+    encoder_layer_idx,
+):
+    spec_tensor = torch.from_numpy(spec_segment).unsqueeze(0).to(device)
+    labels_tensor = torch.from_numpy(labels_segment).to(device)
 
-                    if spec_segment.shape[-1] == 0:
-                        continue
+    total_timebins = spec_tensor.shape[-1]
+    batch_size = max(1, (total_timebins + model_num_timebins - 1) // model_num_timebins)
+    padded_timebins = batch_size * model_num_timebins
+    pad_amount = padded_timebins - total_timebins
 
-                    # reshape spec into batches to fit into context window
-                    # Calculate batch size and padding to avoid omitting data
-                    num_full_batches = spec_segment.shape[-1] // model_num_timebins
-                    remainder_bins = spec_segment.shape[-1] % model_num_timebins
+    if pad_amount > 0:
+        spec_tensor = F.pad(spec_tensor, (0, pad_amount), mode="constant", value=0)
+        labels_tensor = F.pad(labels_tensor, (0, pad_amount), mode="constant", value=-1)
 
-                    if remainder_bins > 0:
-                        batch_size = num_full_batches + 1
-                        pad_amnt = model_num_timebins - remainder_bins
-                    else:
-                        batch_size = num_full_batches
-                        pad_amnt = 0
+    _, mel, _ = spec_tensor.shape
+    batched_spec = spec_tensor.reshape(1, mel, batch_size, model_num_timebins).permute(2, 0, 1, 3)
 
-                    if batch_size == 0:
-                        batch_size = 1
-                        pad_amnt = model_num_timebins - spec_segment.shape[-1]
+    with torch.no_grad():
+        encoded, patch = model.forward_encoder_inference(
+            batched_spec,
+            encoder_layer_idx=encoder_layer_idx,
+        )
 
-                # Pad if necessary
-                if pad_amnt > 0:
-                    spec_segment = torch.nn.functional.pad(spec_segment, (0, pad_amnt), mode='constant', value=0)
-                    labels_segment = torch.nn.functional.pad(labels_segment, (0, pad_amnt), mode='constant', value=-1)
+    batch_count, hidden_dim, _, _ = encoded.permute(0, 2, 1).reshape(
+        encoded.shape[0],
+        encoded.shape[2],
+        num_patches_height,
+        num_patches_time,
+    ).shape
+    assert batch_count == batch_size
+    assert hidden_dim == encoded.shape[2]
 
-                channel, mel, time = spec_segment.shape
+    encoded_grid = encoded.permute(0, 2, 1).reshape(batch_size, encoded.shape[2], num_patches_height, num_patches_time)
+    patch_grid = patch.permute(0, 2, 1).reshape(batch_size, patch.shape[2], num_patches_height, num_patches_time)
 
-                # Correctly batch by slicing along time dimension
-                batched_spec_detected = spec_segment.reshape(channel, mel, batch_size, model_num_timebins)
-                batched_spec_detected = batched_spec_detected.permute(2, 0, 1, 3)  # (batch_size, channel, mel, model_num_timebins)
-                
-                with torch.no_grad():
-                    h, z_seq = model.forward_encoder_inference(
-                        batched_spec_detected, encoder_layer_idx=args.get("encoder_layer_idx")
-                    )
-                    # h: encoded embeddings [B, NP, D]
-                    # z_seq: patch embeddings [B, NP, D]
-                    B, NP, D = h.shape
+    encoded_flat = encoded_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height * encoded.shape[2])
+    patch_flat = patch_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height * patch.shape[2])
+    spec_flat = batched_spec.squeeze(1).permute(0, 2, 1).reshape(-1, mel)
+    pos_ids = torch.arange(0, num_patches_time, device=device).repeat(batch_size)
 
-                    # Reshape and process embeddings
-                    # Reconstruct grid [B, D, H, W]
-                    h_grid = h.permute(0, 2, 1).reshape(B, D, num_patches_height, num_patches_time)
-                    z_grid = z_seq.permute(0, 2, 1).reshape(B, D, num_patches_height, num_patches_time)
+    if pad_amount > 0:
+        pad_patches = pad_amount // patch_width
+        if pad_patches > 0:
+            encoded_flat = encoded_flat[:-pad_patches]
+            patch_flat = patch_flat[:-pad_patches]
+            pos_ids = pos_ids[:-pad_patches]
+        spec_flat = spec_flat[:-pad_amount]
+        labels_tensor = labels_tensor[:-pad_amount]
 
-                    # Permute to [B, W, H, D] to align with time
-                    h_time = h_grid.permute(0, 3, 2, 1)
-                    z_time = z_grid.permute(0, 3, 2, 1)
+    if encoded_flat.shape[0] == 0:
+        return None
 
-                    # Flatten batch and time dimensions: [B*W, H, D] -> flatten H -> [B*W, H*D]
-                    # We flatten B and W first to easily trim padding
-                    h_flat = h_time.reshape(-1, num_patches_height * D)
-                    z_flat = z_time.reshape(-1, num_patches_height * D)
+    label_pool_pad = (-labels_tensor.numel()) % patch_width
+    pooled_labels_input = labels_tensor
+    if label_pool_pad > 0:
+        pooled_labels_input = F.pad(pooled_labels_input, (0, label_pool_pad), mode="constant", value=-1)
+    pooled_labels = F.max_pool1d(
+        pooled_labels_input.float().view(1, 1, -1),
+        kernel_size=patch_width,
+        stride=patch_width,
+    ).view(-1).long()
 
-                    # Prepare spectrograms for saving: flatten B and T -> [B*T, M]
-                    # batched_spec_detected: [B, C, M, T]
-                    spec_flat = batched_spec_detected.squeeze(1).permute(0, 2, 1).reshape(-1, mel)
+    return {
+        "encoded_before": encoded_flat.cpu().numpy().astype(np.float32, copy=False),
+        "patch_before": patch_flat.cpu().numpy().astype(np.float32, copy=False),
+        "labels_original": labels_tensor.cpu().numpy().astype(np.int64, copy=False),
+        "labels_downsampled": pooled_labels.cpu().numpy().astype(np.int64, copy=False),
+        "spectrograms": spec_flat.cpu().numpy().astype(np.float32, copy=False),
+        "pos_ids": pos_ids.cpu().numpy().astype(np.int64, copy=False),
+    }
 
-                    # Generate Pos IDs
-                    # 0..W-1 repeated B times
-                    current_pos_ids = torch.arange(0, num_patches_time, device=device).repeat(batch_size)
 
-                    # TRIM PADDING
-                    if pad_amnt > 0:
-                        # Trim embeddings (patches)
-                        pad_patches = pad_amnt // patch_width
-                        h_flat = h_flat[:-pad_patches]
-                        z_flat = z_flat[:-pad_patches]
-                        current_pos_ids = current_pos_ids[:-pad_patches]
-
-                        # Trim spectrograms and labels (timebins)
-                        spec_flat = spec_flat[:-pad_amnt]
-                        labels_segment = labels_segment[:-pad_amnt]
-
-                    # Downsample labels to patch resolution.
-                    # Right-pad to the next patch boundary so label count matches the
-                    # ceil-style patch count implied by the padded encoder input.
-                    label_pool_pad = (-labels_segment.numel()) % patch_width
-                    labels_for_pool = labels_segment
-                    if label_pool_pad > 0:
-                        labels_for_pool = F.pad(labels_for_pool, (0, label_pool_pad), mode='constant', value=-1)
-                    labels_reshaped = labels_for_pool.float().view(1, 1, -1)
-                    labels_down = F.max_pool1d(labels_reshaped, kernel_size=patch_width, stride=patch_width).view(-1).long()
-
-                    # Append to lists
-                    latent_list.append(h_flat.cpu())
-                    patch_list.append(z_flat.cpu())
-                    label_list_original.append(labels_segment.cpu())
-                    label_list_downsampled.append(labels_down.cpu())
-                    spec_list.append(spec_flat.cpu())
-                    pos_ids_list.append(current_pos_ids.cpu())
-
-                    total_timebins += spec_flat.shape[0]
-
-        i += 1
-
-    # Process encoded embeddings (h)
-    h = torch.cat(latent_list, dim=0)  # [TotalPatches, H*D]
-    
-    # Process patch embeddings (z_seq)
-    z_seq = torch.cat(patch_list, dim=0) # [TotalPatches, H*D]
-    
-    # Process labels
-    labels_original = torch.cat(label_list_original, dim=0).numpy()
-    syllable_labels_downsampled = torch.cat(label_list_downsampled, dim=0).numpy()
-    
-    # Process spectrograms
-    spectrograms = torch.cat(spec_list, dim=0) # [TotalTimebins, Mel]
-    spectrograms_np = spectrograms.numpy()
-    
-    # Process pos_ids
-    pos_ids = torch.cat(pos_ids_list, dim=0)
-    pos_ids = np.asarray(pos_ids.numpy(), dtype=int)
-    
-    # Convert embeddings to NP
-    h_np = h.numpy()
-    z_seq_np = z_seq.numpy()
-    
-    # Save embeddings before position removal
-    encoded_embeddings_before_pos_removal = h_np.copy()
-    patch_embeddings_before_pos_removal = z_seq_np.copy()
-    
-    # removal of average vector per position for encoded embeddings
-    uniq = np.unique(pos_ids)
-    means_h = np.zeros((uniq.max()+1, h_np.shape[1]), dtype=np.float32)
-    for p in uniq:
-        means_h[p] = h_np[pos_ids == p].mean(axis=0)
-    h_np = h_np - means_h[pos_ids]
-    
-    # removal of average vector per position for patch embeddings
-    means_z = np.zeros((uniq.max()+1, z_seq_np.shape[1]), dtype=np.float32)
-    for p in uniq:
-        means_z[p] = z_seq_np[pos_ids == p].mean(axis=0)
-    z_seq_np = z_seq_np - means_z[pos_ids]
-
-    # Save embeddings after position removal
-    encoded_embeddings_after_pos_removal = h_np.copy()
-    patch_embeddings_after_pos_removal = z_seq_np.copy()
-    
-    # we need audio params, patch stuff, checkpoint, spec, labels original, labels_downsampled, embedding before and after pos removal
-    np.savez(
-        args["npz_dir"],
-        # Spectrograms
-        spectrograms=spectrograms_np,                           # shape: (total_timebins, mels) - 2D spectrogram array
-        # Labels
-        labels_original=labels_original,                        # shape: (total_timebins,) - original labels before downsampling
-        labels_downsampled=syllable_labels_downsampled,         # shape: (N_patches,) - labels downsampled to patch resolution
-        # Encoded Embeddings (after encoder)
-        encoded_embeddings_before_pos_removal=encoded_embeddings_before_pos_removal,  # shape: (N_patches, H*D) - encoded embeddings before position removal
-        encoded_embeddings_after_pos_removal=encoded_embeddings_after_pos_removal,    # shape: (N_patches, H*D) - encoded embeddings after position removal
-        # Patch Embeddings (before encoder)
-        patch_embeddings_before_pos_removal=patch_embeddings_before_pos_removal,      # shape: (N_patches, H*D) - patch embeddings before position removal
-        patch_embeddings_after_pos_removal=patch_embeddings_after_pos_removal,        # shape: (N_patches, H*D) - patch embeddings after position removal
-        pos_ids=pos_ids,                                        # shape: (N_patches,) - positional indices
-        # Audio parameters (sr, n_mels, hop_size, fft)
-        audio_sr=np.array(audio_params[0]),
-        audio_n_mels=np.array(audio_params[1]),
-        audio_hop_size=np.array(audio_params[2]),
-        audio_fft=np.array(audio_params[3]),
-        # Patch parameters
-        patch_height=np.array(patch_height),
-        patch_width=np.array(patch_width),
-        num_patches_time=np.array(num_patches_time),
-        num_patches_height=np.array(num_patches_height),
-        # Model parameters
-        checkpoint=np.array(args["checkpoint"] if args["checkpoint"] else ""),
-        model_num_timebins=np.array(model_num_timebins),
-        mels=np.array(mels),
+def extract_recording_embeddings(args):
+    model, config = load_model_from_checkpoint(
+        run_dir=args["run_dir"],
+        checkpoint_file=args.get("checkpoint"),
     )
-    print(f"NPZ saved to {args['npz_dir']}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    model.eval()
+
+    patch_height = int(config["patch_height"])
+    patch_width = int(config["patch_width"])
+    model_num_timebins = int(config["num_timebins"])
+    num_patches_time = int(model_num_timebins / patch_width)
+    num_patches_height = int(config["max_seq"] / num_patches_time)
+
+    raw = load_recording_segments(args, patch_width=patch_width)
+    raw_segments = raw["segments"]
+    segment_states = []
+
+    for raw_segment in raw_segments:
+        state = _extract_segment_arrays(
+            spec_segment=raw_segment["spectrogram"],
+            labels_segment=raw_segment["labels_original"],
+            model=model,
+            device=device,
+            model_num_timebins=model_num_timebins,
+            patch_width=patch_width,
+            num_patches_height=num_patches_height,
+            num_patches_time=num_patches_time,
+            encoder_layer_idx=args.get("encoder_layer_idx"),
+        )
+        if state is None:
+            continue
+        state["recording_stem"] = raw_segment["recording_stem"]
+        segment_states.append(state)
+
+    if not segment_states:
+        raise ValueError("No valid patches extracted for the requested recording set.")
+
+    encoded_all = np.concatenate([segment["encoded_before"] for segment in segment_states], axis=0)
+    patch_all = np.concatenate([segment["patch_before"] for segment in segment_states], axis=0)
+    pos_ids_all = np.concatenate([segment["pos_ids"] for segment in segment_states], axis=0)
+
+    assert encoded_all.shape[0] > 0
+    assert patch_all.shape[0] > 0
+    assert pos_ids_all.shape[0] > 0
+
+    unique_pos = np.unique(pos_ids_all)
+    assert unique_pos.size > 0
+
+    encoded_means = np.zeros((int(unique_pos.max()) + 1, encoded_all.shape[1]), dtype=np.float32)
+    patch_means = np.zeros((int(unique_pos.max()) + 1, patch_all.shape[1]), dtype=np.float32)
+    for pos in unique_pos:
+        encoded_means[pos] = encoded_all[pos_ids_all == pos].mean(axis=0)
+        patch_means[pos] = patch_all[pos_ids_all == pos].mean(axis=0)
+
+    encoded_after_all = encoded_all - encoded_means[pos_ids_all]
+    patch_after_all = patch_all - patch_means[pos_ids_all]
+
+    start = 0
+    segments = []
+    for segment in segment_states:
+        length = segment["encoded_before"].shape[0]
+        end = start + length
+        segments.append(
+            {
+                "recording_stem": segment["recording_stem"],
+                "encoded_embeddings_before_pos_removal": segment["encoded_before"],
+                "encoded_embeddings_after_pos_removal": encoded_after_all[start:end],
+                "patch_embeddings_before_pos_removal": segment["patch_before"],
+                "patch_embeddings_after_pos_removal": patch_after_all[start:end],
+                "labels_original": segment["labels_original"],
+                "labels_downsampled": segment["labels_downsampled"],
+                "spectrograms": segment["spectrograms"],
+                "pos_ids": segment["pos_ids"],
+            }
+        )
+        start = end
+
+    return {
+        "segments": segments,
+        "audio_params": raw["audio_params"],
+        "patch_height": patch_height,
+        "patch_width": patch_width,
+        "num_patches_time": num_patches_time,
+        "num_patches_height": num_patches_height,
+        "model_num_timebins": model_num_timebins,
+        "mels": int(config["mels"]),
+        "checkpoint": args.get("checkpoint") or "",
+    }
+
+
+def _concatenate_segments(segments, key):
+    arrays = [segment[key] for segment in segments]
+    assert arrays
+    return np.concatenate(arrays, axis=0)
+
+
+def main(args):
+    extracted = extract_recording_embeddings(args)
+    npz_path = args.get("npz_dir")
+    if not npz_path:
+        return extracted
+
+    segments = extracted["segments"]
+    np.savez(
+        npz_path,
+        spectrograms=_concatenate_segments(segments, "spectrograms"),
+        labels_original=_concatenate_segments(segments, "labels_original"),
+        labels_downsampled=_concatenate_segments(segments, "labels_downsampled"),
+        encoded_embeddings_before_pos_removal=_concatenate_segments(
+            segments,
+            "encoded_embeddings_before_pos_removal",
+        ),
+        encoded_embeddings_after_pos_removal=_concatenate_segments(
+            segments,
+            "encoded_embeddings_after_pos_removal",
+        ),
+        patch_embeddings_before_pos_removal=_concatenate_segments(
+            segments,
+            "patch_embeddings_before_pos_removal",
+        ),
+        patch_embeddings_after_pos_removal=_concatenate_segments(
+            segments,
+            "patch_embeddings_after_pos_removal",
+        ),
+        pos_ids=_concatenate_segments(segments, "pos_ids"),
+        audio_sr=np.array(extracted["audio_params"][0]),
+        audio_n_mels=np.array(extracted["audio_params"][1]),
+        audio_hop_size=np.array(extracted["audio_params"][2]),
+        audio_fft=np.array(extracted["audio_params"][3]),
+        patch_height=np.array(extracted["patch_height"]),
+        patch_width=np.array(extracted["patch_width"]),
+        num_patches_time=np.array(extracted["num_patches_time"]),
+        num_patches_height=np.array(extracted["num_patches_height"]),
+        checkpoint=np.array(extracted["checkpoint"]),
+        model_num_timebins=np.array(extracted["model_num_timebins"]),
+        mels=np.array(extracted["mels"]),
+    )
+    print(f"NPZ saved to {npz_path}")
+    return extracted
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Simple UMAP embedding visualization")
-    parser.add_argument("--num_timebins", type=int, default=12400, help="Number of time bins")
-    parser.add_argument("--run_dir", type=str, required=True, help="Run directory path")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file (optional)")
-    parser.add_argument("--spec_dir", type=str, required=True, help="Directory of specs to plot the embedding of")
-    parser.add_argument("--npz_dir", type=str, required=True, help="Save arrays to this .npz path")
-    parser.add_argument("--json_path", type=str, default=None, help="to provide song snippets + syllable labels")
-    parser.add_argument("--bird", type=str, default=None, help="select specific bird number (e.g., 1 for bird1, 2 for bird2)")
+    parser = argparse.ArgumentParser(description="Extract TinyBird embeddings for exact recordings or full directories.")
+    parser.add_argument("--num_timebins", type=int, default=12400)
+    parser.add_argument("--run_dir", type=str, required=True)
+    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--spec_dir", type=str, required=True)
+    parser.add_argument("--npz_dir", type=str, default=None)
+    parser.add_argument("--json_path", type=str, default=None)
+    parser.add_argument("--bird", type=str, default=None)
+    parser.add_argument("--recording_stem", type=str, default=None)
+    parser.add_argument(
+        "--recording_mode",
+        type=str,
+        default="events",
+        choices=["events", "full_recordings"],
+    )
     parser.add_argument(
         "--encoder_layer_idx",
         type=int,
         default=None,
-        help="If set, extract embeddings from this encoder layer index (0-based; negative allowed). Default uses final encoder output.",
+        help="If set, extract embeddings from this encoder layer index.",
     )
-
     args = parser.parse_args()
     main(vars(args))
