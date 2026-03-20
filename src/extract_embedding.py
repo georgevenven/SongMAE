@@ -154,6 +154,44 @@ def load_recording_segments(args, patch_width):
     }
 
 
+def _load_normalization_target_stats(args):
+    stats_dir = args.get("normalization_stats_dir")
+    if stats_dir is None:
+        stats_dir = args["spec_dir"]
+    audio = load_audio_params(stats_dir)
+    return np.float32(audio["mean"]), np.float32(audio["std"])
+
+
+def normalize_recording_segments(segments, mode, target_stats=None):
+    if mode == "none":
+        return segments
+
+    assert mode in {"per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"}
+    specs = [segment["spectrogram"] for segment in segments if segment["spectrogram"].shape[1] > 0]
+    if not specs:
+        return segments
+    recording = np.concatenate(specs, axis=1).astype(np.float32, copy=False)
+    mean = recording.mean(axis=1, keepdims=True)
+    std = recording.std(axis=1, keepdims=True)
+    std = np.maximum(std, 1e-6)
+
+    normalized = []
+    for segment in segments:
+        spectrogram = ((segment["spectrogram"] - mean) / std).astype(np.float32, copy=False)
+        if mode == "per_recording_cmvn_rescaled_to_target_stats":
+            assert target_stats is not None
+            target_mean, target_std = target_stats
+            spectrogram = (spectrogram * target_std + target_mean).astype(np.float32, copy=False)
+        normalized.append(
+            {
+                "recording_stem": segment["recording_stem"],
+                "spectrogram": spectrogram,
+                "labels_original": segment["labels_original"],
+            }
+        )
+    return normalized
+
+
 def _extract_segment_arrays(
     spec_segment,
     labels_segment,
@@ -235,7 +273,7 @@ def _extract_segment_arrays(
     }
 
 
-def extract_recording_embeddings(args):
+def load_model_state(args):
     model, config = load_model_from_checkpoint(
         run_dir=args["run_dir"],
         checkpoint_file=args.get("checkpoint"),
@@ -249,9 +287,38 @@ def extract_recording_embeddings(args):
     model_num_timebins = int(config["num_timebins"])
     num_patches_time = int(model_num_timebins / patch_width)
     num_patches_height = int(config["max_seq"] / num_patches_time)
+    return {
+        "model": model,
+        "config": config,
+        "device": device,
+        "patch_height": patch_height,
+        "patch_width": patch_width,
+        "model_num_timebins": model_num_timebins,
+        "num_patches_time": num_patches_time,
+        "num_patches_height": num_patches_height,
+    }
+
+
+def extract_recording_embeddings_with_state(args, model_state):
+    model = model_state["model"]
+    config = model_state["config"]
+    device = model_state["device"]
+    patch_height = model_state["patch_height"]
+    patch_width = model_state["patch_width"]
+    model_num_timebins = model_state["model_num_timebins"]
+    num_patches_time = model_state["num_patches_time"]
+    num_patches_height = model_state["num_patches_height"]
 
     raw = load_recording_segments(args, patch_width=patch_width)
-    raw_segments = raw["segments"]
+    normalization_mode = args.get("spec_normalization", "none")
+    target_stats = None
+    if normalization_mode == "per_recording_cmvn_rescaled_to_target_stats":
+        target_stats = _load_normalization_target_stats(args)
+    raw_segments = normalize_recording_segments(
+        raw["segments"],
+        normalization_mode,
+        target_stats=target_stats,
+    )
     segment_states = []
 
     for raw_segment in raw_segments:
@@ -325,6 +392,11 @@ def extract_recording_embeddings(args):
         "mels": int(config["mels"]),
         "checkpoint": args.get("checkpoint") or "",
     }
+
+
+def extract_recording_embeddings(args):
+    model_state = load_model_state(args)
+    return extract_recording_embeddings_with_state(args, model_state)
 
 
 def _concatenate_segments(segments, key):

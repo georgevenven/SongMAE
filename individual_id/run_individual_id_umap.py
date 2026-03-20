@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import umap
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT / "src"))
 
 import extract_embedding  # noqa: E402
