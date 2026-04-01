@@ -166,7 +166,13 @@ def normalize_recording_segments(segments, mode, target_stats=None):
     if mode == "none":
         return segments
 
-    assert mode in {"per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"}
+    assert mode in {
+        "per_recording_cmvn",
+        "per_recording_cmvn_rescaled_to_target_stats",
+        "per_model_input_zscore",
+    }
+    if mode == "per_model_input_zscore":
+        return segments
     specs = [segment["spectrogram"] for segment in segments if segment["spectrogram"].shape[1] > 0]
     if not specs:
         return segments
@@ -202,6 +208,7 @@ def _extract_segment_arrays(
     num_patches_height,
     num_patches_time,
     encoder_layer_idx,
+    input_normalization_mode="none",
 ):
     spec_tensor = torch.from_numpy(spec_segment).unsqueeze(0).to(device)
     labels_tensor = torch.from_numpy(labels_segment).to(device)
@@ -217,6 +224,11 @@ def _extract_segment_arrays(
 
     _, mel, _ = spec_tensor.shape
     batched_spec = spec_tensor.reshape(1, mel, batch_size, model_num_timebins).permute(2, 0, 1, 3)
+    if input_normalization_mode == "per_model_input_zscore":
+        chunk_mean = batched_spec.mean(dim=(1, 2, 3), keepdim=True)
+        chunk_std = batched_spec.std(dim=(1, 2, 3), keepdim=True)
+        chunk_std = torch.clamp(chunk_std, min=1e-6)
+        batched_spec = (batched_spec - chunk_mean) / chunk_std
 
     with torch.no_grad():
         encoded, patch = model.forward_encoder_inference(
@@ -332,6 +344,7 @@ def extract_recording_embeddings_with_state(args, model_state):
             num_patches_height=num_patches_height,
             num_patches_time=num_patches_time,
             encoder_layer_idx=args.get("encoder_layer_idx"),
+            input_normalization_mode=normalization_mode,
         )
         if state is None:
             continue

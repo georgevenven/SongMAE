@@ -42,6 +42,11 @@ def _load_recording_stems_by_bird(annotation_json):
     return {bird_id: sorted(stems) for bird_id, stems in by_bird.items()}
 
 
+def _load_target_stats(stats_dir):
+    audio = extract_embedding.load_audio_params(stats_dir)
+    return np.float32(audio["mean"]), np.float32(audio["std"])
+
+
 def _pick_recordings(stems, songs_per_bird, seed, bird_id):
     if songs_per_bird <= 0:
         return list(stems)
@@ -232,23 +237,31 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
     plt.close(fig)
 
 
-def _load_songmae_segments(args, bird_id, recording_stem):
-    extracted = extract_embedding.extract_recording_embeddings(
-        {
-            "run_dir": str(args.run_dir),
-            "checkpoint": args.checkpoint,
-            "spec_dir": str(args.spec_dir),
-            "json_path": str(args.annotation_json),
-            "bird": bird_id,
-            "recording_stem": recording_stem,
-            "recording_mode": args.recording_mode,
-            "encoder_layer_idx": args.encoder_layer_idx,
-        }
-    )
+def _load_songmae_segments(args, bird_id, recording_stem, model_state):
+    try:
+        extracted = extract_embedding.extract_recording_embeddings_with_state(
+            {
+                "run_dir": str(args.run_dir),
+                "checkpoint": args.checkpoint,
+                "spec_dir": str(args.spec_dir),
+                "json_path": str(args.annotation_json),
+                "bird": bird_id,
+                "recording_stem": recording_stem,
+                "recording_mode": args.recording_mode,
+                "encoder_layer_idx": args.encoder_layer_idx,
+                "spec_normalization": args.songmae_input_normalization,
+                "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+            },
+            model_state,
+        )
+    except ValueError as exc:
+        if str(exc) == "No valid patches extracted for the requested recording set.":
+            return []
+        raise
 
     segments = []
     for segment in extracted["segments"]:
-        features = segment["encoded_embeddings_after_pos_removal"]
+        features = segment["encoded_embeddings_before_pos_removal"]
         labels = segment["labels_downsampled"]
         count = min(features.shape[0], labels.shape[0])
         if count == 0:
@@ -273,9 +286,18 @@ def _load_spec_segments(args, bird_id, recording_stem, patch_width):
         },
         patch_width=patch_width,
     )
+    target_stats = None
+    if args.spec_normalization == "per_recording_cmvn_rescaled_to_target_stats":
+        stats_dir = args.spec_normalization_stats_dir or args.spec_dir
+        target_stats = _load_target_stats(stats_dir)
+    normalized_segments = extract_embedding.normalize_recording_segments(
+        loaded["segments"],
+        args.spec_normalization,
+        target_stats=target_stats,
+    )
 
     segments = []
-    for segment in loaded["segments"]:
+    for segment in normalized_segments:
         spec = segment["spectrogram"]
         labels = segment["labels_original"]
         count = min(spec.shape[1], labels.shape[0])
@@ -369,6 +391,35 @@ def _load_patch_width(run_dir):
     return patch_width
 
 
+def _apply_normalization_preset(args):
+    if args.normalization_preset is None:
+        return
+
+    stats_dir = args.audio_params_stats_dir
+    if args.encoder == "SongMAE":
+        assert args.normalization_preset in {"vanilla", "zscore", "zscore_rescaled"}
+        if args.normalization_preset == "vanilla":
+            args.songmae_input_normalization = "none"
+            return
+        if args.normalization_preset == "zscore":
+            args.songmae_input_normalization = "per_model_input_zscore"
+            return
+        args.songmae_input_normalization = "per_recording_cmvn_rescaled_to_target_stats"
+        args.songmae_input_normalization_stats_dir = stats_dir
+        return
+
+    assert args.encoder == "Spec"
+    if args.normalization_preset == "vanilla":
+        args.spec_normalization = "none"
+        return
+    if args.normalization_preset == "zscore":
+        args.spec_normalization = "per_recording_cmvn"
+        return
+    assert args.normalization_preset == "zscore_rescaled"
+    args.spec_normalization = "per_recording_cmvn_rescaled_to_target_stats"
+    args.spec_normalization_stats_dir = stats_dir
+
+
 def main():
     parser = argparse.ArgumentParser(description="Individual-ID UMAPs with explicit encoder mode and record-wise pooling.")
     parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES"])
@@ -386,6 +437,20 @@ def main():
     parser.add_argument("--pool_hop", type=int, required=True)
     parser.add_argument("--pool_mode", default="mean", choices=["mean", "max", "sum"])
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
+    parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)
+    parser.add_argument("--audio_params_stats_dir", default=None)
+    parser.add_argument(
+        "--spec_normalization",
+        choices=["none", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
+        default="none",
+    )
+    parser.add_argument("--spec_normalization_stats_dir", default=None)
+    parser.add_argument(
+        "--songmae_input_normalization",
+        choices=["none", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
+        default="none",
+    )
+    parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
     parser.add_argument("--umap_neighbors", type=int, default=100)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
@@ -399,6 +464,12 @@ def main():
     args.spec_dir = str(spec_dir)
     args.out_dir = str(out_dir)
     args.run_dir = str(run_dir)
+    if args.audio_params_stats_dir is not None:
+        args.audio_params_stats_dir = str(Path(args.audio_params_stats_dir).resolve())
+    if args.spec_normalization_stats_dir is not None:
+        args.spec_normalization_stats_dir = str(Path(args.spec_normalization_stats_dir).resolve())
+    if args.songmae_input_normalization_stats_dir is not None:
+        args.songmae_input_normalization_stats_dir = str(Path(args.songmae_input_normalization_stats_dir).resolve())
 
     assert annotation_json.exists(), f"annotation_json not found: {annotation_json}"
     assert spec_dir.is_dir(), f"spec_dir not found: {spec_dir}"
@@ -411,8 +482,18 @@ def main():
     if args.encoder == "Spec":
         assert args.pool_mode == "mean", "Spec uses mean pooling only."
 
+    _apply_normalization_preset(args)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     patch_width = _load_patch_width(run_dir)
+    model_state = None
+    if args.encoder == "SongMAE":
+        model_state = extract_embedding.load_model_state(
+            {
+                "run_dir": str(args.run_dir),
+                "checkpoint": args.checkpoint,
+            }
+        )
 
     stems_by_bird = _load_recording_stems_by_bird(annotation_json)
     bird_ids = sorted(stems_by_bird)
@@ -437,7 +518,7 @@ def main():
         bird_segments = []
         for recording_stem in sampled_recordings[bird_id]:
             if args.encoder == "SongMAE":
-                loaded_segments = _load_songmae_segments(args, bird_id, recording_stem)
+                loaded_segments = _load_songmae_segments(args, bird_id, recording_stem, model_state)
             else:
                 loaded_segments = _load_spec_segments(args, bird_id, recording_stem, patch_width)
             bird_segments.extend(loaded_segments)
@@ -506,6 +587,12 @@ def main():
             "pool_window": int(args.pool_window),
             "pool_hop": int(args.pool_hop),
             "pool_mode": args.pool_mode,
+            "normalization_preset": args.normalization_preset,
+            "audio_params_stats_dir": args.audio_params_stats_dir,
+            "spec_normalization": args.spec_normalization,
+            "spec_normalization_stats_dir": args.spec_normalization_stats_dir,
+            "songmae_input_normalization": args.songmae_input_normalization,
+            "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
             "encoder_layer_idx": args.encoder_layer_idx,
             "umap_neighbors": int(args.umap_neighbors),
             "umap_min_dist": float(args.umap_min_dist),

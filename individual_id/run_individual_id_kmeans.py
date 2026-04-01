@@ -192,14 +192,42 @@ def _save_cluster_umap(xy, cluster_ids, n_clusters, title, out_base):
 
 def _build_barcodes(recording_indices, cluster_ids, n_recordings, n_clusters, min_hits):
     barcodes = np.zeros((n_recordings, n_clusters), dtype=bool)
+    unique_cluster_counts = np.zeros((n_recordings,), dtype=np.int64)
+    barcode_cluster_counts = np.zeros((n_recordings,), dtype=np.int64)
     for recording_index in range(n_recordings):
         ids = cluster_ids[recording_indices == recording_index]
         assert ids.size > 0
         counts = np.bincount(ids, minlength=n_clusters)
+        unique_cluster_counts[recording_index] = int((counts > 0).sum())
         barcodes[recording_index] = counts >= int(min_hits)
         if not barcodes[recording_index].any():
             barcodes[recording_index, int(np.argmax(counts))] = True
-    return barcodes
+        barcode_cluster_counts[recording_index] = int(barcodes[recording_index].sum())
+    return barcodes, unique_cluster_counts, barcode_cluster_counts
+
+
+def _summarize_values(values):
+    values = np.asarray(values, dtype=np.float64)
+    assert values.ndim == 1
+    if values.size == 0:
+        return {
+            "count": 0,
+            "min": None,
+            "p25": None,
+            "median": None,
+            "mean": None,
+            "p75": None,
+            "max": None,
+        }
+    return {
+        "count": int(values.size),
+        "min": float(values.min()),
+        "p25": float(np.percentile(values, 25)),
+        "median": float(np.median(values)),
+        "mean": float(values.mean()),
+        "p75": float(np.percentile(values, 75)),
+        "max": float(values.max()),
+    }
 
 
 def _jaccard_similarity(barcodes):
@@ -240,6 +268,57 @@ def _majority_vote_accuracy(true_labels, pred_groups):
     return float(np.mean(pred_labels == true_labels))
 
 
+def _pairwise_threshold_metrics(similarity, true_birds, threshold):
+    assert similarity.shape[0] == true_birds.shape[0]
+    if similarity.shape[0] < 2:
+        empty = _summarize_values(np.zeros((0,), dtype=np.float32))
+        return {
+            "same_bird_overlap": empty,
+            "different_bird_overlap": empty,
+            "threshold_metrics": {
+                "threshold": float(threshold),
+                "tp": 0,
+                "fp": 0,
+                "tn": 0,
+                "fn": 0,
+                "precision": None,
+                "recall": None,
+                "f1": None,
+            },
+        }
+
+    upper = np.triu_indices(similarity.shape[0], k=1)
+    pair_similarity = similarity[upper]
+    same_bird = true_birds[upper[0]] == true_birds[upper[1]]
+    pred_same = pair_similarity >= float(threshold)
+
+    tp = int(np.sum(pred_same & same_bird))
+    fp = int(np.sum(pred_same & ~same_bird))
+    tn = int(np.sum(~pred_same & ~same_bird))
+    fn = int(np.sum(~pred_same & same_bird))
+
+    precision = None if tp + fp == 0 else float(tp / (tp + fp))
+    recall = None if tp + fn == 0 else float(tp / (tp + fn))
+    f1 = None
+    if precision is not None and recall is not None and precision + recall > 0:
+        f1 = float(2 * precision * recall / (precision + recall))
+
+    return {
+        "same_bird_overlap": _summarize_values(pair_similarity[same_bird]),
+        "different_bird_overlap": _summarize_values(pair_similarity[~same_bird]),
+        "threshold_metrics": {
+            "threshold": float(threshold),
+            "tp": tp,
+            "fp": fp,
+            "tn": tn,
+            "fn": fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        },
+    }
+
+
 def _save_similarity_heatmap(similarity, recordings, title, out_base):
     fig_size = max(8.0, min(18.0, 0.22 * similarity.shape[0]))
     fig = plt.figure(figsize=(fig_size, fig_size), dpi=300)
@@ -264,7 +343,7 @@ def _save_similarity_heatmap(similarity, recordings, title, out_base):
 
 def _analyze_clustering(name, cluster_ids, recording_indices, recordings, n_clusters, args):
     true_birds = np.asarray([recording["bird_id"] for recording in recordings], dtype=object)
-    barcodes = _build_barcodes(
+    barcodes, unique_cluster_counts, barcode_cluster_counts = _build_barcodes(
         recording_indices=recording_indices,
         cluster_ids=cluster_ids,
         n_recordings=len(recordings),
@@ -278,17 +357,22 @@ def _analyze_clustering(name, cluster_ids, recording_indices, recordings, n_clus
         "barcodes": barcodes,
         "similarity": similarity,
         "group_ids": group_ids,
+        "unique_cluster_counts": unique_cluster_counts,
+        "barcode_cluster_counts": barcode_cluster_counts,
         "summary": {
             "requested_clusters": int(args.n_clusters),
             "used_clusters": int(n_clusters),
             "predicted_individuals": int(len(np.unique(group_ids))),
             "true_individuals": int(len(np.unique(true_birds))),
             "recording_majority_accuracy": _majority_vote_accuracy(true_birds, group_ids),
+            "recording_unique_cluster_count": _summarize_values(unique_cluster_counts),
+            "recording_barcode_cluster_count": _summarize_values(barcode_cluster_counts),
             "mean_off_diagonal_overlap": float(
                 similarity[~np.eye(similarity.shape[0], dtype=bool)].mean()
             )
             if similarity.shape[0] > 1
             else 1.0,
+            **_pairwise_threshold_metrics(similarity, true_birds, args.overlap_threshold),
         },
     }
 
@@ -332,7 +416,11 @@ def _write_summary(out_path, args, recordings, total_points, analyses):
                 "recording_stem": recording["recording_stem"],
                 "points": int(recording["features"].shape[0]),
                 "embedding_group": int(analyses[0]["group_ids"][index]),
+                "embedding_unique_clusters": int(analyses[0]["unique_cluster_counts"][index]),
+                "embedding_barcode_clusters": int(analyses[0]["barcode_cluster_counts"][index]),
                 "umap_group": int(analyses[1]["group_ids"][index]),
+                "umap_unique_clusters": int(analyses[1]["unique_cluster_counts"][index]),
+                "umap_barcode_clusters": int(analyses[1]["barcode_cluster_counts"][index]),
             }
             for index, recording in enumerate(recordings)
         ],
