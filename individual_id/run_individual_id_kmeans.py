@@ -8,6 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
+from numba import njit
 from sklearn.cluster import KMeans
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,8 @@ def _load_recording_features(args, bird_id, recording_stem, model_state):
                 "recording_stem": recording_stem,
                 "recording_mode": args.recording_mode,
                 "encoder_layer_idx": args.encoder_layer_idx,
+                "spec_normalization": args.songmae_input_normalization,
+                "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
             },
             model_state,
         )
@@ -238,6 +241,62 @@ def _jaccard_similarity(barcodes):
     return similarity.astype(np.float32, copy=False)
 
 
+def _build_cluster_sequences(recording_indices, cluster_ids, n_recordings):
+    lengths = np.zeros((n_recordings,), dtype=np.int64)
+    max_len = 0
+    for recording_index in range(n_recordings):
+        seq_len = int(np.sum(recording_indices == recording_index))
+        lengths[recording_index] = seq_len
+        max_len = max(max_len, seq_len)
+
+    sequences = np.full((n_recordings, max_len), -1, dtype=np.int64)
+    for recording_index in range(n_recordings):
+        seq = cluster_ids[recording_indices == recording_index]
+        sequences[recording_index, : seq.shape[0]] = seq
+    return sequences, lengths
+
+
+@njit(cache=True)
+def _levenshtein_distance(seq_a, len_a, seq_b, len_b):
+    prev = np.arange(len_b + 1, dtype=np.int64)
+    curr = np.empty(len_b + 1, dtype=np.int64)
+    for i in range(1, len_a + 1):
+        curr[0] = i
+        token_a = seq_a[i - 1]
+        for j in range(1, len_b + 1):
+            cost = 0 if token_a == seq_b[j - 1] else 1
+            deletion = prev[j] + 1
+            insertion = curr[j - 1] + 1
+            substitution = prev[j - 1] + cost
+            curr[j] = min(deletion, insertion, substitution)
+        prev, curr = curr, prev
+    return prev[len_b]
+
+
+@njit(cache=True)
+def _levenshtein_similarity_matrix(sequences, lengths):
+    n_recordings = lengths.shape[0]
+    similarity = np.ones((n_recordings, n_recordings), dtype=np.float32)
+    for i in range(n_recordings):
+        for j in range(i + 1, n_recordings):
+            len_i = int(lengths[i])
+            len_j = int(lengths[j])
+            norm = max(len_i, len_j)
+            if norm == 0:
+                sim = np.float32(1.0)
+            else:
+                dist = _levenshtein_distance(
+                    sequences[i],
+                    len_i,
+                    sequences[j],
+                    len_j,
+                )
+                sim = np.float32(1.0 - (dist / norm))
+            similarity[i, j] = sim
+            similarity[j, i] = sim
+    return similarity
+
+
 def _connected_components(similarity, threshold):
     adjacency = similarity >= float(threshold)
     group_ids = np.full(adjacency.shape[0], -1, dtype=np.int64)
@@ -350,21 +409,31 @@ def _analyze_clustering(name, cluster_ids, recording_indices, recordings, n_clus
         n_clusters=n_clusters,
         min_hits=args.min_cluster_hits,
     )
-    similarity = _jaccard_similarity(barcodes)
+    sequences, sequence_lengths = _build_cluster_sequences(
+        recording_indices=recording_indices,
+        cluster_ids=cluster_ids,
+        n_recordings=len(recordings),
+    )
+    # similarity = _jaccard_similarity(barcodes)
+    similarity = _levenshtein_similarity_matrix(sequences, sequence_lengths)
     group_ids = _connected_components(similarity, args.overlap_threshold)
     return {
         "name": name,
         "barcodes": barcodes,
+        "sequences": sequences,
+        "sequence_lengths": sequence_lengths,
         "similarity": similarity,
         "group_ids": group_ids,
         "unique_cluster_counts": unique_cluster_counts,
         "barcode_cluster_counts": barcode_cluster_counts,
         "summary": {
+            "similarity_mode": "normalized_levenshtein",
             "requested_clusters": int(args.n_clusters),
             "used_clusters": int(n_clusters),
             "predicted_individuals": int(len(np.unique(group_ids))),
             "true_individuals": int(len(np.unique(true_birds))),
             "recording_majority_accuracy": _majority_vote_accuracy(true_birds, group_ids),
+            "recording_sequence_length": _summarize_values(sequence_lengths),
             "recording_unique_cluster_count": _summarize_values(unique_cluster_counts),
             "recording_barcode_cluster_count": _summarize_values(barcode_cluster_counts),
             "mean_off_diagonal_overlap": float(
@@ -402,6 +471,10 @@ def _write_summary(out_path, args, recordings, total_points, analyses):
             "embedding_variant": args.embedding_variant,
             "drop_silence": bool(args.drop_silence),
             "encoder_layer_idx": args.encoder_layer_idx,
+            "normalization_preset": args.normalization_preset,
+            "audio_params_stats_dir": args.audio_params_stats_dir,
+            "songmae_input_normalization": args.songmae_input_normalization,
+            "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
             "n_clusters": int(args.n_clusters),
             "min_cluster_hits": int(args.min_cluster_hits),
             "overlap_threshold": float(args.overlap_threshold),
@@ -446,6 +519,14 @@ def main():
     parser.add_argument("--embedding_variant", default="before", choices=["before", "after"])
     parser.add_argument("--drop_silence", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
+    parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)
+    parser.add_argument("--audio_params_stats_dir", default=None)
+    parser.add_argument(
+        "--songmae_input_normalization",
+        choices=["none", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
+        default="none",
+    )
+    parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
     parser.add_argument("--n_clusters", type=int, default=100)
     parser.add_argument("--min_cluster_hits", type=int, default=1)
     parser.add_argument("--overlap_threshold", type=float, default=0.3)
@@ -458,6 +539,20 @@ def main():
     args.spec_dir = str(Path(args.spec_dir).resolve())
     args.out_dir = str(Path(args.out_dir).resolve())
     args.run_dir = str(_resolve_run_dir(args.run_dir))
+    if args.audio_params_stats_dir is not None:
+        args.audio_params_stats_dir = str(Path(args.audio_params_stats_dir).resolve())
+    if args.songmae_input_normalization_stats_dir is not None:
+        args.songmae_input_normalization_stats_dir = str(Path(args.songmae_input_normalization_stats_dir).resolve())
+
+    if args.normalization_preset is not None:
+        if args.normalization_preset == "vanilla":
+            args.songmae_input_normalization = "none"
+        elif args.normalization_preset == "zscore":
+            args.songmae_input_normalization = "per_model_input_zscore"
+        else:
+            assert args.normalization_preset == "zscore_rescaled"
+            args.songmae_input_normalization = "per_recording_cmvn_rescaled_to_target_stats"
+            args.songmae_input_normalization_stats_dir = args.audio_params_stats_dir
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
