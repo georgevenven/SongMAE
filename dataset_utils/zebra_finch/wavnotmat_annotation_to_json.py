@@ -28,7 +28,7 @@ into the TinyBird JSON format used by the Bengalese finch tooling:
 }
 
 Usage:
-    python wavnotmat_annotation_to_json.py --src_dir /path/to/notmats --dst_dir ./out
+    python dataset_utils/zebra_finch/wavnotmat_annotation_to_json.py --src_dir /path/to/notmats --dst_dir ./out
 """
 
 from __future__ import annotations

@@ -37,8 +37,14 @@ if [ "$workers" -lt 1 ]; then workers=1; fi
 
 cd "$HOME/TinyBird"
 
+SPLIT_SCRIPT="dataset_utils/split_train_test.py"
+if [ ! -f "$SPLIT_SCRIPT" ]; then
+  echo "Could not find $SPLIT_SCRIPT" >&2
+  exit 1
+fi
+
 # Train/test split (deterministic if --seed is set)
-python -u scripts/split_train_test.py \
+python -u "$SPLIT_SCRIPT" \
   --mode split \
   --spec_dir "$SPEC_DIR" \
   --train_dir "$TRAIN_DIR" \
