@@ -520,13 +520,13 @@ def main():
     parser.add_argument("--audio_params_stats_dir", default=None)
     parser.add_argument(
         "--spec_normalization",
-        choices=["none", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
+        choices=["none", "audio_params", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
         default="none",
     )
     parser.add_argument("--spec_normalization_stats_dir", default=None)
     parser.add_argument(
         "--songmae_input_normalization",
-        choices=["none", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
+        choices=["none", "audio_params", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
         default="none",
     )
     parser.add_argument("--songmae_input_normalization_stats_dir", default=None)

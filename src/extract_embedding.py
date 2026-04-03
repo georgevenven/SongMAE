@@ -167,12 +167,27 @@ def normalize_recording_segments(segments, mode, target_stats=None):
         return segments
 
     assert mode in {
+        "audio_params",
         "per_recording_cmvn",
         "per_recording_cmvn_rescaled_to_target_stats",
         "per_model_input_zscore",
     }
     if mode == "per_model_input_zscore":
         return segments
+    if mode == "audio_params":
+        assert target_stats is not None
+        target_mean, target_std = target_stats
+        normalized = []
+        for segment in segments:
+            spectrogram = ((segment["spectrogram"] - target_mean) / target_std).astype(np.float32, copy=False)
+            normalized.append(
+                {
+                    "recording_stem": segment["recording_stem"],
+                    "spectrogram": spectrogram,
+                    "labels_original": segment["labels_original"],
+                }
+            )
+        return normalized
     specs = [segment["spectrogram"] for segment in segments if segment["spectrogram"].shape[1] > 0]
     if not specs:
         return segments
@@ -324,7 +339,7 @@ def extract_recording_embeddings_with_state(args, model_state):
     raw = load_recording_segments(args, patch_width=patch_width)
     normalization_mode = args.get("spec_normalization", "none")
     target_stats = None
-    if normalization_mode == "per_recording_cmvn_rescaled_to_target_stats":
+    if normalization_mode in {"audio_params", "per_recording_cmvn_rescaled_to_target_stats"}:
         target_stats = _load_normalization_target_stats(args)
     raw_segments = normalize_recording_segments(
         raw["segments"],
