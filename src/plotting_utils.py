@@ -30,6 +30,7 @@ MASK_CMAP = "viridis"
 
 __all__ = [
     "save_reconstruction_plot",
+    "save_data2vec_latent_plot",
     "plot_loss_curves",
     "save_supervised_prediction_plot",
     "plot_theoretical_resolution_limit",
@@ -192,6 +193,120 @@ def save_reconstruction_plot(
     plt.close(fig)
 
     return recon_path
+
+
+def _fit_joint_rgb_pca(pred_tokens: np.ndarray, target_tokens: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Project predicted and teacher tokens into a shared 3-channel PCA space."""
+    combined = np.concatenate([pred_tokens, target_tokens], axis=0).astype(np.float32, copy=False)
+    combined_mean = combined.mean(axis=0, keepdims=True)
+    combined_centered = combined - combined_mean
+
+    _, _, vh = np.linalg.svd(combined_centered, full_matrices=False)
+    components = vh[:3].T
+    if components.shape[1] < 3:
+        pad = np.zeros((components.shape[0], 3 - components.shape[1]), dtype=components.dtype)
+        components = np.concatenate([components, pad], axis=1)
+
+    pred_rgb = (pred_tokens - combined_mean) @ components
+    target_rgb = (target_tokens - combined_mean) @ components
+
+    combined_rgb = np.concatenate([pred_rgb, target_rgb], axis=0)
+    rgb_low = np.percentile(combined_rgb, 1.0, axis=0, keepdims=True)
+    rgb_high = np.percentile(combined_rgb, 99.0, axis=0, keepdims=True)
+    rgb_scale = np.maximum(rgb_high - rgb_low, 1e-6)
+
+    pred_rgb = np.clip((pred_rgb - rgb_low) / rgb_scale, 0.0, 1.0)
+    target_rgb = np.clip((target_rgb - rgb_low) / rgb_scale, 0.0, 1.0)
+    return pred_rgb, target_rgb
+
+
+def _latent_tokens_to_rgb_image(
+    rgb_tokens: np.ndarray, *, patch_size: Sequence[int], spec_shape: Tuple[int, int]
+) -> np.ndarray:
+    """Turn patch-token RGB values into a spectrogram-sized RGB image."""
+    patch_h, patch_w = patch_size
+    spec_h, spec_w = spec_shape
+    grid_h = spec_h // patch_h
+    grid_w = spec_w // patch_w
+    assert rgb_tokens.shape[0] == grid_h * grid_w
+
+    rgb_grid = rgb_tokens.reshape(grid_h, grid_w, 3)
+    rgb_img = np.repeat(np.repeat(rgb_grid, patch_h, axis=0), patch_w, axis=1)
+    assert rgb_img.shape[:2] == spec_shape
+    return rgb_img
+
+
+def save_data2vec_latent_plot(
+    model: torch.nn.Module,
+    batch,
+    *,
+    config: dict,
+    device: torch.device,
+    use_amp: bool,
+    output_dir: str,
+    step_num: int,
+    max_samples: int = 1,
+) -> str:
+    """Save one spectrogram with matching predicted and teacher latent PCA maps."""
+    spectrograms, _ = batch
+    x = spectrograms.to(device, non_blocking=True)
+    sample_count = min(int(max_samples), x.size(0))
+    assert sample_count > 0
+
+    model.eval()
+    with torch.no_grad():
+        if use_amp:
+            with torch.cuda.amp.autocast():
+                pred, target, _ = model(x)
+        else:
+            pred, target, _ = model(x)
+
+    x_np = x[:sample_count, 0].detach().cpu().numpy()
+    pred_np = pred[:sample_count].detach().float().cpu().numpy()
+    target_np = target[:sample_count].detach().float().cpu().numpy()
+
+    pred_rgb_tokens, target_rgb_tokens = _fit_joint_rgb_pca(
+        pred_np.reshape(-1, pred_np.shape[-1]),
+        target_np.reshape(-1, target_np.shape[-1]),
+    )
+    pred_rgb_tokens = pred_rgb_tokens.reshape(sample_count, pred_np.shape[1], 3)
+    target_rgb_tokens = target_rgb_tokens.reshape(sample_count, target_np.shape[1], 3)
+
+    spec_shape = (config["mels"], config["num_timebins"])
+    patch_size = config["patch_size"]
+    pred_imgs = [
+        _latent_tokens_to_rgb_image(pred_rgb_tokens[idx], patch_size=patch_size, spec_shape=spec_shape)
+        for idx in range(sample_count)
+    ]
+    target_imgs = [
+        _latent_tokens_to_rgb_image(target_rgb_tokens[idx], patch_size=patch_size, spec_shape=spec_shape)
+        for idx in range(sample_count)
+    ]
+
+    input_img = x_np[0]
+    pred_img = pred_imgs[0]
+    target_img = target_imgs[0]
+
+    os.makedirs(output_dir, exist_ok=True)
+    fig = plt.figure(figsize=SPEC_FIGSIZE, dpi=SPEC_DPI)
+    gs = fig.add_gridspec(3, 1, hspace=0.7)
+
+    ax1 = fig.add_subplot(gs[0, 0])
+    _imshow_spec(ax1, input_img, spec_shape=spec_shape)
+    _style_spec_ax(ax1, "Input Spectrogram")
+
+    ax2 = fig.add_subplot(gs[1, 0])
+    _imshow_spec(ax2, pred_img, spec_shape=spec_shape)
+    _style_spec_ax(ax2, "Predicted Latent PCA")
+
+    ax3 = fig.add_subplot(gs[2, 0])
+    _imshow_spec(ax3, target_img, spec_shape=spec_shape)
+    _style_spec_ax(ax3, "Teacher Latent PCA")
+
+    save_path = os.path.join(output_dir, f"latent_pca_step_{step_num:06d}.png")
+    fig.savefig(save_path, dpi=SPEC_DPI, bbox_inches="tight")
+    plt.close(fig)
+    return save_path
 
 
 def plot_loss_curves(
