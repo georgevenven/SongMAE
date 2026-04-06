@@ -3,6 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 import os, json, time, gc, argparse, logging, random, psutil, signal, sys, shutil
 import multiprocessing as mp
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import numpy as np
@@ -132,9 +133,8 @@ def process_audio_file(obj, dst_dir, sr, n_fft, step, use_mel, n_mels, min_len_m
         # ─── optimized output with minimal conversions ───────────────
         np.save(out_path, S.astype(np.float32))
 
-        # free memory fast in workers
+        # Let refcounting reclaim temporaries; per-file full GC is too expensive.
         del wav, S
-        gc.collect()
         return None
         
     except Exception as e:
@@ -219,6 +219,7 @@ class WavToSpec:
         self.use_mel = mel
         self.n_mels = n_mels
         self.max_workers = max_workers
+        self.annotation_flush_every = 1000
 
         self._setup_logging()
         # Remove unpicklable Manager().Value - will create in run() if needed
@@ -298,123 +299,188 @@ class WavToSpec:
         processed_spectrograms = 0
         processed_samples = 0
         skipped_count = 0
+        completed_samples = 0
+        completed_since_flush = 0
         
         # Collect annotations for JSON output - group by filename
         annotations_by_file = {}  # filename -> {recording: ..., detected_events: [...]}
-        
-        for idx, sample in enumerate(ds):
-            # Print progress every 250 samples
-            if (idx + 1) % 250 == 0:
-                elapsed = time.time() - start_time
-                print(f"Processed {idx + 1} samples → {processed_spectrograms} spectrograms ({skipped_count} skipped) in {elapsed:.1f}s")
-            
-            # Safety limit for testing
-            if self.take_n_random and processed_spectrograms >= self.take_n_random:
-                print(f"Reached take_n_random limit: {processed_spectrograms} spectrograms created")
-                break
-                
-            # Get audio info directly from HF
+        num_workers = 1 if self.single else max(1, self.max_workers or mp.cpu_count())
+        max_in_flight = max(1, num_workers * 4)
+        if num_workers > 1:
+            print(f"BirdSet workers: {num_workers} threads, max in flight: {max_in_flight}")
+
+        def annotation_payload(sample, filepath):
+            if self.birdset_detections == "none":
+                return None
+
+            payload = {
+                "filepath": filepath,
+                "recording": {
+                    "filename": filepath,
+                    "ebird_code": sample.get("ebird_code", None),
+                    "ebird_code_multilabel": sample.get("ebird_code_multilabel", []),
+                    "lat": sample.get("lat", None),
+                    "long": sample.get("long", None),
+                    "source": sample.get("source", "xenocanto"),
+                    "quality": sample.get("quality", None),
+                    "recordist": sample.get("recordist", None),
+                    "license": sample.get("license", None),
+                },
+                "detected_events": [],
+            }
+
+            if self.birdset_detections == "human":
+                start_time_s = sample.get("start_time", None)
+                end_time_s = sample.get("end_time", None)
+                if start_time_s is not None and end_time_s is not None:
+                    payload["detected_events"].append({
+                        "onset_ms": float(start_time_s) * 1000.0,
+                        "offset_ms": float(end_time_s) * 1000.0,
+                    })
+            elif self.birdset_detections == "bambird":
+                detected_events = sample.get("detected_events", [])
+                if detected_events:
+                    for event in merge_overlapping_intervals(detected_events):
+                        payload["detected_events"].append({
+                            "onset_ms": float(event[0]) * 1000.0,
+                            "offset_ms": float(event[1]) * 1000.0,
+                        })
+
+            return payload
+
+        def record_annotation(payload):
+            if payload is None:
+                return
+            filepath = payload["filepath"]
+            if filepath not in annotations_by_file:
+                annotations_by_file[filepath] = {
+                    "recording": payload["recording"],
+                    "detected_events": [],
+                }
+            annotations_by_file[filepath]["detected_events"].extend(payload["detected_events"])
+
+        def flush_annotations(force=False):
+            nonlocal completed_since_flush
+            if self.birdset_detections == "none":
+                return
+            if not force and completed_since_flush < self.annotation_flush_every:
+                return
+
+            annotations = {
+                "metadata": {"units": "ms"},
+                "recordings": list(annotations_by_file.values()),
+            }
+            annotations_path = self.dst_dir / f"{self.birdset}_{self.birdset_split}_annotations.json"
+            tmp_path = annotations_path.with_name(annotations_path.name + ".tmp")
+            with open(tmp_path, "w") as f:
+                json.dump(annotations, f, indent=2)
+            tmp_path.replace(annotations_path)
+            completed_since_flush = 0
+
+        def log_progress():
+            elapsed = time.time() - start_time
+            print(
+                f"Processed {completed_samples} samples → "
+                f"{processed_spectrograms} spectrograms ({skipped_count} skipped) in {elapsed:.1f}s"
+            )
+
+        def build_audio_event(sample, idx):
+            nonlocal skipped_count, processed_samples
             audio_info = sample.get("audio", {})
             if not audio_info:
                 skipped_count += 1
-                continue
-                
+                return None, None
+
             waveform = audio_info.get("array")
             actual_sr = audio_info.get("sampling_rate", self.sr)
             audio_path = audio_info.get("path")
-            
             if waveform is None:
                 skipped_count += 1
-                continue
-            
-            processed_samples += 1
+                return None, None
 
-            # Event information is available in sample.get("detected_events", [])
-            # Each event is a tuple of (start_time, end_time) in seconds
-            # detected_events = sample.get("detected_events", [])
-            # for event_idx, event in enumerate(detected_events):
-            #     start, end = event  # start and end times in seconds
-            
-            # Extract recording ID from filepath for naming
+            processed_samples += 1
             filepath = sample.get("filepath", "")
-            
-            # Create base name from recording ID
             if filepath:
-                name = Path(filepath).stem  # e.g., "XC1229031"
+                name = Path(filepath).stem
             elif audio_path:
                 name = Path(audio_path).stem
             else:
                 name = f"sample_{idx:06d}"
 
-            # Handle missing or None audio_path
-            if audio_path is None:
-                audio_path = f"{name}.wav"
-                fp = Path(audio_path)
-            else:
-                fp = Path(audio_path)
-
-            # Process full sample (no event snipping)
+            fp = Path(audio_path) if audio_path is not None else Path(f"{name}.wav")
             duration = len(waveform) / actual_sr
-            
+
             audio_event = AudioEvent(path=fp, start=0.0, end=duration, name=name)
             audio_event.waveform = waveform
             audio_event.sample_rate = actual_sr
-            
-            # Process this sample immediately
-            result = self._safe_process(audio_event)
-            if result is None:
-                processed_spectrograms += 1
-                
-                # Collect annotation data based on detection mode
-                if self.birdset_detections != "none":
-                    # Create or update entry for this file
-                    if filepath not in annotations_by_file:
-                        annotations_by_file[filepath] = {
-                            "recording": {
-                                "filename": filepath,
-                                "ebird_code": sample.get("ebird_code", None),
-                                "ebird_code_multilabel": sample.get("ebird_code_multilabel", []),
-                                "lat": sample.get("lat", None),
-                                "long": sample.get("long", None),
-                                "source": sample.get("source", "xenocanto"),
-                                "quality": sample.get("quality", None),
-                                "recordist": sample.get("recordist", None),
-                                "license": sample.get("license", None)
-                            },
-                            "detected_events": []
-                        }
-                    
-                    # Add detected events based on mode
-                    if self.birdset_detections == "human":
-                        start_time_s = sample.get("start_time", None)
-                        end_time_s = sample.get("end_time", None)
-                        if start_time_s is not None and end_time_s is not None:
-                            annotations_by_file[filepath]["detected_events"].append({
-                                "onset_ms": float(start_time_s) * 1000.0,
-                                "offset_ms": float(end_time_s) * 1000.0
-                            })
-                    
-                    elif self.birdset_detections == "bambird":
-                        detected_events = sample.get("detected_events", [])
-                        if detected_events:
-                            # Merge overlapping intervals
-                            merged_events = merge_overlapping_intervals(detected_events)
-                            for event in merged_events:
-                                annotations_by_file[filepath]["detected_events"].append({
-                                    "onset_ms": float(event[0]) * 1000.0,
-                                    "offset_ms": float(event[1]) * 1000.0
-                                })
-                    
-                    # Save annotations after each sample
-                    annotations = {
-                        "metadata": {"units": "ms"},
-                        "recordings": list(annotations_by_file.values())
-                    }
-                    annotations_path = self.dst_dir / f"{self.birdset}_{self.birdset_split}_annotations.json"
-                    with open(annotations_path, 'w') as f:
-                        json.dump(annotations, f, indent=2)
-            else:
-                skipped_count += 1
+            return audio_event, annotation_payload(sample, filepath)
+
+        def consume_completed(done, pending):
+            nonlocal processed_spectrograms, skipped_count, completed_samples, completed_since_flush
+            for future in done:
+                payload = pending.pop(future)
+                result = future.result()
+                completed_samples += 1
+                if result is None:
+                    processed_spectrograms += 1
+                    record_annotation(payload)
+                    completed_since_flush += 1
+                else:
+                    skipped_count += 1
+                    logging.error(result)
+
+                if completed_samples % 250 == 0:
+                    log_progress()
+
+            flush_annotations()
+
+        if num_workers == 1:
+            for idx, sample in enumerate(ds, start=1):
+                if self.take_n_random and idx > self.take_n_random:
+                    print(f"Reached take_n_random limit: examined {idx - 1} samples")
+                    break
+
+                audio_event, payload = build_audio_event(sample, idx)
+                if audio_event is None:
+                    continue
+
+                result = self._safe_process(audio_event)
+                completed_samples += 1
+                if result is None:
+                    processed_spectrograms += 1
+                    record_annotation(payload)
+                    completed_since_flush += 1
+                else:
+                    skipped_count += 1
+                    logging.error(result)
+
+                if completed_samples % 250 == 0:
+                    log_progress()
+                flush_annotations()
+        else:
+            pending = {}
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                for idx, sample in enumerate(ds, start=1):
+                    if self.take_n_random and idx > self.take_n_random:
+                        print(f"Reached take_n_random limit: examined {idx - 1} samples")
+                        break
+
+                    audio_event, payload = build_audio_event(sample, idx)
+                    if audio_event is None:
+                        continue
+
+                    future = executor.submit(self._safe_process, audio_event)
+                    pending[future] = payload
+
+                    if len(pending) >= max_in_flight:
+                        done, _ = wait(set(pending), return_when=FIRST_COMPLETED)
+                        consume_completed(done, pending)
+
+                while pending:
+                    done, _ = wait(set(pending), return_when=FIRST_COMPLETED)
+                    consume_completed(done, pending)
+
+        flush_annotations(force=True)
         
         # Final statistics
         elapsed = time.time() - start_time
@@ -612,9 +678,8 @@ class WavToSpec:
             # ─── optimized output with minimal conversions ───────────────
             np.save(out_path, S.astype(np.float32))
 
-            # free memory fast
+            # Let refcounting reclaim temporaries; per-file full GC is too expensive.
             del wav, S
-            gc.collect()
             return None
             
         except Exception as e:

@@ -1,0 +1,25 @@
+ Configuration:
+   SPEC_ROOT: /scratch/gardnerlab/georgev/SongMAE_Bench_Data
+   RESULTS_DIR: /scratch/gardnerlab/georgev/benchmark_results
+   PRETRAINED_RUN: xcm_frags
+   TASK_MODE: classify
+   PROBE_MODE: finetune
+Mode: Fine-tuning (Unfrozen Encoder + MLP)
+Results will be saved to /scratch/gardnerlab/georgev/benchmark_results
+Processing BengaleseFinch...
+  Annotation: files/bf_annotations.json
+  Spectrograms: /scratch/gardnerlab/georgev/SongMAE_Bench_Data/bengalese_finch
+Error: Annotation file not found at files/bf_annotations.json
+Processing Canary...
+  Annotation: files/canary_annotations.json
+  Spectrograms: /scratch/gardnerlab/georgev/SongMAE_Bench_Data/canary
+Error: Annotation file not found at files/canary_annotations.json
+Processing ZebraFinch...
+  Annotation: files/zf_annotations.json
+  Spectrograms: /scratch/gardnerlab/georgev/SongMAE_Bench_Data/zebra_finch
+Error: Annotation file not found at files/zf_annotations.json
+Generating Plots...
+No data found in results CSV.
+Cleaning up temporary files...
+Benchmark Completed! See /scratch/gardnerlab/georgev/benchmark_results
+Benchmark job completed. Results in: /scratch/gardnerlab/georgev/benchmark_results

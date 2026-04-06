@@ -1,0 +1,29 @@
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home/georgev/.netrc.
+wandb: W&B API key is configured. Use `wandb login --relogin` to force relogin
+wandb: setting up run lyfonwsb
+wandb: Tracking run with wandb version 0.24.0
+wandb: Run data is saved locally in /gpfs/home/georgev/TinyBird/wandb/run-20260120_154623-lyfonwsb
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run xcm_voronoi_mask_no_normalize_128h_1w
+wandb: ⭐️ View project at https://wandb.ai/georgevenven-university-of-oregon/tinybird
+wandb: 🚀 View run at https://wandb.ai/georgevenven-university-of-oregon/tinybird/runs/lyfonwsb
+/home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages/torch/nn/modules/transformer.py:379: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+/gpfs/home/georgev/TinyBird/src/pretrain.py:142: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+/gpfs/home/georgev/TinyBird/src/pretrain.py:204: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast():
+/gpfs/home/georgev/TinyBird/src/plotting_utils.py:130: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast():
+OSError: [Errno 122] Disk quota exceeded
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/gpfs/home/georgev/TinyBird/src/pretrain.py", line 499, in <module>
+    trainer.train()
+    ~~~~~~~~~~~~~^^
+  File "/gpfs/home/georgev/TinyBird/src/pretrain.py", line 383, in train
+    with open(self.loss_log_path, 'a') as f:
+         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 122] Disk quota exceeded

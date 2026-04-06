@@ -1,0 +1,8 @@
+Retrieving notices: ...working... done
+Channels:
+ - defaults
+ - conda-forge
+ - nvidia
+Platform: linux-64
+Collecting package metadata (repodata.json): ...working... done
+Solving environment: ...working... failed

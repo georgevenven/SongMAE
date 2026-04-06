@@ -1,0 +1,40 @@
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home/georgev/.netrc.
+wandb: W&B API key is configured. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.24.0
+wandb: Run data is saved locally in /gpfs/home/georgev/TinyBird/wandb/run-20260117_150936-kvupi9ou
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run xcm_voronoi_mask_no_normalize_32h_1w
+wandb: ⭐️ View project at https://wandb.ai/georgevenven-university-of-oregon/tinybird
+wandb: 🚀 View run at https://wandb.ai/georgevenven-university-of-oregon/tinybird/runs/kvupi9ou
+/home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages/torch/nn/modules/transformer.py:379: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+/gpfs/home/georgev/TinyBird/src/pretrain.py:142: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+/gpfs/home/georgev/TinyBird/src/pretrain.py:204: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast():
+/gpfs/home/georgev/TinyBird/src/plotting_utils.py:130: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast():
+wandb: updating run metadata; uploading output.log; uploading wandb-summary.json
+wandb: 
+wandb: Run history:
+wandb:             gnorm ▆▃▃▆▅▂▂▃▃▂▆▆▂▄▅▅▃▃▃▃▃▂▆▃▂▅▅▄█▁▃▃▄▆▄▃▆▃▃▃
+wandb:                lr █████▇▇▇▇▇▇▇▇▇▆▆▅▅▅▅▅▄▄▄▄▃▃▃▃▂▂▂▂▁▁▁▁▁▁▁
+wandb:   samples_per_sec ██▇█▇▇███▇█▇█▇█▇▇█▇██▇▇█▇▇▄▁▇█▇▇▇█▇▇▇▆▇▇
+wandb: samples_processed ▁▁▁▁▁▂▂▂▂▂▂▃▃▃▃▄▄▄▄▄▅▅▅▅▆▆▆▆▇▇▇▇▇▇▇█████
+wandb:     steps_per_sec █▆██▆▇▆▆▆▅█▆▇▆█▆███▆█▅█▆▅▃█▅▅▅▁▇▅▅▄▇▇▇▇▅
+wandb:        train_loss ▇█▆▄▄▃▂▂▂▂▂▂▂▂▂▂▁▂▂▂▂▂▁▁▂▁▂▁▁▁▂▁▁▁▁▂▁▁▁▁
+wandb:          val_loss █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: 
+wandb: Run summary:
+wandb:             gnorm 0.07295
+wandb:                lr 1e-05
+wandb:   samples_per_sec 275.34047
+wandb: samples_processed 127872256
+wandb:     steps_per_sec 1.07555
+wandb:        train_loss 0.0301
+wandb:          val_loss 0.03157
+wandb: 
+wandb: 🚀 View run xcm_voronoi_mask_no_normalize_32h_1w at: https://wandb.ai/georgevenven-university-of-oregon/tinybird/runs/kvupi9ou
+wandb: ⭐️ View project at: https://wandb.ai/georgevenven-university-of-oregon/tinybird
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260117_150936-kvupi9ou/logs

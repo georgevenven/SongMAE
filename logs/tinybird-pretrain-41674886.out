@@ -1,0 +1,906 @@
+Requirement already satisfied: datasets<4,>=3 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 1)) (3.6.0)
+Requirement already satisfied: hdbscan in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 2)) (0.8.39)
+Requirement already satisfied: huggingface-hub in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 3)) (0.35.1)
+Requirement already satisfied: librosa in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 4)) (0.11.0)
+Requirement already satisfied: matplotlib in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 5)) (3.10.6)
+Requirement already satisfied: numpy in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 6)) (2.3.3)
+Requirement already satisfied: psutil in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 7)) (7.1.0)
+Requirement already satisfied: scikit-learn in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 8)) (1.7.2)
+Requirement already satisfied: scipy in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 9)) (1.16.2)
+Requirement already satisfied: tqdm in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 10)) (4.67.1)
+Requirement already satisfied: umap-learn in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 11)) (0.5.11)
+Requirement already satisfied: wandb in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from -r /home/georgev/TinyBird/requirements.txt (line 12)) (0.24.0)
+Requirement already satisfied: filelock in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (3.13.1)
+Requirement already satisfied: pyarrow>=15.0.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (21.0.0)
+Requirement already satisfied: dill<0.3.9,>=0.3.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (0.3.8)
+Requirement already satisfied: pandas in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2.3.3)
+Requirement already satisfied: requests>=2.32.2 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2.32.5)
+Requirement already satisfied: xxhash in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (3.6.0)
+Requirement already satisfied: multiprocess<0.70.17 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (0.70.16)
+Requirement already satisfied: fsspec<=2025.3.0,>=2023.1.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2024.6.1)
+Requirement already satisfied: packaging in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (25.0)
+Requirement already satisfied: pyyaml>=5.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (6.0.3)
+Requirement already satisfied: aiohttp!=4.0.0a0,!=4.0.0a1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (3.13.0)
+Requirement already satisfied: joblib>=1.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from hdbscan->-r /home/georgev/TinyBird/requirements.txt (line 2)) (1.5.2)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.3 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from huggingface-hub->-r /home/georgev/TinyBird/requirements.txt (line 3)) (1.1.10)
+Requirement already satisfied: typing-extensions>=3.7.4.3 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from huggingface-hub->-r /home/georgev/TinyBird/requirements.txt (line 3)) (4.15.0)
+Requirement already satisfied: audioread>=2.1.9 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (3.0.1)
+Requirement already satisfied: numba>=0.51.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (0.62.1)
+Requirement already satisfied: decorator>=4.3.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (5.2.1)
+Requirement already satisfied: soundfile>=0.12.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (0.13.1)
+Requirement already satisfied: pooch>=1.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (1.8.2)
+Requirement already satisfied: soxr>=0.3.2 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (1.0.0)
+Requirement already satisfied: lazy_loader>=0.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (0.4)
+Requirement already satisfied: msgpack>=1.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (1.1.1)
+Requirement already satisfied: standard-aifc in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (3.13.0)
+Requirement already satisfied: standard-sunau in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (3.13.0)
+Requirement already satisfied: contourpy>=1.0.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (1.3.3)
+Requirement already satisfied: cycler>=0.10 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (0.12.1)
+Requirement already satisfied: fonttools>=4.22.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (4.60.1)
+Requirement already satisfied: kiwisolver>=1.3.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (1.4.9)
+Requirement already satisfied: pillow>=8 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (11.3.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (3.2.5)
+Requirement already satisfied: python-dateutil>=2.7 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (2.9.0.post0)
+Requirement already satisfied: threadpoolctl>=3.1.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from scikit-learn->-r /home/georgev/TinyBird/requirements.txt (line 8)) (3.6.0)
+Requirement already satisfied: pynndescent>=0.5 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from umap-learn->-r /home/georgev/TinyBird/requirements.txt (line 11)) (0.6.0)
+Requirement already satisfied: click>=8.0.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (8.3.1)
+Requirement already satisfied: gitpython!=3.1.29,>=1.0.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (3.1.46)
+Requirement already satisfied: platformdirs in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (4.4.0)
+Requirement already satisfied: protobuf!=4.21.0,!=5.28.0,<7,>=3.19.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (6.33.4)
+Requirement already satisfied: pydantic<3 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (2.12.5)
+Requirement already satisfied: sentry-sdk>=2.0.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (2.49.0)
+Requirement already satisfied: annotated-types>=0.6.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from pydantic<3->wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (0.7.0)
+Requirement already satisfied: pydantic-core==2.41.5 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from pydantic<3->wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (2.41.5)
+Requirement already satisfied: typing-inspection>=0.4.2 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from pydantic<3->wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (0.4.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from requests>=2.32.2->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (3.4.3)
+Requirement already satisfied: idna<4,>=2.5 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from requests>=2.32.2->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (3.10)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from requests>=2.32.2->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2.5.0)
+Requirement already satisfied: certifi>=2017.4.17 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from requests>=2.32.2->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2025.10.5)
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2.6.1)
+Requirement already satisfied: aiosignal>=1.4.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (1.4.0)
+Requirement already satisfied: attrs>=17.3.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (25.4.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (1.7.0)
+Requirement already satisfied: multidict<7.0,>=4.5 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (6.6.3)
+Requirement already satisfied: propcache>=0.2.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (0.3.1)
+Requirement already satisfied: yarl<2.0,>=1.17.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (1.20.1)
+Requirement already satisfied: gitdb<5,>=4.0.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from gitpython!=3.1.29,>=1.0.0->wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (4.0.12)
+Requirement already satisfied: smmap<6,>=3.0.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from gitdb<5,>=4.0.1->gitpython!=3.1.29,>=1.0.0->wandb->-r /home/georgev/TinyBird/requirements.txt (line 12)) (5.0.2)
+Requirement already satisfied: llvmlite<0.46,>=0.45.0dev0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from numba>=0.51.0->librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (0.45.0)
+Requirement already satisfied: six>=1.5 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from python-dateutil>=2.7->matplotlib->-r /home/georgev/TinyBird/requirements.txt (line 5)) (1.17.0)
+Requirement already satisfied: cffi>=1.0 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from soundfile>=0.12.1->librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (2.0.0)
+Requirement already satisfied: pycparser in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from cffi>=1.0->soundfile>=0.12.1->librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (2.22)
+Requirement already satisfied: pytz>=2020.1 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from pandas->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2025.2)
+Requirement already satisfied: tzdata>=2022.7 in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from pandas->datasets<4,>=3->-r /home/georgev/TinyBird/requirements.txt (line 1)) (2025.2)
+Requirement already satisfied: standard-chunk in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from standard-aifc->librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (3.13.0)
+Requirement already satisfied: audioop-lts in /home/georgev/.conda/envs/tinybird/lib/python3.13/site-packages (from standard-aifc->librosa->-r /home/georgev/TinyBird/requirements.txt (line 4)) (0.2.2)
+Loading latest checkpoint: /gpfs/home/georgev/TinyBird/runs/xcm_voronoi_mask_no_normalize_128h_1w/weights/model_step_410500.pth
+Model loaded from step 410500
+Continuing training from: /gpfs/home/georgev/TinyBird/runs/xcm_voronoi_mask_no_normalize_128h_1w
+Using device: cuda
+Using loaded model from checkpoint
+============================================================
+MODEL PARAMETER COUNT
+============================================================
+Encoder parameters:    11,089,536
+Decoder parameters:    988,544
+Total parameters:      12,078,080
+============================================================
+Error loading training state: could not convert string to float: ''
+Starting from step 0
+Training from step 411161 to 911161
+Step 411500 (0.1%): Train Loss = 0.042121, Val Loss = 0.039308, Gnorm = 0.413089, Samples = 105344256, LR = 1.02e-04, Steps/sec = 0.89, Samples/sec = 228.7
+Step 412000 (0.2%): Train Loss = 0.038231, Val Loss = 0.051445, Gnorm = 0.373413, Samples = 105472256, LR = 2.52e-04, Steps/sec = 1.05, Samples/sec = 268.6
+Step 412500 (0.3%): Train Loss = 0.042675, Val Loss = 0.045058, Gnorm = 0.356986, Samples = 105600256, LR = 3.00e-04, Steps/sec = 1.03, Samples/sec = 262.9
+Step 413000 (0.4%): Train Loss = 0.039464, Val Loss = 0.047246, Gnorm = 0.252972, Samples = 105728256, LR = 3.00e-04, Steps/sec = 1.10, Samples/sec = 280.5
+Step 413500 (0.5%): Train Loss = 0.040994, Val Loss = 0.048770, Gnorm = 0.377330, Samples = 105856256, LR = 3.00e-04, Steps/sec = 0.96, Samples/sec = 246.4
+Step 414000 (0.6%): Train Loss = 0.040751, Val Loss = 0.043199, Gnorm = 0.364087, Samples = 105984256, LR = 3.00e-04, Steps/sec = 1.05, Samples/sec = 268.2
+Step 414500 (0.7%): Train Loss = 0.045488, Val Loss = 0.051465, Gnorm = 0.481343, Samples = 106112256, LR = 3.00e-04, Steps/sec = 1.08, Samples/sec = 276.4
+Step 415000 (0.8%): Train Loss = 0.043938, Val Loss = 0.044859, Gnorm = 0.455611, Samples = 106240256, LR = 3.00e-04, Steps/sec = 0.98, Samples/sec = 251.9
+Step 415500 (0.9%): Train Loss = 0.038305, Val Loss = 0.046699, Gnorm = 0.239689, Samples = 106368256, LR = 3.00e-04, Steps/sec = 1.10, Samples/sec = 282.3
+Step 416000 (1.0%): Train Loss = 0.037203, Val Loss = 0.037725, Gnorm = 0.270173, Samples = 106496256, LR = 3.00e-04, Steps/sec = 0.99, Samples/sec = 254.3
+Step 416500 (1.1%): Train Loss = 0.061989, Val Loss = 0.062566, Gnorm = 0.311473, Samples = 106624256, LR = 3.00e-04, Steps/sec = 1.08, Samples/sec = 276.1
+Step 417000 (1.2%): Train Loss = 0.057245, Val Loss = 0.045953, Gnorm = 0.203477, Samples = 106752256, LR = 3.00e-04, Steps/sec = 0.99, Samples/sec = 252.7
+Step 417500 (1.3%): Train Loss = 0.049827, Val Loss = 0.047594, Gnorm = 0.154421, Samples = 106880256, LR = 3.00e-04, Steps/sec = 1.08, Samples/sec = 275.8
+Step 418000 (1.4%): Train Loss = 0.046109, Val Loss = 0.046398, Gnorm = 0.244379, Samples = 107008256, LR = 3.00e-04, Steps/sec = 0.98, Samples/sec = 251.9
+Step 418500 (1.5%): Train Loss = 0.041927, Val Loss = 0.040086, Gnorm = 0.153046, Samples = 107136256, LR = 3.00e-04, Steps/sec = 1.10, Samples/sec = 282.2
+Step 419000 (1.6%): Train Loss = 0.046568, Val Loss = 0.040083, Gnorm = 0.118476, Samples = 107264256, LR = 3.00e-04, Steps/sec = 0.35, Samples/sec = 88.4
+Step 419500 (1.7%): Train Loss = 0.039384, Val Loss = 0.039824, Gnorm = 0.146131, Samples = 107392256, LR = 3.00e-04, Steps/sec = 1.10, Samples/sec = 281.9
+Step 420000 (1.8%): Train Loss = 0.037550, Val Loss = 0.037965, Gnorm = 0.267099, Samples = 107520256, LR = 3.00e-04, Steps/sec = 0.99, Samples/sec = 252.9
+Step 420500 (1.9%): Train Loss = 0.043374, Val Loss = 0.039351, Gnorm = 0.236035, Samples = 107648256, LR = 3.00e-04, Steps/sec = 1.05, Samples/sec = 268.2
+Step 421000 (2.0%): Train Loss = 0.044359, Val Loss = 0.040199, Gnorm = 0.300470, Samples = 107776256, LR = 3.00e-04, Steps/sec = 0.99, Samples/sec = 252.6
+Step 421500 (2.1%): Train Loss = 0.040884, Val Loss = 0.037807, Gnorm = 0.175859, Samples = 107904256, LR = 3.00e-04, Steps/sec = 0.84, Samples/sec = 216.2
+Step 422000 (2.2%): Train Loss = 0.047198, Val Loss = 0.039031, Gnorm = 0.231824, Samples = 108032256, LR = 3.00e-04, Steps/sec = 0.97, Samples/sec = 249.3
+Step 422500 (2.3%): Train Loss = 0.034782, Val Loss = 0.033380, Gnorm = 0.107522, Samples = 108160256, LR = 3.00e-04, Steps/sec = 1.09, Samples/sec = 279.0
+Step 423000 (2.4%): Train Loss = 0.039570, Val Loss = 0.042281, Gnorm = 0.333001, Samples = 108288256, LR = 3.00e-04, Steps/sec = 0.98, Samples/sec = 249.8
+Step 423500 (2.5%): Train Loss = 0.041383, Val Loss = 0.044087, Gnorm = 0.170305, Samples = 108416256, LR = 3.00e-04, Steps/sec = 1.06, Samples/sec = 270.5
+Step 424000 (2.6%): Train Loss = 0.048234, Val Loss = 0.063633, Gnorm = 0.313494, Samples = 108544256, LR = 3.00e-04, Steps/sec = 0.95, Samples/sec = 243.7
+Step 424500 (2.7%): Train Loss = 0.048916, Val Loss = 0.051728, Gnorm = 0.174302, Samples = 108672256, LR = 3.00e-04, Steps/sec = 1.06, Samples/sec = 271.0
+Step 425000 (2.8%): Train Loss = 0.054523, Val Loss = 0.048674, Gnorm = 0.362643, Samples = 108800256, LR = 3.00e-04, Steps/sec = 0.97, Samples/sec = 248.5
+Step 425500 (2.9%): Train Loss = 0.047480, Val Loss = 0.047845, Gnorm = 0.144060, Samples = 108928256, LR = 2.99e-04, Steps/sec = 1.06, Samples/sec = 270.3
+Step 426000 (3.0%): Train Loss = 0.039534, Val Loss = 0.036608, Gnorm = 0.242758, Samples = 109056256, LR = 2.99e-04, Steps/sec = 1.03, Samples/sec = 262.6
+Step 426500 (3.1%): Train Loss = 0.043919, Val Loss = 0.040157, Gnorm = 0.096825, Samples = 109184256, LR = 2.99e-04, Steps/sec = 0.59, Samples/sec = 150.5
+Step 427000 (3.2%): Train Loss = 0.039784, Val Loss = 0.043935, Gnorm = 0.107007, Samples = 109312256, LR = 2.99e-04, Steps/sec = 0.99, Samples/sec = 254.2
+Step 427500 (3.3%): Train Loss = 0.038626, Val Loss = 0.041325, Gnorm = 0.124665, Samples = 109440256, LR = 2.99e-04, Steps/sec = 1.02, Samples/sec = 261.0
+Step 428000 (3.4%): Train Loss = 0.040374, Val Loss = 0.047357, Gnorm = 0.121878, Samples = 109568256, LR = 2.99e-04, Steps/sec = 0.73, Samples/sec = 187.2
+Step 428500 (3.5%): Train Loss = 0.041483, Val Loss = 0.038155, Gnorm = 0.197493, Samples = 109696256, LR = 2.99e-04, Steps/sec = 0.39, Samples/sec = 99.4
+Step 429000 (3.6%): Train Loss = 0.041834, Val Loss = 0.039796, Gnorm = 0.194470, Samples = 109824256, LR = 2.99e-04, Steps/sec = 0.79, Samples/sec = 203.1
+Step 429500 (3.7%): Train Loss = 0.048297, Val Loss = 0.038605, Gnorm = 0.232906, Samples = 109952256, LR = 2.99e-04, Steps/sec = 0.95, Samples/sec = 243.8
+Step 430000 (3.8%): Train Loss = 0.043920, Val Loss = 0.048025, Gnorm = 0.264719, Samples = 110080256, LR = 2.99e-04, Steps/sec = 1.03, Samples/sec = 263.7
+Step 430500 (3.9%): Train Loss = 0.036353, Val Loss = 0.044976, Gnorm = 0.252740, Samples = 110208256, LR = 2.99e-04, Steps/sec = 0.91, Samples/sec = 232.5
+Step 431000 (4.0%): Train Loss = 0.195561, Val Loss = 0.176378, Gnorm = 2.005659, Samples = 110336256, LR = 2.99e-04, Steps/sec = 0.87, Samples/sec = 222.7
+Step 431500 (4.1%): Train Loss = 0.045816, Val Loss = 0.043772, Gnorm = 0.094239, Samples = 110464256, LR = 2.99e-04, Steps/sec = 0.97, Samples/sec = 248.1
+Step 432000 (4.2%): Train Loss = 0.035602, Val Loss = 0.043987, Gnorm = 0.119264, Samples = 110592256, LR = 2.99e-04, Steps/sec = 0.79, Samples/sec = 202.7
+Step 432500 (4.3%): Train Loss = 0.039421, Val Loss = 0.041808, Gnorm = 0.104509, Samples = 110720256, LR = 2.99e-04, Steps/sec = 0.99, Samples/sec = 253.2
+Step 433000 (4.4%): Train Loss = 0.047221, Val Loss = 0.043397, Gnorm = 0.224586, Samples = 110848256, LR = 2.99e-04, Steps/sec = 1.03, Samples/sec = 263.0
+Step 433500 (4.5%): Train Loss = 0.038018, Val Loss = 0.051559, Gnorm = 0.096751, Samples = 110976256, LR = 2.99e-04, Steps/sec = 1.03, Samples/sec = 262.4
+Step 434000 (4.6%): Train Loss = 0.046032, Val Loss = 0.043801, Gnorm = 0.276858, Samples = 111104256, LR = 2.99e-04, Steps/sec = 1.00, Samples/sec = 257.1
+Step 434500 (4.7%): Train Loss = 0.049806, Val Loss = 0.059208, Gnorm = 0.178866, Samples = 111232256, LR = 2.99e-04, Steps/sec = 0.94, Samples/sec = 241.4
+Step 435000 (4.8%): Train Loss = 0.038415, Val Loss = 0.042133, Gnorm = 0.101009, Samples = 111360256, LR = 2.99e-04, Steps/sec = 0.99, Samples/sec = 252.6
+Step 435500 (4.9%): Train Loss = 0.045332, Val Loss = 0.037286, Gnorm = 0.157205, Samples = 111488256, LR = 2.98e-04, Steps/sec = 0.96, Samples/sec = 245.7
+Step 436000 (5.0%): Train Loss = 0.038439, Val Loss = 0.038865, Gnorm = 0.147449, Samples = 111616256, LR = 2.98e-04, Steps/sec = 0.74, Samples/sec = 190.2
+Step 436500 (5.1%): Train Loss = 0.040072, Val Loss = 0.043393, Gnorm = 0.281860, Samples = 111744256, LR = 2.98e-04, Steps/sec = 0.74, Samples/sec = 190.1
+Step 437000 (5.2%): Train Loss = 0.047523, Val Loss = 0.036042, Gnorm = 0.187771, Samples = 111872256, LR = 2.98e-04, Steps/sec = 0.99, Samples/sec = 253.8
+Step 437500 (5.3%): Train Loss = 0.039352, Val Loss = 0.044226, Gnorm = 0.194655, Samples = 112000256, LR = 2.98e-04, Steps/sec = 1.07, Samples/sec = 273.7
+Step 438000 (5.4%): Train Loss = 0.041848, Val Loss = 0.042683, Gnorm = 0.229130, Samples = 112128256, LR = 2.98e-04, Steps/sec = 0.37, Samples/sec = 94.2
+Step 438500 (5.5%): Train Loss = 0.042354, Val Loss = 0.037245, Gnorm = 0.287368, Samples = 112256256, LR = 2.98e-04, Steps/sec = 0.93, Samples/sec = 239.1
+Step 439000 (5.6%): Train Loss = 0.044713, Val Loss = 0.042019, Gnorm = 0.142453, Samples = 112384256, LR = 2.98e-04, Steps/sec = 1.08, Samples/sec = 276.7
+Step 439500 (5.7%): Train Loss = 0.045720, Val Loss = 0.038673, Gnorm = 0.294013, Samples = 112512256, LR = 2.98e-04, Steps/sec = 1.27, Samples/sec = 324.6
+Step 440000 (5.8%): Train Loss = 0.038477, Val Loss = 0.044738, Gnorm = 0.126246, Samples = 112640256, LR = 2.98e-04, Steps/sec = 1.14, Samples/sec = 291.5
+Step 440500 (5.9%): Train Loss = 0.042611, Val Loss = 0.044927, Gnorm = 0.136730, Samples = 112768256, LR = 2.98e-04, Steps/sec = 0.97, Samples/sec = 247.5
+Step 441000 (6.0%): Train Loss = 0.044836, Val Loss = 0.046572, Gnorm = 0.138527, Samples = 112896256, LR = 2.98e-04, Steps/sec = 1.12, Samples/sec = 286.5
+Step 441500 (6.1%): Train Loss = 0.043663, Val Loss = 0.044048, Gnorm = 0.100364, Samples = 113024256, LR = 2.98e-04, Steps/sec = 1.20, Samples/sec = 308.3
+Step 442000 (6.2%): Train Loss = 0.039504, Val Loss = 0.037081, Gnorm = 0.108355, Samples = 113152256, LR = 2.97e-04, Steps/sec = 1.15, Samples/sec = 293.6
+Step 442500 (6.3%): Train Loss = 0.041382, Val Loss = 0.044509, Gnorm = 0.173288, Samples = 113280256, LR = 2.97e-04, Steps/sec = 1.22, Samples/sec = 313.1
+Step 443000 (6.4%): Train Loss = 0.040237, Val Loss = 0.038097, Gnorm = 0.123372, Samples = 113408256, LR = 2.97e-04, Steps/sec = 1.12, Samples/sec = 287.0
+Step 443500 (6.5%): Train Loss = 0.039218, Val Loss = 0.040860, Gnorm = 0.096464, Samples = 113536256, LR = 2.97e-04, Steps/sec = 1.25, Samples/sec = 319.1
+Step 444000 (6.6%): Train Loss = 0.040491, Val Loss = 0.039755, Gnorm = 0.077042, Samples = 113664256, LR = 2.97e-04, Steps/sec = 1.13, Samples/sec = 290.4
+Step 444500 (6.7%): Train Loss = 0.040300, Val Loss = 0.041025, Gnorm = 0.096330, Samples = 113792256, LR = 2.97e-04, Steps/sec = 1.24, Samples/sec = 316.2
+Step 445000 (6.8%): Train Loss = 0.035681, Val Loss = 0.037235, Gnorm = 0.082387, Samples = 113920256, LR = 2.97e-04, Steps/sec = 1.13, Samples/sec = 289.6
+Step 445500 (6.9%): Train Loss = 0.039401, Val Loss = 0.038324, Gnorm = 0.170377, Samples = 114048256, LR = 2.97e-04, Steps/sec = 1.25, Samples/sec = 319.7
+Step 446000 (7.0%): Train Loss = 0.041266, Val Loss = 0.040054, Gnorm = 0.208807, Samples = 114176256, LR = 2.97e-04, Steps/sec = 1.13, Samples/sec = 288.8
+Step 446500 (7.1%): Train Loss = 0.038392, Val Loss = 0.036181, Gnorm = 0.104822, Samples = 114304256, LR = 2.97e-04, Steps/sec = 1.27, Samples/sec = 324.7
+Step 447000 (7.2%): Train Loss = 0.046650, Val Loss = 0.038257, Gnorm = 0.167567, Samples = 114432256, LR = 2.97e-04, Steps/sec = 1.14, Samples/sec = 292.6
+Step 447500 (7.3%): Train Loss = 0.043103, Val Loss = 0.046315, Gnorm = 0.120706, Samples = 114560256, LR = 2.96e-04, Steps/sec = 1.06, Samples/sec = 270.6
+Step 448000 (7.4%): Train Loss = 0.043654, Val Loss = 0.057606, Gnorm = 0.219956, Samples = 114688256, LR = 2.96e-04, Steps/sec = 1.23, Samples/sec = 314.4
+Step 448500 (7.5%): Train Loss = 0.042010, Val Loss = 0.038539, Gnorm = 0.265518, Samples = 114816256, LR = 2.96e-04, Steps/sec = 1.21, Samples/sec = 310.1
+Step 449000 (7.6%): Train Loss = 0.043753, Val Loss = 0.040435, Gnorm = 0.218443, Samples = 114944256, LR = 2.96e-04, Steps/sec = 0.42, Samples/sec = 107.7
+Step 449500 (7.7%): Train Loss = 0.038354, Val Loss = 0.037282, Gnorm = 0.129302, Samples = 115072256, LR = 2.96e-04, Steps/sec = 1.03, Samples/sec = 264.5
+Step 450000 (7.8%): Train Loss = 0.040547, Val Loss = 0.038186, Gnorm = 0.231397, Samples = 115200256, LR = 2.96e-04, Steps/sec = 1.14, Samples/sec = 292.4
+Step 450500 (7.9%): Train Loss = 0.041572, Val Loss = 0.041344, Gnorm = 0.121038, Samples = 115328256, LR = 2.96e-04, Steps/sec = 1.15, Samples/sec = 294.0
+Step 451000 (8.0%): Train Loss = 0.035368, Val Loss = 0.041636, Gnorm = 0.189307, Samples = 115456256, LR = 2.96e-04, Steps/sec = 1.25, Samples/sec = 318.8
+Step 451500 (8.1%): Train Loss = 0.036249, Val Loss = 0.045687, Gnorm = 0.124752, Samples = 115584256, LR = 2.96e-04, Steps/sec = 1.14, Samples/sec = 293.0
+Step 452000 (8.2%): Train Loss = 0.040447, Val Loss = 0.045804, Gnorm = 0.097917, Samples = 115712256, LR = 2.95e-04, Steps/sec = 0.94, Samples/sec = 239.5
+Step 452500 (8.3%): Train Loss = 0.043508, Val Loss = 0.044577, Gnorm = 0.090389, Samples = 115840256, LR = 2.95e-04, Steps/sec = 1.16, Samples/sec = 296.3
+Step 453000 (8.4%): Train Loss = 0.039742, Val Loss = 0.041646, Gnorm = 0.115564, Samples = 115968256, LR = 2.95e-04, Steps/sec = 1.20, Samples/sec = 307.9
+Step 453500 (8.5%): Train Loss = 0.046424, Val Loss = 0.044501, Gnorm = 0.217054, Samples = 116096256, LR = 2.95e-04, Steps/sec = 1.18, Samples/sec = 302.1
+Step 454000 (8.6%): Train Loss = 0.042606, Val Loss = 0.042262, Gnorm = 0.210468, Samples = 116224256, LR = 2.95e-04, Steps/sec = 1.24, Samples/sec = 316.9
+Step 454500 (8.7%): Train Loss = 0.037923, Val Loss = 0.042560, Gnorm = 0.087381, Samples = 116352256, LR = 2.95e-04, Steps/sec = 1.10, Samples/sec = 282.7
+Step 455000 (8.8%): Train Loss = 0.042061, Val Loss = 0.040047, Gnorm = 0.195605, Samples = 116480256, LR = 2.95e-04, Steps/sec = 1.27, Samples/sec = 324.6
+Step 455500 (8.9%): Train Loss = 0.045834, Val Loss = 0.036258, Gnorm = 0.080916, Samples = 116608256, LR = 2.95e-04, Steps/sec = 1.14, Samples/sec = 292.4
+Step 456000 (9.0%): Train Loss = 0.037543, Val Loss = 0.040495, Gnorm = 0.214582, Samples = 116736256, LR = 2.95e-04, Steps/sec = 1.26, Samples/sec = 321.3
+Step 456500 (9.1%): Train Loss = 0.042836, Val Loss = 0.039704, Gnorm = 0.134943, Samples = 116864256, LR = 2.94e-04, Steps/sec = 1.06, Samples/sec = 272.2
+Step 457000 (9.2%): Train Loss = 0.050245, Val Loss = 0.042494, Gnorm = 0.235811, Samples = 116992256, LR = 2.94e-04, Steps/sec = 1.32, Samples/sec = 337.5
+Step 457500 (9.3%): Train Loss = 0.036409, Val Loss = 0.039544, Gnorm = 0.116853, Samples = 117120256, LR = 2.94e-04, Steps/sec = 1.17, Samples/sec = 300.8
+Step 458000 (9.4%): Train Loss = 0.036493, Val Loss = 0.040603, Gnorm = 0.063025, Samples = 117248256, LR = 2.94e-04, Steps/sec = 1.20, Samples/sec = 308.3
+Step 458500 (9.5%): Train Loss = 0.047585, Val Loss = 0.041427, Gnorm = 0.260886, Samples = 117376256, LR = 2.94e-04, Steps/sec = 1.22, Samples/sec = 311.5
+Step 459000 (9.6%): Train Loss = 0.044623, Val Loss = 0.037052, Gnorm = 0.225842, Samples = 117504256, LR = 2.94e-04, Steps/sec = 1.14, Samples/sec = 290.8
+Step 459500 (9.7%): Train Loss = 0.045315, Val Loss = 0.041169, Gnorm = 0.102007, Samples = 117632256, LR = 2.94e-04, Steps/sec = 1.15, Samples/sec = 293.7
+Step 460000 (9.8%): Train Loss = 0.039544, Val Loss = 0.047725, Gnorm = 0.122647, Samples = 117760256, LR = 2.93e-04, Steps/sec = 1.18, Samples/sec = 301.7
+Step 460500 (9.9%): Train Loss = 0.044045, Val Loss = 0.041101, Gnorm = 0.136628, Samples = 117888256, LR = 2.93e-04, Steps/sec = 1.18, Samples/sec = 301.2
+Step 461000 (10.0%): Train Loss = 0.037905, Val Loss = 0.038291, Gnorm = 0.097894, Samples = 118016256, LR = 2.93e-04, Steps/sec = 0.42, Samples/sec = 106.2
+Step 461500 (10.1%): Train Loss = 0.043833, Val Loss = 0.042877, Gnorm = 0.121641, Samples = 118144256, LR = 2.93e-04, Steps/sec = 1.15, Samples/sec = 293.5
+Step 462000 (10.2%): Train Loss = 0.040476, Val Loss = 0.035697, Gnorm = 0.105965, Samples = 118272256, LR = 2.93e-04, Steps/sec = 1.22, Samples/sec = 311.6
+Step 462500 (10.3%): Train Loss = 0.037666, Val Loss = 0.040756, Gnorm = 0.101119, Samples = 118400256, LR = 2.93e-04, Steps/sec = 1.31, Samples/sec = 336.0
+Step 463000 (10.4%): Train Loss = 0.042465, Val Loss = 0.036609, Gnorm = 0.101385, Samples = 118528256, LR = 2.93e-04, Steps/sec = 1.24, Samples/sec = 316.5
+Step 463500 (10.5%): Train Loss = 0.038979, Val Loss = 0.036734, Gnorm = 0.135919, Samples = 118656256, LR = 2.92e-04, Steps/sec = 1.29, Samples/sec = 331.4
+Step 464000 (10.6%): Train Loss = 0.039626, Val Loss = 0.037460, Gnorm = 0.108657, Samples = 118784256, LR = 2.92e-04, Steps/sec = 0.94, Samples/sec = 241.7
+Step 464500 (10.7%): Train Loss = 0.048487, Val Loss = 0.038296, Gnorm = 0.125162, Samples = 118912256, LR = 2.92e-04, Steps/sec = 1.29, Samples/sec = 329.7
+Step 465000 (10.8%): Train Loss = 0.045844, Val Loss = 0.038731, Gnorm = 0.169082, Samples = 119040256, LR = 2.92e-04, Steps/sec = 1.20, Samples/sec = 306.0
+Step 465500 (10.9%): Train Loss = 0.040174, Val Loss = 0.043755, Gnorm = 0.145536, Samples = 119168256, LR = 2.92e-04, Steps/sec = 1.15, Samples/sec = 293.3
+Step 466000 (11.0%): Train Loss = 0.032683, Val Loss = 0.037520, Gnorm = 0.077890, Samples = 119296256, LR = 2.92e-04, Steps/sec = 1.26, Samples/sec = 322.7
+Step 466500 (11.1%): Train Loss = 0.038571, Val Loss = 0.036543, Gnorm = 0.087971, Samples = 119424256, LR = 2.92e-04, Steps/sec = 1.27, Samples/sec = 325.5
+Step 467000 (11.2%): Train Loss = 0.040802, Val Loss = 0.033297, Gnorm = 0.129765, Samples = 119552256, LR = 2.91e-04, Steps/sec = 1.19, Samples/sec = 304.3
+Step 467500 (11.3%): Train Loss = 0.040203, Val Loss = 0.038108, Gnorm = 0.239573, Samples = 119680256, LR = 2.91e-04, Steps/sec = 1.29, Samples/sec = 330.2
+Step 468000 (11.4%): Train Loss = 0.045548, Val Loss = 0.042090, Gnorm = 0.118192, Samples = 119808256, LR = 2.91e-04, Steps/sec = 1.21, Samples/sec = 310.6
+Step 468500 (11.5%): Train Loss = 0.034087, Val Loss = 0.042703, Gnorm = 0.094343, Samples = 119936256, LR = 2.91e-04, Steps/sec = 1.28, Samples/sec = 328.7
+Step 469000 (11.6%): Train Loss = 0.040129, Val Loss = 0.041852, Gnorm = 0.134508, Samples = 120064256, LR = 2.91e-04, Steps/sec = 1.22, Samples/sec = 312.0
+Step 469500 (11.7%): Train Loss = 0.046407, Val Loss = 0.045300, Gnorm = 0.155943, Samples = 120192256, LR = 2.91e-04, Steps/sec = 1.32, Samples/sec = 337.4
+Step 470000 (11.8%): Train Loss = 0.040266, Val Loss = 0.043118, Gnorm = 0.126523, Samples = 120320256, LR = 2.90e-04, Steps/sec = 1.21, Samples/sec = 310.2
+Step 470500 (11.9%): Train Loss = 0.037965, Val Loss = 0.041832, Gnorm = 0.179379, Samples = 120448256, LR = 2.90e-04, Steps/sec = 1.34, Samples/sec = 343.3
+Step 471000 (12.0%): Train Loss = 0.045882, Val Loss = 0.047431, Gnorm = 0.140817, Samples = 120576256, LR = 2.90e-04, Steps/sec = 1.18, Samples/sec = 303.3
+Step 471500 (12.1%): Train Loss = 0.039664, Val Loss = 0.037316, Gnorm = 0.183167, Samples = 120704256, LR = 2.90e-04, Steps/sec = 1.34, Samples/sec = 342.3
+Step 472000 (12.2%): Train Loss = 0.042963, Val Loss = 0.038465, Gnorm = 0.247185, Samples = 120832256, LR = 2.90e-04, Steps/sec = 1.22, Samples/sec = 312.3
+Step 472500 (12.3%): Train Loss = 0.041436, Val Loss = 0.038777, Gnorm = 0.194955, Samples = 120960256, LR = 2.90e-04, Steps/sec = 1.30, Samples/sec = 334.0
+Step 473000 (12.4%): Train Loss = 0.043163, Val Loss = 0.040502, Gnorm = 0.544293, Samples = 121088256, LR = 2.89e-04, Steps/sec = 0.43, Samples/sec = 110.6
+Step 473500 (12.5%): Train Loss = 0.040184, Val Loss = 0.036437, Gnorm = 0.144469, Samples = 121216256, LR = 2.89e-04, Steps/sec = 1.12, Samples/sec = 287.4
+Step 474000 (12.6%): Train Loss = 0.037982, Val Loss = 0.036730, Gnorm = 0.272900, Samples = 121344256, LR = 2.89e-04, Steps/sec = 1.22, Samples/sec = 311.6
+Step 474500 (12.7%): Train Loss = 0.052535, Val Loss = 0.039702, Gnorm = 0.162938, Samples = 121472256, LR = 2.89e-04, Steps/sec = 1.11, Samples/sec = 283.5
+Step 475000 (12.8%): Train Loss = 0.042675, Val Loss = 0.042840, Gnorm = 0.160131, Samples = 121600256, LR = 2.89e-04, Steps/sec = 1.43, Samples/sec = 367.1
+Step 475500 (12.9%): Train Loss = 0.041404, Val Loss = 0.038969, Gnorm = 0.247959, Samples = 121728256, LR = 2.89e-04, Steps/sec = 1.25, Samples/sec = 319.0
+Step 476000 (13.0%): Train Loss = 0.040143, Val Loss = 0.040040, Gnorm = 0.098030, Samples = 121856256, LR = 2.88e-04, Steps/sec = 0.97, Samples/sec = 248.0
+Step 476500 (13.1%): Train Loss = 0.038856, Val Loss = 0.044056, Gnorm = 0.105532, Samples = 121984256, LR = 2.88e-04, Steps/sec = 1.14, Samples/sec = 291.7
+Step 477000 (13.2%): Train Loss = 0.039968, Val Loss = 0.039939, Gnorm = 0.129738, Samples = 122112256, LR = 2.88e-04, Steps/sec = 1.28, Samples/sec = 328.4
+Step 477500 (13.3%): Train Loss = 0.036857, Val Loss = 0.041749, Gnorm = 0.121895, Samples = 122240256, LR = 2.88e-04, Steps/sec = 1.27, Samples/sec = 324.3
+Step 478000 (13.4%): Train Loss = 0.039953, Val Loss = 0.043788, Gnorm = 0.111179, Samples = 122368256, LR = 2.88e-04, Steps/sec = 1.33, Samples/sec = 341.2
+Step 478500 (13.5%): Train Loss = 0.035527, Val Loss = 0.039460, Gnorm = 0.102708, Samples = 122496256, LR = 2.88e-04, Steps/sec = 1.28, Samples/sec = 328.3
+Step 479000 (13.6%): Train Loss = 0.042016, Val Loss = 0.041173, Gnorm = 0.117953, Samples = 122624256, LR = 2.87e-04, Steps/sec = 1.32, Samples/sec = 337.6
+Step 479500 (13.7%): Train Loss = 0.035983, Val Loss = 0.044869, Gnorm = 0.149138, Samples = 122752256, LR = 2.87e-04, Steps/sec = 1.27, Samples/sec = 326.2
+Step 480000 (13.8%): Train Loss = 0.037239, Val Loss = 0.034755, Gnorm = 0.116794, Samples = 122880256, LR = 2.87e-04, Steps/sec = 1.33, Samples/sec = 340.1
+Step 480500 (13.9%): Train Loss = 0.039723, Val Loss = 0.035977, Gnorm = 0.200643, Samples = 123008256, LR = 2.87e-04, Steps/sec = 1.30, Samples/sec = 332.9
+Step 481000 (14.0%): Train Loss = 0.036461, Val Loss = 0.037781, Gnorm = 0.192731, Samples = 123136256, LR = 2.87e-04, Steps/sec = 1.29, Samples/sec = 329.6
+Step 481500 (14.1%): Train Loss = 0.040229, Val Loss = 0.040577, Gnorm = 0.223139, Samples = 123264256, LR = 2.86e-04, Steps/sec = 1.30, Samples/sec = 331.8
+Step 482000 (14.2%): Train Loss = 0.034994, Val Loss = 0.040141, Gnorm = 0.303445, Samples = 123392256, LR = 2.86e-04, Steps/sec = 1.32, Samples/sec = 338.7
+Step 482500 (14.3%): Train Loss = 0.039652, Val Loss = 0.040455, Gnorm = 0.126589, Samples = 123520256, LR = 2.86e-04, Steps/sec = 1.29, Samples/sec = 329.3
+Step 483000 (14.4%): Train Loss = 0.042701, Val Loss = 0.036499, Gnorm = 0.087918, Samples = 123648256, LR = 2.86e-04, Steps/sec = 1.35, Samples/sec = 345.8
+Step 483500 (14.5%): Train Loss = 0.038465, Val Loss = 0.039381, Gnorm = 0.145213, Samples = 123776256, LR = 2.86e-04, Steps/sec = 1.14, Samples/sec = 292.0
+Step 484000 (14.6%): Train Loss = 0.052121, Val Loss = 0.039691, Gnorm = 0.176411, Samples = 123904256, LR = 2.85e-04, Steps/sec = 1.44, Samples/sec = 369.9
+Step 484500 (14.7%): Train Loss = 0.039404, Val Loss = 0.036123, Gnorm = 0.169225, Samples = 124032256, LR = 2.85e-04, Steps/sec = 1.31, Samples/sec = 335.0
+Step 485000 (14.8%): Train Loss = 0.046142, Val Loss = 0.039527, Gnorm = 0.113372, Samples = 124160256, LR = 2.85e-04, Steps/sec = 1.31, Samples/sec = 334.5
+Step 485500 (14.9%): Train Loss = 0.042186, Val Loss = 0.040172, Gnorm = 0.136677, Samples = 124288256, LR = 2.85e-04, Steps/sec = 1.38, Samples/sec = 353.1
+Step 486000 (15.0%): Train Loss = 0.040904, Val Loss = 0.043933, Gnorm = 0.165954, Samples = 124416256, LR = 2.85e-04, Steps/sec = 0.43, Samples/sec = 110.9
+Step 486500 (15.1%): Train Loss = 0.037135, Val Loss = 0.039993, Gnorm = 0.317593, Samples = 124544256, LR = 2.84e-04, Steps/sec = 1.16, Samples/sec = 297.7
+Step 487000 (15.2%): Train Loss = 0.043615, Val Loss = 0.040244, Gnorm = 0.141538, Samples = 124672256, LR = 2.84e-04, Steps/sec = 1.30, Samples/sec = 332.0
+Step 487500 (15.3%): Train Loss = 0.045970, Val Loss = 0.041439, Gnorm = 0.116324, Samples = 124800256, LR = 2.84e-04, Steps/sec = 1.38, Samples/sec = 353.8
+Step 488000 (15.4%): Train Loss = 0.042280, Val Loss = 0.038507, Gnorm = 0.155494, Samples = 124928256, LR = 2.84e-04, Steps/sec = 1.27, Samples/sec = 325.0
+Step 488500 (15.5%): Train Loss = 0.040152, Val Loss = 0.038230, Gnorm = 0.229160, Samples = 125056256, LR = 2.84e-04, Steps/sec = 1.43, Samples/sec = 366.1
+Step 489000 (15.6%): Train Loss = 0.044583, Val Loss = 0.042985, Gnorm = 0.108537, Samples = 125184256, LR = 2.83e-04, Steps/sec = 1.01, Samples/sec = 257.9
+Step 489500 (15.7%): Train Loss = 0.040072, Val Loss = 0.035378, Gnorm = 0.131941, Samples = 125312256, LR = 2.83e-04, Steps/sec = 1.28, Samples/sec = 328.1
+Step 490000 (15.8%): Train Loss = 0.034604, Val Loss = 0.038439, Gnorm = 0.107265, Samples = 125440256, LR = 2.83e-04, Steps/sec = 1.28, Samples/sec = 326.9
+Step 490500 (15.9%): Train Loss = 0.042551, Val Loss = 0.045128, Gnorm = 0.402186, Samples = 125568256, LR = 2.83e-04, Steps/sec = 1.41, Samples/sec = 360.0
+Step 491000 (16.0%): Train Loss = 0.040401, Val Loss = 0.036284, Gnorm = 0.322921, Samples = 125696256, LR = 2.83e-04, Steps/sec = 1.29, Samples/sec = 330.8
+Step 491500 (16.1%): Train Loss = 0.041946, Val Loss = 0.039603, Gnorm = 0.075654, Samples = 125824256, LR = 2.82e-04, Steps/sec = 1.41, Samples/sec = 360.3
+Step 492000 (16.2%): Train Loss = 0.039265, Val Loss = 0.035766, Gnorm = 0.237384, Samples = 125952256, LR = 2.82e-04, Steps/sec = 1.27, Samples/sec = 325.7
+Step 492500 (16.3%): Train Loss = 0.042394, Val Loss = 0.038094, Gnorm = 0.166451, Samples = 126080256, LR = 2.82e-04, Steps/sec = 1.30, Samples/sec = 331.5
+Step 493000 (16.4%): Train Loss = 0.035527, Val Loss = 0.045666, Gnorm = 0.119369, Samples = 126208256, LR = 2.82e-04, Steps/sec = 1.38, Samples/sec = 352.7
+Step 493500 (16.5%): Train Loss = 0.040305, Val Loss = 0.037903, Gnorm = 0.128422, Samples = 126336256, LR = 2.81e-04, Steps/sec = 1.39, Samples/sec = 357.1
+Step 494000 (16.6%): Train Loss = 0.046579, Val Loss = 0.040102, Gnorm = 0.236739, Samples = 126464256, LR = 2.81e-04, Steps/sec = 1.26, Samples/sec = 322.5
+Step 494500 (16.7%): Train Loss = 0.045226, Val Loss = 0.041393, Gnorm = 0.146817, Samples = 126592256, LR = 2.81e-04, Steps/sec = 1.40, Samples/sec = 357.3
+Step 495000 (16.8%): Train Loss = 0.042838, Val Loss = 0.050901, Gnorm = 0.093006, Samples = 126720256, LR = 2.81e-04, Steps/sec = 1.27, Samples/sec = 324.3
+Step 495500 (16.9%): Train Loss = 0.047855, Val Loss = 0.037964, Gnorm = 0.080905, Samples = 126848256, LR = 2.80e-04, Steps/sec = 1.44, Samples/sec = 367.6
+Step 496000 (17.0%): Train Loss = 0.039830, Val Loss = 0.039065, Gnorm = 0.156257, Samples = 126976256, LR = 2.80e-04, Steps/sec = 1.30, Samples/sec = 332.4
+Step 496500 (17.1%): Train Loss = 0.043802, Val Loss = 0.046953, Gnorm = 0.285177, Samples = 127104256, LR = 2.80e-04, Steps/sec = 1.39, Samples/sec = 356.8
+Step 497000 (17.2%): Train Loss = 0.041017, Val Loss = 0.033676, Gnorm = 0.101754, Samples = 127232256, LR = 2.80e-04, Steps/sec = 1.19, Samples/sec = 304.3
+Step 497500 (17.3%): Train Loss = 0.040284, Val Loss = 0.047750, Gnorm = 0.485199, Samples = 127360256, LR = 2.80e-04, Steps/sec = 1.37, Samples/sec = 350.7
+Step 498000 (17.4%): Train Loss = 0.046026, Val Loss = 0.036414, Gnorm = 0.137763, Samples = 127488256, LR = 2.79e-04, Steps/sec = 1.32, Samples/sec = 338.8
+Step 498500 (17.5%): Train Loss = 0.042189, Val Loss = 0.047322, Gnorm = 0.142672, Samples = 127616256, LR = 2.79e-04, Steps/sec = 1.21, Samples/sec = 310.4
+Step 499000 (17.6%): Train Loss = 0.040939, Val Loss = 0.040157, Gnorm = 0.220816, Samples = 127744256, LR = 2.79e-04, Steps/sec = 0.46, Samples/sec = 116.8
+Step 499500 (17.7%): Train Loss = 0.033397, Val Loss = 0.036802, Gnorm = 0.088338, Samples = 127872256, LR = 2.79e-04, Steps/sec = 1.03, Samples/sec = 262.7
+Step 500000 (17.8%): Train Loss = 0.037573, Val Loss = 0.036745, Gnorm = 0.102450, Samples = 128000256, LR = 2.78e-04, Steps/sec = 1.40, Samples/sec = 358.1
+Step 500500 (17.9%): Train Loss = 0.047634, Val Loss = 0.038035, Gnorm = 0.146328, Samples = 128128256, LR = 2.78e-04, Steps/sec = 1.22, Samples/sec = 312.7
+Step 501000 (18.0%): Train Loss = 0.037648, Val Loss = 0.035519, Gnorm = 0.130305, Samples = 128256256, LR = 2.78e-04, Steps/sec = 1.39, Samples/sec = 356.9
+Step 501500 (18.1%): Train Loss = 0.040777, Val Loss = 0.039161, Gnorm = 0.162878, Samples = 128384256, LR = 2.78e-04, Steps/sec = 1.18, Samples/sec = 302.1
+Step 502000 (18.2%): Train Loss = 0.035501, Val Loss = 0.038402, Gnorm = 0.105503, Samples = 128512256, LR = 2.77e-04, Steps/sec = 1.20, Samples/sec = 308.5
+Step 502500 (18.3%): Train Loss = 0.038041, Val Loss = 0.044363, Gnorm = 0.073630, Samples = 128640256, LR = 2.77e-04, Steps/sec = 1.22, Samples/sec = 313.3
+Step 503000 (18.4%): Train Loss = 0.040143, Val Loss = 0.036749, Gnorm = 0.130190, Samples = 128768256, LR = 2.77e-04, Steps/sec = 1.40, Samples/sec = 358.3
+Step 503500 (18.5%): Train Loss = 0.037632, Val Loss = 0.036923, Gnorm = 0.161953, Samples = 128896256, LR = 2.77e-04, Steps/sec = 1.29, Samples/sec = 329.5
+Step 504000 (18.6%): Train Loss = 0.053085, Val Loss = 0.056425, Gnorm = 0.110856, Samples = 129024256, LR = 2.76e-04, Steps/sec = 1.42, Samples/sec = 362.6
+Step 504500 (18.7%): Train Loss = 0.041608, Val Loss = 0.043268, Gnorm = 0.095577, Samples = 129152256, LR = 2.76e-04, Steps/sec = 1.31, Samples/sec = 336.3
+Step 505000 (18.8%): Train Loss = 0.043388, Val Loss = 0.044060, Gnorm = 0.063543, Samples = 129280256, LR = 2.76e-04, Steps/sec = 1.40, Samples/sec = 358.4
+Step 505500 (18.9%): Train Loss = 0.041311, Val Loss = 0.037720, Gnorm = 0.113754, Samples = 129408256, LR = 2.76e-04, Steps/sec = 1.31, Samples/sec = 335.3
+Step 506000 (19.0%): Train Loss = 0.036464, Val Loss = 0.034816, Gnorm = 0.141413, Samples = 129536256, LR = 2.75e-04, Steps/sec = 1.49, Samples/sec = 380.9
+Step 506500 (19.1%): Train Loss = 0.039819, Val Loss = 0.034073, Gnorm = 0.055831, Samples = 129664256, LR = 2.75e-04, Steps/sec = 1.35, Samples/sec = 346.6
+Step 507000 (19.2%): Train Loss = 0.038556, Val Loss = 0.038443, Gnorm = 0.087341, Samples = 129792256, LR = 2.75e-04, Steps/sec = 1.47, Samples/sec = 376.7
+Step 507500 (19.3%): Train Loss = 0.034063, Val Loss = 0.034031, Gnorm = 0.152125, Samples = 129920256, LR = 2.75e-04, Steps/sec = 1.35, Samples/sec = 345.4
+Step 508000 (19.4%): Train Loss = 0.040863, Val Loss = 0.042728, Gnorm = 0.166841, Samples = 130048256, LR = 2.74e-04, Steps/sec = 1.45, Samples/sec = 370.7
+Step 508500 (19.5%): Train Loss = 0.043086, Val Loss = 0.040189, Gnorm = 0.256514, Samples = 130176256, LR = 2.74e-04, Steps/sec = 1.37, Samples/sec = 351.6
+Step 509000 (19.6%): Train Loss = 0.042892, Val Loss = 0.037435, Gnorm = 0.149529, Samples = 130304256, LR = 2.74e-04, Steps/sec = 1.47, Samples/sec = 376.4
+Step 509500 (19.7%): Train Loss = 0.038298, Val Loss = 0.037981, Gnorm = 0.145452, Samples = 130432256, LR = 2.74e-04, Steps/sec = 1.43, Samples/sec = 365.5
+Step 510000 (19.8%): Train Loss = 0.043367, Val Loss = 0.038914, Gnorm = 0.150033, Samples = 130560256, LR = 2.73e-04, Steps/sec = 1.43, Samples/sec = 365.5
+Step 510500 (19.9%): Train Loss = 0.041421, Val Loss = 0.039530, Gnorm = 0.193072, Samples = 130688256, LR = 2.73e-04, Steps/sec = 1.20, Samples/sec = 308.2
+Step 511000 (20.0%): Train Loss = 0.047959, Val Loss = 0.047487, Gnorm = 0.271643, Samples = 130816256, LR = 2.73e-04, Steps/sec = 1.53, Samples/sec = 390.7
+Step 511500 (20.1%): Train Loss = 0.042383, Val Loss = 0.037973, Gnorm = 0.246279, Samples = 130944256, LR = 2.73e-04, Steps/sec = 1.38, Samples/sec = 353.9
+Step 512000 (20.2%): Train Loss = 0.035599, Val Loss = 0.042143, Gnorm = 0.201356, Samples = 131072256, LR = 2.72e-04, Steps/sec = 1.42, Samples/sec = 362.5
+Step 512500 (20.3%): Train Loss = 0.042241, Val Loss = 0.036329, Gnorm = 0.186839, Samples = 131200256, LR = 2.72e-04, Steps/sec = 0.46, Samples/sec = 117.9
+Step 513000 (20.4%): Train Loss = 0.045201, Val Loss = 0.042708, Gnorm = 0.163224, Samples = 131328256, LR = 2.72e-04, Steps/sec = 1.03, Samples/sec = 262.6
+Step 513500 (20.5%): Train Loss = 0.042799, Val Loss = 0.042481, Gnorm = 0.112164, Samples = 131456256, LR = 2.71e-04, Steps/sec = 1.33, Samples/sec = 341.2
+Step 514000 (20.6%): Train Loss = 0.038801, Val Loss = 0.049559, Gnorm = 0.098763, Samples = 131584256, LR = 2.71e-04, Steps/sec = 1.37, Samples/sec = 352.0
+Step 514500 (20.7%): Train Loss = 0.043536, Val Loss = 0.040505, Gnorm = 0.078991, Samples = 131712256, LR = 2.71e-04, Steps/sec = 1.42, Samples/sec = 362.3
+Step 515000 (20.8%): Train Loss = 0.038911, Val Loss = 0.041592, Gnorm = 0.177469, Samples = 131840256, LR = 2.71e-04, Steps/sec = 1.42, Samples/sec = 364.8
+Step 515500 (20.9%): Train Loss = 0.042228, Val Loss = 0.035426, Gnorm = 0.151453, Samples = 131968256, LR = 2.70e-04, Steps/sec = 1.36, Samples/sec = 348.4
+Step 516000 (21.0%): Train Loss = 0.041335, Val Loss = 0.039202, Gnorm = 0.153140, Samples = 132096256, LR = 2.70e-04, Steps/sec = 1.20, Samples/sec = 308.1
+Step 516500 (21.1%): Train Loss = 0.044702, Val Loss = 0.044189, Gnorm = 0.263618, Samples = 132224256, LR = 2.70e-04, Steps/sec = 1.41, Samples/sec = 361.6
+Step 517000 (21.2%): Train Loss = 0.044870, Val Loss = 0.040219, Gnorm = 0.127752, Samples = 132352256, LR = 2.70e-04, Steps/sec = 1.44, Samples/sec = 368.7
+Step 517500 (21.3%): Train Loss = 0.044891, Val Loss = 0.035588, Gnorm = 0.134781, Samples = 132480256, LR = 2.69e-04, Steps/sec = 1.52, Samples/sec = 388.1
+Step 518000 (21.4%): Train Loss = 0.043832, Val Loss = 0.046277, Gnorm = 0.181741, Samples = 132608256, LR = 2.69e-04, Steps/sec = 1.46, Samples/sec = 373.6
+Step 518500 (21.5%): Train Loss = 0.039295, Val Loss = 0.042178, Gnorm = 0.154237, Samples = 132736256, LR = 2.69e-04, Steps/sec = 1.53, Samples/sec = 392.6
+Step 519000 (21.6%): Train Loss = 0.037019, Val Loss = 0.034418, Gnorm = 0.148341, Samples = 132864256, LR = 2.68e-04, Steps/sec = 1.50, Samples/sec = 384.5
+Step 519500 (21.7%): Train Loss = 0.034166, Val Loss = 0.033406, Gnorm = 0.096064, Samples = 132992256, LR = 2.68e-04, Steps/sec = 1.37, Samples/sec = 350.3
+Step 520000 (21.8%): Train Loss = 0.036984, Val Loss = 0.042173, Gnorm = 0.134468, Samples = 133120256, LR = 2.68e-04, Steps/sec = 1.70, Samples/sec = 435.9
+Step 520500 (21.9%): Train Loss = 0.037013, Val Loss = 0.035959, Gnorm = 0.247835, Samples = 133248256, LR = 2.68e-04, Steps/sec = 1.49, Samples/sec = 382.1
+Step 521000 (22.0%): Train Loss = 0.039736, Val Loss = 0.037285, Gnorm = 0.152225, Samples = 133376256, LR = 2.67e-04, Steps/sec = 1.61, Samples/sec = 412.4
+Step 521500 (22.1%): Train Loss = 0.037381, Val Loss = 0.041646, Gnorm = 0.089964, Samples = 133504256, LR = 2.67e-04, Steps/sec = 1.48, Samples/sec = 378.7
+Step 522000 (22.2%): Train Loss = 0.050164, Val Loss = 0.040221, Gnorm = 0.120304, Samples = 133632256, LR = 2.67e-04, Steps/sec = 1.59, Samples/sec = 406.6
+Step 522500 (22.3%): Train Loss = 0.048456, Val Loss = 0.035639, Gnorm = 0.204768, Samples = 133760256, LR = 2.66e-04, Steps/sec = 1.42, Samples/sec = 362.8
+Step 523000 (22.4%): Train Loss = 0.044923, Val Loss = 0.049561, Gnorm = 0.068394, Samples = 133888256, LR = 2.66e-04, Steps/sec = 1.62, Samples/sec = 415.1
+Step 523500 (22.5%): Train Loss = 0.035940, Val Loss = 0.063962, Gnorm = 0.088189, Samples = 134016256, LR = 2.66e-04, Steps/sec = 1.49, Samples/sec = 381.1
+Step 524000 (22.6%): Train Loss = 0.039891, Val Loss = 0.040130, Gnorm = 0.210743, Samples = 134144256, LR = 2.66e-04, Steps/sec = 1.62, Samples/sec = 415.0
+Step 524500 (22.7%): Train Loss = 0.047890, Val Loss = 0.037004, Gnorm = 0.072104, Samples = 134272256, LR = 2.65e-04, Steps/sec = 1.39, Samples/sec = 356.2
+Step 525000 (22.8%): Train Loss = 0.040625, Val Loss = 0.041030, Gnorm = 0.100547, Samples = 134400256, LR = 2.65e-04, Steps/sec = 1.52, Samples/sec = 389.4
+Step 525500 (22.9%): Train Loss = 0.043862, Val Loss = 0.042648, Gnorm = 0.261718, Samples = 134528256, LR = 2.65e-04, Steps/sec = 1.41, Samples/sec = 362.0
+Step 526000 (23.0%): Train Loss = 0.036202, Val Loss = 0.041272, Gnorm = 0.135369, Samples = 134656256, LR = 2.64e-04, Steps/sec = 1.53, Samples/sec = 392.9
+Step 526500 (23.1%): Train Loss = 0.038378, Val Loss = 0.040083, Gnorm = 0.122273, Samples = 134784256, LR = 2.64e-04, Steps/sec = 1.43, Samples/sec = 366.2
+Step 527000 (23.2%): Train Loss = 0.035658, Val Loss = 0.044274, Gnorm = 0.262527, Samples = 134912256, LR = 2.64e-04, Steps/sec = 0.48, Samples/sec = 123.5
+Step 527500 (23.3%): Train Loss = 0.040075, Val Loss = 0.039461, Gnorm = 0.155461, Samples = 135040256, LR = 2.63e-04, Steps/sec = 1.24, Samples/sec = 317.5
+Step 528000 (23.4%): Train Loss = 0.042653, Val Loss = 0.044355, Gnorm = 0.115066, Samples = 135168256, LR = 2.63e-04, Steps/sec = 1.43, Samples/sec = 367.1
+Step 528500 (23.5%): Train Loss = 0.038021, Val Loss = 0.051759, Gnorm = 0.131980, Samples = 135296256, LR = 2.63e-04, Steps/sec = 1.30, Samples/sec = 333.8
+Step 529000 (23.6%): Train Loss = 0.039991, Val Loss = 0.046719, Gnorm = 0.123704, Samples = 135424256, LR = 2.63e-04, Steps/sec = 1.65, Samples/sec = 422.2
+Step 529500 (23.7%): Train Loss = 0.033663, Val Loss = 0.038905, Gnorm = 0.073155, Samples = 135552256, LR = 2.62e-04, Steps/sec = 1.39, Samples/sec = 355.6
+Step 530000 (23.8%): Train Loss = 0.040965, Val Loss = 0.046694, Gnorm = 0.088711, Samples = 135680256, LR = 2.62e-04, Steps/sec = 1.52, Samples/sec = 389.0
+Step 530500 (23.9%): Train Loss = 0.040723, Val Loss = 0.037685, Gnorm = 0.135514, Samples = 135808256, LR = 2.62e-04, Steps/sec = 1.20, Samples/sec = 307.1
+Step 531000 (24.0%): Train Loss = 0.035989, Val Loss = 0.037573, Gnorm = 0.193193, Samples = 135936256, LR = 2.61e-04, Steps/sec = 1.50, Samples/sec = 383.2
+Step 531500 (24.1%): Train Loss = 0.038831, Val Loss = 0.049458, Gnorm = 0.150945, Samples = 136064256, LR = 2.61e-04, Steps/sec = 1.36, Samples/sec = 349.0
+Step 532000 (24.2%): Train Loss = 0.037090, Val Loss = 0.041481, Gnorm = 0.115460, Samples = 136192256, LR = 2.61e-04, Steps/sec = 1.53, Samples/sec = 391.4
+Step 532500 (24.3%): Train Loss = 0.043088, Val Loss = 0.043954, Gnorm = 0.092919, Samples = 136320256, LR = 2.60e-04, Steps/sec = 1.44, Samples/sec = 369.5
+Step 533000 (24.4%): Train Loss = 0.041780, Val Loss = 0.040575, Gnorm = 0.135174, Samples = 136448256, LR = 2.60e-04, Steps/sec = 1.50, Samples/sec = 384.7
+Step 533500 (24.5%): Train Loss = 0.044937, Val Loss = 0.042344, Gnorm = 0.140220, Samples = 136576256, LR = 2.60e-04, Steps/sec = 1.50, Samples/sec = 385.0
+Step 534000 (24.6%): Train Loss = 0.036396, Val Loss = 0.042631, Gnorm = 0.103855, Samples = 136704256, LR = 2.59e-04, Steps/sec = 1.44, Samples/sec = 368.0
+Step 534500 (24.7%): Train Loss = 0.041170, Val Loss = 0.036344, Gnorm = 0.089815, Samples = 136832256, LR = 2.59e-04, Steps/sec = 1.55, Samples/sec = 395.8
+Step 535000 (24.8%): Train Loss = 0.036141, Val Loss = 0.040078, Gnorm = 0.118428, Samples = 136960256, LR = 2.59e-04, Steps/sec = 1.46, Samples/sec = 373.0
+Step 535500 (24.9%): Train Loss = 0.039875, Val Loss = 0.048501, Gnorm = 0.128154, Samples = 137088256, LR = 2.58e-04, Steps/sec = 1.57, Samples/sec = 402.5
+Step 536000 (25.0%): Train Loss = 0.043503, Val Loss = 0.046486, Gnorm = 0.081487, Samples = 137216256, LR = 2.58e-04, Steps/sec = 1.51, Samples/sec = 387.3
+Step 536500 (25.1%): Train Loss = 0.038659, Val Loss = 0.044500, Gnorm = 0.223380, Samples = 137344256, LR = 2.58e-04, Steps/sec = 1.51, Samples/sec = 387.8
+Step 537000 (25.2%): Train Loss = 0.036032, Val Loss = 0.038548, Gnorm = 0.238482, Samples = 137472256, LR = 2.57e-04, Steps/sec = 1.52, Samples/sec = 388.2
+Step 537500 (25.3%): Train Loss = 0.041941, Val Loss = 0.038904, Gnorm = 0.083276, Samples = 137600256, LR = 2.57e-04, Steps/sec = 1.37, Samples/sec = 351.3
+Step 538000 (25.4%): Train Loss = 0.040087, Val Loss = 0.037860, Gnorm = 0.126039, Samples = 137728256, LR = 2.57e-04, Steps/sec = 1.62, Samples/sec = 414.0
+Step 538500 (25.5%): Train Loss = 0.045153, Val Loss = 0.040633, Gnorm = 0.130254, Samples = 137856256, LR = 2.56e-04, Steps/sec = 1.60, Samples/sec = 409.2
+Step 539000 (25.6%): Train Loss = 0.040374, Val Loss = 0.040574, Gnorm = 0.116754, Samples = 137984256, LR = 2.56e-04, Steps/sec = 1.56, Samples/sec = 398.3
+Step 539500 (25.7%): Train Loss = 0.040446, Val Loss = 0.032296, Gnorm = 0.159102, Samples = 138112256, LR = 2.56e-04, Steps/sec = 1.37, Samples/sec = 350.4
+Step 540000 (25.8%): Train Loss = 0.042224, Val Loss = 0.037288, Gnorm = 0.126992, Samples = 138240256, LR = 2.56e-04, Steps/sec = 1.55, Samples/sec = 397.7
+Step 540500 (25.9%): Train Loss = 0.040615, Val Loss = 0.043361, Gnorm = 0.141198, Samples = 138368256, LR = 2.55e-04, Steps/sec = 1.55, Samples/sec = 396.4
+Step 541000 (26.0%): Train Loss = 0.039662, Val Loss = 0.042205, Gnorm = 0.080297, Samples = 138496256, LR = 2.55e-04, Steps/sec = 1.58, Samples/sec = 405.5
+Step 541500 (26.1%): Train Loss = 0.040338, Val Loss = 0.038434, Gnorm = 0.104760, Samples = 138624256, LR = 2.55e-04, Steps/sec = 1.56, Samples/sec = 399.1
+Step 542000 (26.2%): Train Loss = 0.033381, Val Loss = 0.039821, Gnorm = 0.094386, Samples = 138752256, LR = 2.54e-04, Steps/sec = 0.49, Samples/sec = 124.4
+Step 542500 (26.3%): Train Loss = 0.036939, Val Loss = 0.042091, Gnorm = 0.103612, Samples = 138880256, LR = 2.54e-04, Steps/sec = 1.56, Samples/sec = 400.6
+Step 543000 (26.4%): Train Loss = 0.037755, Val Loss = 0.035244, Gnorm = 0.163558, Samples = 139008256, LR = 2.54e-04, Steps/sec = 1.48, Samples/sec = 379.0
+Step 543500 (26.5%): Train Loss = 0.038669, Val Loss = 0.039259, Gnorm = 0.113903, Samples = 139136256, LR = 2.53e-04, Steps/sec = 1.64, Samples/sec = 419.6
+Step 544000 (26.6%): Train Loss = 0.040473, Val Loss = 0.040032, Gnorm = 0.121934, Samples = 139264256, LR = 2.53e-04, Steps/sec = 1.55, Samples/sec = 397.6
+Step 544500 (26.7%): Train Loss = 0.039959, Val Loss = 0.035960, Gnorm = 0.210219, Samples = 139392256, LR = 2.53e-04, Steps/sec = 1.58, Samples/sec = 405.7
+Step 545000 (26.8%): Train Loss = 0.043742, Val Loss = 0.041321, Gnorm = 0.177493, Samples = 139520256, LR = 2.52e-04, Steps/sec = 1.66, Samples/sec = 423.7
+Step 545500 (26.9%): Train Loss = 0.040121, Val Loss = 0.039547, Gnorm = 0.123122, Samples = 139648256, LR = 2.52e-04, Steps/sec = 1.40, Samples/sec = 359.3
+Step 546000 (27.0%): Train Loss = 0.036078, Val Loss = 0.040540, Gnorm = 0.272653, Samples = 139776256, LR = 2.51e-04, Steps/sec = 1.41, Samples/sec = 361.8
+Step 546500 (27.1%): Train Loss = 0.034822, Val Loss = 0.040617, Gnorm = 0.097735, Samples = 139904256, LR = 2.51e-04, Steps/sec = 1.38, Samples/sec = 352.3
+Step 547000 (27.2%): Train Loss = 0.038686, Val Loss = 0.038526, Gnorm = 0.177623, Samples = 140032256, LR = 2.51e-04, Steps/sec = 1.69, Samples/sec = 433.7
+Step 547500 (27.3%): Train Loss = 0.039018, Val Loss = 0.034289, Gnorm = 0.080548, Samples = 140160256, LR = 2.50e-04, Steps/sec = 1.51, Samples/sec = 385.3
+Step 548000 (27.4%): Train Loss = 0.037034, Val Loss = 0.039750, Gnorm = 0.121819, Samples = 140288256, LR = 2.50e-04, Steps/sec = 1.67, Samples/sec = 427.3
+Step 548500 (27.5%): Train Loss = 0.040256, Val Loss = 0.036979, Gnorm = 0.113038, Samples = 140416256, LR = 2.50e-04, Steps/sec = 1.53, Samples/sec = 391.3
+Step 549000 (27.6%): Train Loss = 0.043333, Val Loss = 0.042393, Gnorm = 0.142410, Samples = 140544256, LR = 2.49e-04, Steps/sec = 1.64, Samples/sec = 420.3
+Step 549500 (27.7%): Train Loss = 0.040810, Val Loss = 0.038450, Gnorm = 0.235023, Samples = 140672256, LR = 2.49e-04, Steps/sec = 1.52, Samples/sec = 389.3
+Step 550000 (27.8%): Train Loss = 0.038677, Val Loss = 0.046530, Gnorm = 0.120296, Samples = 140800256, LR = 2.49e-04, Steps/sec = 1.66, Samples/sec = 425.0
+Step 550500 (27.9%): Train Loss = 0.045653, Val Loss = 0.042019, Gnorm = 0.246405, Samples = 140928256, LR = 2.48e-04, Steps/sec = 1.46, Samples/sec = 372.9
+Step 551000 (28.0%): Train Loss = 0.036497, Val Loss = 0.040495, Gnorm = 0.157418, Samples = 141056256, LR = 2.48e-04, Steps/sec = 1.63, Samples/sec = 417.9
+Step 551500 (28.1%): Train Loss = 0.043188, Val Loss = 0.041742, Gnorm = 0.142784, Samples = 141184256, LR = 2.48e-04, Steps/sec = 1.52, Samples/sec = 389.9
+Step 552000 (28.2%): Train Loss = 0.039809, Val Loss = 0.039485, Gnorm = 0.130055, Samples = 141312256, LR = 2.47e-04, Steps/sec = 1.68, Samples/sec = 430.4
+Step 552500 (28.3%): Train Loss = 0.036297, Val Loss = 0.038601, Gnorm = 0.131621, Samples = 141440256, LR = 2.47e-04, Steps/sec = 1.53, Samples/sec = 391.3
+Step 553000 (28.4%): Train Loss = 0.043451, Val Loss = 0.040451, Gnorm = 0.085208, Samples = 141568256, LR = 2.47e-04, Steps/sec = 1.65, Samples/sec = 421.4
+Step 553500 (28.5%): Train Loss = 0.036806, Val Loss = 0.037650, Gnorm = 0.169702, Samples = 141696256, LR = 2.46e-04, Steps/sec = 1.45, Samples/sec = 371.3
+Step 554000 (28.6%): Train Loss = 0.035788, Val Loss = 0.032611, Gnorm = 0.187029, Samples = 141824256, LR = 2.46e-04, Steps/sec = 1.68, Samples/sec = 430.3
+Step 554500 (28.7%): Train Loss = 0.038838, Val Loss = 0.037547, Gnorm = 0.082073, Samples = 141952256, LR = 2.46e-04, Steps/sec = 1.52, Samples/sec = 390.1
+Step 555000 (28.8%): Train Loss = 0.039241, Val Loss = 0.039823, Gnorm = 0.104804, Samples = 142080256, LR = 2.45e-04, Steps/sec = 1.43, Samples/sec = 367.2
+Step 555500 (28.9%): Train Loss = 0.041938, Val Loss = 0.047418, Gnorm = 0.168684, Samples = 142208256, LR = 2.45e-04, Steps/sec = 1.34, Samples/sec = 343.5
+Step 556000 (29.0%): Train Loss = 0.036488, Val Loss = 0.042946, Gnorm = 0.236695, Samples = 142336256, LR = 2.44e-04, Steps/sec = 1.77, Samples/sec = 454.3
+Step 556500 (29.1%): Train Loss = 0.042203, Val Loss = 0.043241, Gnorm = 0.129097, Samples = 142464256, LR = 2.44e-04, Steps/sec = 1.50, Samples/sec = 384.2
+Step 557000 (29.2%): Train Loss = 0.037490, Val Loss = 0.037874, Gnorm = 0.077468, Samples = 142592256, LR = 2.44e-04, Steps/sec = 1.61, Samples/sec = 412.8
+Step 557500 (29.3%): Train Loss = 0.044627, Val Loss = 0.039781, Gnorm = 0.108281, Samples = 142720256, LR = 2.43e-04, Steps/sec = 1.59, Samples/sec = 406.9
+Step 558000 (29.4%): Train Loss = 0.040669, Val Loss = 0.050156, Gnorm = 0.115655, Samples = 142848256, LR = 2.43e-04, Steps/sec = 0.49, Samples/sec = 125.2
+Step 558500 (29.5%): Train Loss = 0.039166, Val Loss = 0.035520, Gnorm = 0.158953, Samples = 142976256, LR = 2.43e-04, Steps/sec = 1.45, Samples/sec = 371.6
+Step 559000 (29.6%): Train Loss = 0.036916, Val Loss = 0.044808, Gnorm = 0.102132, Samples = 143104256, LR = 2.42e-04, Steps/sec = 1.56, Samples/sec = 398.8
+Step 559500 (29.7%): Train Loss = 0.036282, Val Loss = 0.041298, Gnorm = 0.239198, Samples = 143232256, LR = 2.42e-04, Steps/sec = 1.61, Samples/sec = 412.1
+Step 560000 (29.8%): Train Loss = 0.038395, Val Loss = 0.037394, Gnorm = 0.121105, Samples = 143360256, LR = 2.42e-04, Steps/sec = 1.53, Samples/sec = 392.4
+Step 560500 (29.9%): Train Loss = 0.035831, Val Loss = 0.038595, Gnorm = 0.108330, Samples = 143488256, LR = 2.41e-04, Steps/sec = 1.60, Samples/sec = 410.6
+Step 561000 (30.0%): Train Loss = 0.046498, Val Loss = 0.038703, Gnorm = 0.213129, Samples = 143616256, LR = 2.41e-04, Steps/sec = 1.56, Samples/sec = 399.3
+Step 561500 (30.1%): Train Loss = 0.039219, Val Loss = 0.041351, Gnorm = 0.133531, Samples = 143744256, LR = 2.40e-04, Steps/sec = 1.41, Samples/sec = 361.3
+Step 562000 (30.2%): Train Loss = 0.041508, Val Loss = 0.040213, Gnorm = 0.087344, Samples = 143872256, LR = 2.40e-04, Steps/sec = 1.49, Samples/sec = 381.2
+Step 562500 (30.3%): Train Loss = 0.036089, Val Loss = 0.033769, Gnorm = 0.114167, Samples = 144000256, LR = 2.40e-04, Steps/sec = 1.55, Samples/sec = 398.0
+Step 563000 (30.4%): Train Loss = 0.040817, Val Loss = 0.035412, Gnorm = 0.131556, Samples = 144128256, LR = 2.39e-04, Steps/sec = 1.55, Samples/sec = 396.7
+Step 563500 (30.5%): Train Loss = 0.041553, Val Loss = 0.035356, Gnorm = 0.152498, Samples = 144256256, LR = 2.39e-04, Steps/sec = 1.61, Samples/sec = 412.5
+Step 564000 (30.6%): Train Loss = 0.046660, Val Loss = 0.043861, Gnorm = 0.170274, Samples = 144384256, LR = 2.39e-04, Steps/sec = 1.58, Samples/sec = 403.5
+Step 564500 (30.7%): Train Loss = 0.036922, Val Loss = 0.049501, Gnorm = 0.096927, Samples = 144512256, LR = 2.38e-04, Steps/sec = 1.42, Samples/sec = 364.7
+Step 565000 (30.8%): Train Loss = 0.044372, Val Loss = 0.038355, Gnorm = 0.380375, Samples = 144640256, LR = 2.38e-04, Steps/sec = 1.70, Samples/sec = 435.7
+Step 565500 (30.9%): Train Loss = 0.042420, Val Loss = 0.045776, Gnorm = 0.148876, Samples = 144768256, LR = 2.38e-04, Steps/sec = 1.56, Samples/sec = 400.2
+Step 566000 (31.0%): Train Loss = 0.036702, Val Loss = 0.040087, Gnorm = 0.124411, Samples = 144896256, LR = 2.37e-04, Steps/sec = 1.57, Samples/sec = 402.9
+Step 566500 (31.1%): Train Loss = 0.038789, Val Loss = 0.033228, Gnorm = 0.115063, Samples = 145024256, LR = 2.37e-04, Steps/sec = 1.48, Samples/sec = 379.9
+Step 567000 (31.2%): Train Loss = 0.049209, Val Loss = 0.050179, Gnorm = 0.148526, Samples = 145152256, LR = 2.36e-04, Steps/sec = 1.60, Samples/sec = 409.2
+Step 567500 (31.3%): Train Loss = 0.035158, Val Loss = 0.039065, Gnorm = 0.115054, Samples = 145280256, LR = 2.36e-04, Steps/sec = 1.59, Samples/sec = 407.7
+Step 568000 (31.4%): Train Loss = 0.037604, Val Loss = 0.038729, Gnorm = 0.148632, Samples = 145408256, LR = 2.36e-04, Steps/sec = 1.56, Samples/sec = 399.3
+Step 568500 (31.5%): Train Loss = 0.038921, Val Loss = 0.039286, Gnorm = 0.280984, Samples = 145536256, LR = 2.35e-04, Steps/sec = 1.59, Samples/sec = 406.5
+Step 569000 (31.6%): Train Loss = 0.041272, Val Loss = 0.037305, Gnorm = 0.101090, Samples = 145664256, LR = 2.35e-04, Steps/sec = 1.63, Samples/sec = 416.7
+Step 569500 (31.7%): Train Loss = 0.044103, Val Loss = 0.042583, Gnorm = 0.207393, Samples = 145792256, LR = 2.34e-04, Steps/sec = 1.51, Samples/sec = 386.8
+Step 570000 (31.8%): Train Loss = 0.048217, Val Loss = 0.049807, Gnorm = 0.120210, Samples = 145920256, LR = 2.34e-04, Steps/sec = 1.63, Samples/sec = 418.6
+Step 570500 (31.9%): Train Loss = 0.039514, Val Loss = 0.041087, Gnorm = 0.101323, Samples = 146048256, LR = 2.34e-04, Steps/sec = 1.41, Samples/sec = 361.9
+Step 571000 (32.0%): Train Loss = 0.033763, Val Loss = 0.044160, Gnorm = 0.148501, Samples = 146176256, LR = 2.33e-04, Steps/sec = 1.54, Samples/sec = 393.4
+Step 571500 (32.1%): Train Loss = 0.046625, Val Loss = 0.048248, Gnorm = 0.098616, Samples = 146304256, LR = 2.33e-04, Steps/sec = 1.51, Samples/sec = 387.2
+Step 572000 (32.2%): Train Loss = 0.037353, Val Loss = 0.039509, Gnorm = 0.198075, Samples = 146432256, LR = 2.33e-04, Steps/sec = 1.63, Samples/sec = 416.2
+Step 572500 (32.3%): Train Loss = 0.036884, Val Loss = 0.039665, Gnorm = 0.123153, Samples = 146560256, LR = 2.32e-04, Steps/sec = 1.53, Samples/sec = 391.2
+Step 573000 (32.4%): Train Loss = 0.037220, Val Loss = 0.039348, Gnorm = 0.159319, Samples = 146688256, LR = 2.32e-04, Steps/sec = 1.63, Samples/sec = 417.4
+Step 573500 (32.5%): Train Loss = 0.039018, Val Loss = 0.042916, Gnorm = 0.210976, Samples = 146816256, LR = 2.31e-04, Steps/sec = 0.47, Samples/sec = 120.6
+Step 574000 (32.6%): Train Loss = 0.039253, Val Loss = 0.041335, Gnorm = 0.115234, Samples = 146944256, LR = 2.31e-04, Steps/sec = 1.67, Samples/sec = 428.5
+Step 574500 (32.7%): Train Loss = 0.036975, Val Loss = 0.042400, Gnorm = 0.089925, Samples = 147072256, LR = 2.31e-04, Steps/sec = 1.48, Samples/sec = 377.9
+Step 575000 (32.8%): Train Loss = 0.038227, Val Loss = 0.044263, Gnorm = 0.080287, Samples = 147200256, LR = 2.30e-04, Steps/sec = 1.67, Samples/sec = 428.7
+Step 575500 (32.9%): Train Loss = 0.043250, Val Loss = 0.038439, Gnorm = 0.073774, Samples = 147328256, LR = 2.30e-04, Steps/sec = 1.49, Samples/sec = 380.9
+Step 576000 (33.0%): Train Loss = 0.036331, Val Loss = 0.039045, Gnorm = 0.112139, Samples = 147456256, LR = 2.29e-04, Steps/sec = 1.68, Samples/sec = 430.2
+Step 576500 (33.1%): Train Loss = 0.043067, Val Loss = 0.036730, Gnorm = 0.272703, Samples = 147584256, LR = 2.29e-04, Steps/sec = 1.53, Samples/sec = 391.5
+Step 577000 (33.2%): Train Loss = 0.041705, Val Loss = 0.045605, Gnorm = 0.104696, Samples = 147712256, LR = 2.29e-04, Steps/sec = 1.58, Samples/sec = 405.5
+Step 577500 (33.3%): Train Loss = 0.045340, Val Loss = 0.037981, Gnorm = 0.124773, Samples = 147840256, LR = 2.28e-04, Steps/sec = 1.30, Samples/sec = 333.3
+Step 578000 (33.4%): Train Loss = 0.046230, Val Loss = 0.039772, Gnorm = 0.170125, Samples = 147968256, LR = 2.28e-04, Steps/sec = 1.65, Samples/sec = 423.1
+Step 578500 (33.5%): Train Loss = 0.040453, Val Loss = 0.050337, Gnorm = 0.099003, Samples = 148096256, LR = 2.27e-04, Steps/sec = 1.41, Samples/sec = 361.9
+Step 579000 (33.6%): Train Loss = 0.038279, Val Loss = 0.034243, Gnorm = 0.122021, Samples = 148224256, LR = 2.27e-04, Steps/sec = 1.69, Samples/sec = 432.4
+Step 579500 (33.7%): Train Loss = 0.042732, Val Loss = 0.040816, Gnorm = 0.123910, Samples = 148352256, LR = 2.27e-04, Steps/sec = 1.54, Samples/sec = 393.0
+Step 580000 (33.8%): Train Loss = 0.039267, Val Loss = 0.040035, Gnorm = 0.138895, Samples = 148480256, LR = 2.26e-04, Steps/sec = 1.65, Samples/sec = 423.7
+Step 580500 (33.9%): Train Loss = 0.042303, Val Loss = 0.036605, Gnorm = 0.163586, Samples = 148608256, LR = 2.26e-04, Steps/sec = 1.54, Samples/sec = 393.3
+Step 581000 (34.0%): Train Loss = 0.034015, Val Loss = 0.036677, Gnorm = 0.136498, Samples = 148736256, LR = 2.26e-04, Steps/sec = 1.63, Samples/sec = 418.4
+Step 581500 (34.1%): Train Loss = 0.042834, Val Loss = 0.038568, Gnorm = 0.123300, Samples = 148864256, LR = 2.25e-04, Steps/sec = 1.69, Samples/sec = 432.5
+Step 582000 (34.2%): Train Loss = 0.045109, Val Loss = 0.035816, Gnorm = 0.131407, Samples = 148992256, LR = 2.25e-04, Steps/sec = 1.40, Samples/sec = 357.4
+Step 582500 (34.3%): Train Loss = 0.039591, Val Loss = 0.044151, Gnorm = 0.281919, Samples = 149120256, LR = 2.24e-04, Steps/sec = 1.51, Samples/sec = 386.6
+Step 583000 (34.4%): Train Loss = 0.046772, Val Loss = 0.037353, Gnorm = 0.442951, Samples = 149248256, LR = 2.24e-04, Steps/sec = 1.52, Samples/sec = 390.3
+Step 583500 (34.5%): Train Loss = 0.041258, Val Loss = 0.035864, Gnorm = 0.303250, Samples = 149376256, LR = 2.24e-04, Steps/sec = 1.68, Samples/sec = 429.3
+Step 584000 (34.6%): Train Loss = 0.038902, Val Loss = 0.039698, Gnorm = 0.086548, Samples = 149504256, LR = 2.23e-04, Steps/sec = 1.48, Samples/sec = 378.7
+Step 584500 (34.7%): Train Loss = 0.044661, Val Loss = 0.040728, Gnorm = 0.082516, Samples = 149632256, LR = 2.23e-04, Steps/sec = 1.68, Samples/sec = 429.1
+Step 585000 (34.8%): Train Loss = 0.036762, Val Loss = 0.039005, Gnorm = 0.088727, Samples = 149760256, LR = 2.22e-04, Steps/sec = 1.47, Samples/sec = 377.0
+Step 585500 (34.9%): Train Loss = 0.041237, Val Loss = 0.042163, Gnorm = 0.109350, Samples = 149888256, LR = 2.22e-04, Steps/sec = 1.71, Samples/sec = 437.1
+Step 586000 (35.0%): Train Loss = 0.046035, Val Loss = 0.045314, Gnorm = 0.150499, Samples = 150016256, LR = 2.21e-04, Steps/sec = 1.49, Samples/sec = 381.6
+Step 586500 (35.1%): Train Loss = 0.037841, Val Loss = 0.040831, Gnorm = 0.158051, Samples = 150144256, LR = 2.21e-04, Steps/sec = 1.51, Samples/sec = 386.9
+Step 587000 (35.2%): Train Loss = 0.038279, Val Loss = 0.042187, Gnorm = 0.130868, Samples = 150272256, LR = 2.21e-04, Steps/sec = 1.54, Samples/sec = 394.3
+Step 587500 (35.3%): Train Loss = 0.036207, Val Loss = 0.041328, Gnorm = 0.088177, Samples = 150400256, LR = 2.20e-04, Steps/sec = 1.65, Samples/sec = 422.7
+Step 588000 (35.4%): Train Loss = 0.044804, Val Loss = 0.039849, Gnorm = 0.115457, Samples = 150528256, LR = 2.20e-04, Steps/sec = 1.50, Samples/sec = 382.9
+Step 588500 (35.5%): Train Loss = 0.042311, Val Loss = 0.038663, Gnorm = 0.228683, Samples = 150656256, LR = 2.19e-04, Steps/sec = 1.62, Samples/sec = 413.8
+Step 589000 (35.6%): Train Loss = 0.036462, Val Loss = 0.039303, Gnorm = 0.143305, Samples = 150784256, LR = 2.19e-04, Steps/sec = 0.48, Samples/sec = 124.1
+Step 589500 (35.7%): Train Loss = 0.040082, Val Loss = 0.042815, Gnorm = 0.087795, Samples = 150912256, LR = 2.19e-04, Steps/sec = 1.58, Samples/sec = 404.1
+Step 590000 (35.8%): Train Loss = 0.039555, Val Loss = 0.037647, Gnorm = 0.136576, Samples = 151040256, LR = 2.18e-04, Steps/sec = 1.41, Samples/sec = 361.5
+Step 590500 (35.9%): Train Loss = 0.039080, Val Loss = 0.036292, Gnorm = 0.291896, Samples = 151168256, LR = 2.18e-04, Steps/sec = 1.66, Samples/sec = 424.5
+Step 591000 (36.0%): Train Loss = 0.043114, Val Loss = 0.032783, Gnorm = 0.163579, Samples = 151296256, LR = 2.17e-04, Steps/sec = 1.49, Samples/sec = 380.7
+Step 591500 (36.1%): Train Loss = 0.041095, Val Loss = 0.034431, Gnorm = 0.084649, Samples = 151424256, LR = 2.17e-04, Steps/sec = 1.53, Samples/sec = 391.0
+Step 592000 (36.2%): Train Loss = 0.044882, Val Loss = 0.044546, Gnorm = 0.144709, Samples = 151552256, LR = 2.17e-04, Steps/sec = 1.55, Samples/sec = 395.7
+Step 592500 (36.3%): Train Loss = 0.037601, Val Loss = 0.039648, Gnorm = 0.127832, Samples = 151680256, LR = 2.16e-04, Steps/sec = 1.58, Samples/sec = 404.2
+Step 593000 (36.4%): Train Loss = 0.037231, Val Loss = 0.036659, Gnorm = 0.158145, Samples = 151808256, LR = 2.16e-04, Steps/sec = 1.43, Samples/sec = 365.3
+Step 593500 (36.5%): Train Loss = 0.041109, Val Loss = 0.040259, Gnorm = 0.127975, Samples = 151936256, LR = 2.15e-04, Steps/sec = 1.48, Samples/sec = 378.4
+Step 594000 (36.6%): Train Loss = 0.037167, Val Loss = 0.040346, Gnorm = 0.157306, Samples = 152064256, LR = 2.15e-04, Steps/sec = 1.53, Samples/sec = 391.3
+Step 594500 (36.7%): Train Loss = 0.039659, Val Loss = 0.040776, Gnorm = 0.100668, Samples = 152192256, LR = 2.14e-04, Steps/sec = 1.54, Samples/sec = 395.0
+Step 595000 (36.8%): Train Loss = 0.039146, Val Loss = 0.041019, Gnorm = 0.231861, Samples = 152320256, LR = 2.14e-04, Steps/sec = 1.62, Samples/sec = 414.6
+Step 595500 (36.9%): Train Loss = 0.043957, Val Loss = 0.040989, Gnorm = 0.085963, Samples = 152448256, LR = 2.14e-04, Steps/sec = 1.55, Samples/sec = 397.4
+Step 596000 (37.0%): Train Loss = 0.046252, Val Loss = 0.038817, Gnorm = 0.156642, Samples = 152576256, LR = 2.13e-04, Steps/sec = 1.60, Samples/sec = 409.2
+Step 596500 (37.1%): Train Loss = 0.041095, Val Loss = 0.044440, Gnorm = 0.119087, Samples = 152704256, LR = 2.13e-04, Steps/sec = 1.54, Samples/sec = 394.8
+Step 597000 (37.2%): Train Loss = 0.036419, Val Loss = 0.040575, Gnorm = 0.154615, Samples = 152832256, LR = 2.12e-04, Steps/sec = 1.49, Samples/sec = 381.5
+Step 597500 (37.3%): Train Loss = 0.039999, Val Loss = 0.037945, Gnorm = 0.095707, Samples = 152960256, LR = 2.12e-04, Steps/sec = 1.53, Samples/sec = 390.5
+Step 598000 (37.4%): Train Loss = 0.038394, Val Loss = 0.035256, Gnorm = 0.161251, Samples = 153088256, LR = 2.12e-04, Steps/sec = 1.55, Samples/sec = 395.7
+Step 598500 (37.5%): Train Loss = 0.039572, Val Loss = 0.041259, Gnorm = 0.150061, Samples = 153216256, LR = 2.11e-04, Steps/sec = 1.60, Samples/sec = 409.3
+Step 599000 (37.6%): Train Loss = 0.043751, Val Loss = 0.048089, Gnorm = 0.349688, Samples = 153344256, LR = 2.11e-04, Steps/sec = 1.61, Samples/sec = 411.9
+Step 599500 (37.7%): Train Loss = 0.038829, Val Loss = 0.038109, Gnorm = 0.111969, Samples = 153472256, LR = 2.10e-04, Steps/sec = 1.62, Samples/sec = 414.3
+Step 600000 (37.8%): Train Loss = 0.046526, Val Loss = 0.036378, Gnorm = 0.162247, Samples = 153600256, LR = 2.10e-04, Steps/sec = 1.55, Samples/sec = 397.3
+Step 600500 (37.9%): Train Loss = 0.039888, Val Loss = 0.047347, Gnorm = 0.207580, Samples = 153728256, LR = 2.09e-04, Steps/sec = 1.45, Samples/sec = 371.4
+Step 601000 (38.0%): Train Loss = 0.041233, Val Loss = 0.038883, Gnorm = 0.103484, Samples = 153856256, LR = 2.09e-04, Steps/sec = 1.61, Samples/sec = 411.0
+Step 601500 (38.1%): Train Loss = 0.035047, Val Loss = 0.036208, Gnorm = 0.203022, Samples = 153984256, LR = 2.09e-04, Steps/sec = 1.55, Samples/sec = 397.4
+Step 602000 (38.2%): Train Loss = 0.041054, Val Loss = 0.044914, Gnorm = 0.202609, Samples = 154112256, LR = 2.08e-04, Steps/sec = 1.44, Samples/sec = 369.9
+Step 602500 (38.3%): Train Loss = 0.052992, Val Loss = 0.038345, Gnorm = 0.182084, Samples = 154240256, LR = 2.08e-04, Steps/sec = 1.53, Samples/sec = 392.9
+Step 603000 (38.4%): Train Loss = 0.035838, Val Loss = 0.046339, Gnorm = 0.092903, Samples = 154368256, LR = 2.07e-04, Steps/sec = 1.59, Samples/sec = 407.6
+Step 603500 (38.5%): Train Loss = 0.034945, Val Loss = 0.044659, Gnorm = 0.092668, Samples = 154496256, LR = 2.07e-04, Steps/sec = 1.58, Samples/sec = 405.3
+Step 604000 (38.6%): Train Loss = 0.037028, Val Loss = 0.047824, Gnorm = 0.211459, Samples = 154624256, LR = 2.06e-04, Steps/sec = 1.61, Samples/sec = 411.3
+Step 604500 (38.7%): Train Loss = 0.040724, Val Loss = 0.042047, Gnorm = 0.131349, Samples = 154752256, LR = 2.06e-04, Steps/sec = 1.65, Samples/sec = 422.6
+Step 605000 (38.8%): Train Loss = 0.041951, Val Loss = 0.035448, Gnorm = 0.273162, Samples = 154880256, LR = 2.06e-04, Steps/sec = 0.49, Samples/sec = 124.6
+Step 605500 (38.9%): Train Loss = 0.035482, Val Loss = 0.048926, Gnorm = 0.157021, Samples = 155008256, LR = 2.05e-04, Steps/sec = 1.60, Samples/sec = 409.0
+Step 606000 (39.0%): Train Loss = 0.041457, Val Loss = 0.035025, Gnorm = 0.123671, Samples = 155136256, LR = 2.05e-04, Steps/sec = 1.47, Samples/sec = 377.4
+Step 606500 (39.1%): Train Loss = 0.040284, Val Loss = 0.039862, Gnorm = 0.163345, Samples = 155264256, LR = 2.04e-04, Steps/sec = 1.67, Samples/sec = 427.4
+Step 607000 (39.2%): Train Loss = 0.038981, Val Loss = 0.032943, Gnorm = 0.475109, Samples = 155392256, LR = 2.04e-04, Steps/sec = 1.49, Samples/sec = 382.4
+Step 607500 (39.3%): Train Loss = 0.035058, Val Loss = 0.036613, Gnorm = 0.186104, Samples = 155520256, LR = 2.03e-04, Steps/sec = 1.70, Samples/sec = 434.7
+Step 608000 (39.4%): Train Loss = 0.044593, Val Loss = 0.037081, Gnorm = 0.211444, Samples = 155648256, LR = 2.03e-04, Steps/sec = 1.44, Samples/sec = 369.7
+Step 608500 (39.5%): Train Loss = 0.034509, Val Loss = 0.040820, Gnorm = 0.170599, Samples = 155776256, LR = 2.03e-04, Steps/sec = 1.55, Samples/sec = 395.6
+Step 609000 (39.6%): Train Loss = 0.042076, Val Loss = 0.034777, Gnorm = 0.124690, Samples = 155904256, LR = 2.02e-04, Steps/sec = 1.37, Samples/sec = 350.5
+Step 609500 (39.7%): Train Loss = 0.051110, Val Loss = 0.048238, Gnorm = 0.201043, Samples = 156032256, LR = 2.02e-04, Steps/sec = 1.47, Samples/sec = 375.7
+Step 610000 (39.8%): Train Loss = 0.037373, Val Loss = 0.043707, Gnorm = 0.096613, Samples = 156160256, LR = 2.01e-04, Steps/sec = 1.59, Samples/sec = 406.6
+Step 610500 (39.9%): Train Loss = 0.040232, Val Loss = 0.042361, Gnorm = 0.127231, Samples = 156288256, LR = 2.01e-04, Steps/sec = 1.66, Samples/sec = 425.1
+Step 611000 (40.0%): Train Loss = 0.030760, Val Loss = 0.038033, Gnorm = 0.122558, Samples = 156416256, LR = 2.00e-04, Steps/sec = 1.54, Samples/sec = 393.0
+Step 611500 (40.1%): Train Loss = 0.032380, Val Loss = 0.042230, Gnorm = 0.147348, Samples = 156544256, LR = 2.00e-04, Steps/sec = 1.67, Samples/sec = 426.3
+Step 612000 (40.2%): Train Loss = 0.034693, Val Loss = 0.043616, Gnorm = 0.078654, Samples = 156672256, LR = 2.00e-04, Steps/sec = 1.48, Samples/sec = 379.4
+Step 612500 (40.3%): Train Loss = 0.039078, Val Loss = 0.037005, Gnorm = 0.110464, Samples = 156800256, LR = 1.99e-04, Steps/sec = 1.66, Samples/sec = 425.5
+Step 613000 (40.4%): Train Loss = 0.040659, Val Loss = 0.037635, Gnorm = 0.093188, Samples = 156928256, LR = 1.99e-04, Steps/sec = 1.53, Samples/sec = 392.7
+Step 613500 (40.5%): Train Loss = 0.035643, Val Loss = 0.037457, Gnorm = 0.114458, Samples = 157056256, LR = 1.98e-04, Steps/sec = 1.54, Samples/sec = 393.1
+Step 614000 (40.6%): Train Loss = 0.047492, Val Loss = 0.035416, Gnorm = 0.157206, Samples = 157184256, LR = 1.98e-04, Steps/sec = 1.54, Samples/sec = 394.8
+Step 614500 (40.7%): Train Loss = 0.040429, Val Loss = 0.043427, Gnorm = 0.421433, Samples = 157312256, LR = 1.97e-04, Steps/sec = 1.65, Samples/sec = 422.0
+Step 615000 (40.8%): Train Loss = 0.036909, Val Loss = 0.036706, Gnorm = 0.218476, Samples = 157440256, LR = 1.97e-04, Steps/sec = 1.52, Samples/sec = 388.1
+Step 615500 (40.9%): Train Loss = 0.037576, Val Loss = 0.039583, Gnorm = 0.119446, Samples = 157568256, LR = 1.97e-04, Steps/sec = 1.69, Samples/sec = 433.7
+Step 616000 (41.0%): Train Loss = 0.037435, Val Loss = 0.034035, Gnorm = 0.160612, Samples = 157696256, LR = 1.96e-04, Steps/sec = 1.52, Samples/sec = 388.7
+Step 616500 (41.1%): Train Loss = 0.036445, Val Loss = 0.038075, Gnorm = 0.118606, Samples = 157824256, LR = 1.96e-04, Steps/sec = 1.65, Samples/sec = 421.8
+Step 617000 (41.2%): Train Loss = 0.040766, Val Loss = 0.041913, Gnorm = 0.110338, Samples = 157952256, LR = 1.95e-04, Steps/sec = 1.61, Samples/sec = 412.5
+Step 617500 (41.3%): Train Loss = 0.050663, Val Loss = 0.036442, Gnorm = 0.133829, Samples = 158080256, LR = 1.95e-04, Steps/sec = 1.48, Samples/sec = 378.7
+Step 618000 (41.4%): Train Loss = 0.035105, Val Loss = 0.028351, Gnorm = 0.131206, Samples = 158208256, LR = 1.94e-04, Steps/sec = 1.50, Samples/sec = 383.0
+Step 618500 (41.5%): Train Loss = 0.039005, Val Loss = 0.041602, Gnorm = 0.244465, Samples = 158336256, LR = 1.94e-04, Steps/sec = 1.43, Samples/sec = 366.1
+Step 619000 (41.6%): Train Loss = 0.038899, Val Loss = 0.038073, Gnorm = 0.145000, Samples = 158464256, LR = 1.93e-04, Steps/sec = 1.69, Samples/sec = 432.9
+Step 619500 (41.7%): Train Loss = 0.035854, Val Loss = 0.042536, Gnorm = 0.137070, Samples = 158592256, LR = 1.93e-04, Steps/sec = 1.53, Samples/sec = 391.6
+Step 620000 (41.8%): Train Loss = 0.047901, Val Loss = 0.038866, Gnorm = 0.108156, Samples = 158720256, LR = 1.93e-04, Steps/sec = 1.62, Samples/sec = 413.8
+Step 620500 (41.9%): Train Loss = 0.043222, Val Loss = 0.040787, Gnorm = 0.155728, Samples = 158848256, LR = 1.92e-04, Steps/sec = 0.50, Samples/sec = 126.8
+Step 621000 (42.0%): Train Loss = 0.043573, Val Loss = 0.045434, Gnorm = 0.302527, Samples = 158976256, LR = 1.92e-04, Steps/sec = 1.52, Samples/sec = 389.7
+Step 621500 (42.1%): Train Loss = 0.036032, Val Loss = 0.042642, Gnorm = 0.061938, Samples = 159104256, LR = 1.91e-04, Steps/sec = 1.44, Samples/sec = 367.5
+Step 622000 (42.2%): Train Loss = 0.043128, Val Loss = 0.041318, Gnorm = 0.270975, Samples = 159232256, LR = 1.91e-04, Steps/sec = 1.61, Samples/sec = 412.8
+Step 622500 (42.3%): Train Loss = 0.036465, Val Loss = 0.040037, Gnorm = 0.163401, Samples = 159360256, LR = 1.90e-04, Steps/sec = 1.57, Samples/sec = 402.6
+Step 623000 (42.4%): Train Loss = 0.038426, Val Loss = 0.046144, Gnorm = 0.117800, Samples = 159488256, LR = 1.90e-04, Steps/sec = 1.59, Samples/sec = 406.1
+Step 623500 (42.5%): Train Loss = 0.037886, Val Loss = 0.043067, Gnorm = 0.094163, Samples = 159616256, LR = 1.90e-04, Steps/sec = 1.59, Samples/sec = 406.2
+Step 624000 (42.6%): Train Loss = 0.039260, Val Loss = 0.034353, Gnorm = 0.401169, Samples = 159744256, LR = 1.89e-04, Steps/sec = 1.54, Samples/sec = 394.9
+Step 624500 (42.7%): Train Loss = 0.037171, Val Loss = 0.043018, Gnorm = 0.105023, Samples = 159872256, LR = 1.89e-04, Steps/sec = 1.43, Samples/sec = 365.5
+Step 625000 (42.8%): Train Loss = 0.046030, Val Loss = 0.052410, Gnorm = 0.772078, Samples = 160000256, LR = 1.88e-04, Steps/sec = 1.47, Samples/sec = 377.5
+Step 625500 (42.9%): Train Loss = 0.036038, Val Loss = 0.039469, Gnorm = 0.190770, Samples = 160128256, LR = 1.88e-04, Steps/sec = 1.50, Samples/sec = 383.1
+Step 626000 (43.0%): Train Loss = 0.036841, Val Loss = 0.041736, Gnorm = 0.127037, Samples = 160256256, LR = 1.87e-04, Steps/sec = 1.54, Samples/sec = 395.2
+Step 626500 (43.1%): Train Loss = 0.039520, Val Loss = 0.037458, Gnorm = 0.111065, Samples = 160384256, LR = 1.87e-04, Steps/sec = 1.52, Samples/sec = 388.1
+Step 627000 (43.2%): Train Loss = 0.045451, Val Loss = 0.034580, Gnorm = 0.157523, Samples = 160512256, LR = 1.86e-04, Steps/sec = 1.60, Samples/sec = 409.1
+Step 627500 (43.3%): Train Loss = 0.038438, Val Loss = 0.041174, Gnorm = 0.155645, Samples = 160640256, LR = 1.86e-04, Steps/sec = 1.45, Samples/sec = 370.7
+Step 628000 (43.4%): Train Loss = 0.041916, Val Loss = 0.039192, Gnorm = 0.164734, Samples = 160768256, LR = 1.85e-04, Steps/sec = 1.68, Samples/sec = 428.9
+Step 628500 (43.5%): Train Loss = 0.036054, Val Loss = 0.047605, Gnorm = 0.157245, Samples = 160896256, LR = 1.85e-04, Steps/sec = 1.66, Samples/sec = 424.6
+Step 629000 (43.6%): Train Loss = 0.037413, Val Loss = 0.044179, Gnorm = 0.094019, Samples = 161024256, LR = 1.85e-04, Steps/sec = 1.48, Samples/sec = 378.4
+Step 629500 (43.7%): Train Loss = 0.034482, Val Loss = 0.038971, Gnorm = 0.281139, Samples = 161152256, LR = 1.84e-04, Steps/sec = 1.63, Samples/sec = 418.2
+Step 630000 (43.8%): Train Loss = 0.039668, Val Loss = 0.039900, Gnorm = 0.164048, Samples = 161280256, LR = 1.84e-04, Steps/sec = 1.54, Samples/sec = 395.1
+Step 630500 (43.9%): Train Loss = 0.035910, Val Loss = 0.037254, Gnorm = 0.098448, Samples = 161408256, LR = 1.83e-04, Steps/sec = 1.61, Samples/sec = 411.8
+Step 631000 (44.0%): Train Loss = 0.040673, Val Loss = 0.045438, Gnorm = 0.152084, Samples = 161536256, LR = 1.83e-04, Steps/sec = 1.51, Samples/sec = 385.3
+Step 631500 (44.1%): Train Loss = 0.038799, Val Loss = 0.039734, Gnorm = 0.119162, Samples = 161664256, LR = 1.82e-04, Steps/sec = 1.63, Samples/sec = 416.9
+Step 632000 (44.2%): Train Loss = 0.036782, Val Loss = 0.046196, Gnorm = 0.122941, Samples = 161792256, LR = 1.82e-04, Steps/sec = 1.47, Samples/sec = 377.2
+Step 632500 (44.3%): Train Loss = 0.039395, Val Loss = 0.042409, Gnorm = 0.221391, Samples = 161920256, LR = 1.81e-04, Steps/sec = 1.65, Samples/sec = 422.9
+Step 633000 (44.4%): Train Loss = 0.037701, Val Loss = 0.037814, Gnorm = 0.106371, Samples = 162048256, LR = 1.81e-04, Steps/sec = 1.50, Samples/sec = 385.1
+Step 633500 (44.5%): Train Loss = 0.040891, Val Loss = 0.038771, Gnorm = 0.142001, Samples = 162176256, LR = 1.81e-04, Steps/sec = 1.50, Samples/sec = 383.4
+Step 634000 (44.6%): Train Loss = 0.041279, Val Loss = 0.038937, Gnorm = 0.160889, Samples = 162304256, LR = 1.80e-04, Steps/sec = 1.45, Samples/sec = 371.0
+Step 634500 (44.7%): Train Loss = 0.037014, Val Loss = 0.048932, Gnorm = 0.076451, Samples = 162432256, LR = 1.80e-04, Steps/sec = 1.67, Samples/sec = 428.4
+Step 635000 (44.8%): Train Loss = 0.041061, Val Loss = 0.044113, Gnorm = 0.195444, Samples = 162560256, LR = 1.79e-04, Steps/sec = 1.47, Samples/sec = 377.1
+Step 635500 (44.9%): Train Loss = 0.036453, Val Loss = 0.037929, Gnorm = 0.114858, Samples = 162688256, LR = 1.79e-04, Steps/sec = 1.60, Samples/sec = 410.5
+Step 636000 (45.0%): Train Loss = 0.042179, Val Loss = 0.037085, Gnorm = 0.198501, Samples = 162816256, LR = 1.78e-04, Steps/sec = 1.47, Samples/sec = 377.2
+Step 636500 (45.1%): Train Loss = 0.037843, Val Loss = 0.033926, Gnorm = 0.055938, Samples = 162944256, LR = 1.78e-04, Steps/sec = 0.49, Samples/sec = 125.0
+Step 637000 (45.2%): Train Loss = 0.036472, Val Loss = 0.046831, Gnorm = 0.169899, Samples = 163072256, LR = 1.77e-04, Steps/sec = 1.54, Samples/sec = 395.4
+Step 637500 (45.3%): Train Loss = 0.040710, Val Loss = 0.036818, Gnorm = 0.114088, Samples = 163200256, LR = 1.77e-04, Steps/sec = 1.62, Samples/sec = 413.9
+Step 638000 (45.4%): Train Loss = 0.040919, Val Loss = 0.042091, Gnorm = 0.090769, Samples = 163328256, LR = 1.77e-04, Steps/sec = 1.52, Samples/sec = 388.7
+Step 638500 (45.5%): Train Loss = 0.038688, Val Loss = 0.038362, Gnorm = 0.202347, Samples = 163456256, LR = 1.76e-04, Steps/sec = 1.66, Samples/sec = 426.1
+Step 639000 (45.6%): Train Loss = 0.038291, Val Loss = 0.035641, Gnorm = 0.131912, Samples = 163584256, LR = 1.76e-04, Steps/sec = 1.53, Samples/sec = 392.1
+Step 639500 (45.7%): Train Loss = 0.042528, Val Loss = 0.040855, Gnorm = 0.426692, Samples = 163712256, LR = 1.75e-04, Steps/sec = 1.58, Samples/sec = 404.4
+Step 640000 (45.8%): Train Loss = 0.035408, Val Loss = 0.034015, Gnorm = 0.176489, Samples = 163840256, LR = 1.75e-04, Steps/sec = 1.45, Samples/sec = 370.7
+Step 640500 (45.9%): Train Loss = 0.036410, Val Loss = 0.051698, Gnorm = 0.192979, Samples = 163968256, LR = 1.74e-04, Steps/sec = 1.47, Samples/sec = 377.5
+Step 641000 (46.0%): Train Loss = 0.038125, Val Loss = 0.035629, Gnorm = 0.191487, Samples = 164096256, LR = 1.74e-04, Steps/sec = 1.52, Samples/sec = 389.0
+Step 641500 (46.1%): Train Loss = 0.038344, Val Loss = 0.034140, Gnorm = 0.182918, Samples = 164224256, LR = 1.73e-04, Steps/sec = 1.54, Samples/sec = 393.1
+Step 642000 (46.2%): Train Loss = 0.037008, Val Loss = 0.035549, Gnorm = 0.082038, Samples = 164352256, LR = 1.73e-04, Steps/sec = 1.64, Samples/sec = 419.8
+Step 642500 (46.3%): Train Loss = 0.036307, Val Loss = 0.038948, Gnorm = 0.116823, Samples = 164480256, LR = 1.72e-04, Steps/sec = 1.61, Samples/sec = 411.9
+Step 643000 (46.4%): Train Loss = 0.038509, Val Loss = 0.034454, Gnorm = 0.178395, Samples = 164608256, LR = 1.72e-04, Steps/sec = 1.56, Samples/sec = 400.3
+Step 643500 (46.5%): Train Loss = 0.036979, Val Loss = 0.041412, Gnorm = 0.149788, Samples = 164736256, LR = 1.72e-04, Steps/sec = 1.53, Samples/sec = 390.9
+Step 644000 (46.6%): Train Loss = 0.038918, Val Loss = 0.037360, Gnorm = 0.173795, Samples = 164864256, LR = 1.71e-04, Steps/sec = 1.57, Samples/sec = 401.8
+Step 644500 (46.7%): Train Loss = 0.033216, Val Loss = 0.040141, Gnorm = 0.109641, Samples = 164992256, LR = 1.71e-04, Steps/sec = 1.59, Samples/sec = 406.7
+Step 645000 (46.8%): Train Loss = 0.036432, Val Loss = 0.042064, Gnorm = 0.121266, Samples = 165120256, LR = 1.70e-04, Steps/sec = 1.50, Samples/sec = 384.2
+Step 645500 (46.9%): Train Loss = 0.033418, Val Loss = 0.040027, Gnorm = 0.112636, Samples = 165248256, LR = 1.70e-04, Steps/sec = 1.47, Samples/sec = 376.0
+Step 646000 (47.0%): Train Loss = 0.035077, Val Loss = 0.036187, Gnorm = 0.152390, Samples = 165376256, LR = 1.69e-04, Steps/sec = 1.79, Samples/sec = 458.5
+Step 646500 (47.1%): Train Loss = 0.036094, Val Loss = 0.045562, Gnorm = 0.145576, Samples = 165504256, LR = 1.69e-04, Steps/sec = 1.61, Samples/sec = 410.9
+Step 647000 (47.2%): Train Loss = 0.043181, Val Loss = 0.035155, Gnorm = 0.187660, Samples = 165632256, LR = 1.68e-04, Steps/sec = 1.62, Samples/sec = 414.9
+Step 647500 (47.3%): Train Loss = 0.039888, Val Loss = 0.039218, Gnorm = 0.143169, Samples = 165760256, LR = 1.68e-04, Steps/sec = 1.57, Samples/sec = 401.9
+Step 648000 (47.4%): Train Loss = 0.042252, Val Loss = 0.036791, Gnorm = 0.199166, Samples = 165888256, LR = 1.67e-04, Steps/sec = 1.61, Samples/sec = 411.5
+Step 648500 (47.5%): Train Loss = 0.035677, Val Loss = 0.045398, Gnorm = 0.129644, Samples = 166016256, LR = 1.67e-04, Steps/sec = 1.54, Samples/sec = 393.2
+Step 649000 (47.6%): Train Loss = 0.041134, Val Loss = 0.049041, Gnorm = 0.161485, Samples = 166144256, LR = 1.67e-04, Steps/sec = 1.61, Samples/sec = 413.0
+Step 649500 (47.7%): Train Loss = 0.037180, Val Loss = 0.045004, Gnorm = 0.195773, Samples = 166272256, LR = 1.66e-04, Steps/sec = 1.44, Samples/sec = 368.9
+Step 650000 (47.8%): Train Loss = 0.038114, Val Loss = 0.042631, Gnorm = 0.327717, Samples = 166400256, LR = 1.66e-04, Steps/sec = 1.63, Samples/sec = 418.0
+Step 650500 (47.9%): Train Loss = 0.042326, Val Loss = 0.047052, Gnorm = 0.159077, Samples = 166528256, LR = 1.65e-04, Steps/sec = 1.59, Samples/sec = 406.9
+Step 651000 (48.0%): Train Loss = 0.033934, Val Loss = 0.042742, Gnorm = 0.142817, Samples = 166656256, LR = 1.65e-04, Steps/sec = 1.56, Samples/sec = 398.5
+Step 651500 (48.1%): Train Loss = 0.040984, Val Loss = 0.037984, Gnorm = 0.133214, Samples = 166784256, LR = 1.64e-04, Steps/sec = 1.59, Samples/sec = 406.2
+Step 652000 (48.2%): Train Loss = 0.035962, Val Loss = 0.038378, Gnorm = 0.121305, Samples = 166912256, LR = 1.64e-04, Steps/sec = 1.20, Samples/sec = 307.1
+Step 652500 (48.3%): Train Loss = 0.041350, Val Loss = 0.037019, Gnorm = 0.149601, Samples = 167040256, LR = 1.63e-04, Steps/sec = 0.56, Samples/sec = 142.4
+Step 653000 (48.4%): Train Loss = 0.034697, Val Loss = 0.037472, Gnorm = 0.168109, Samples = 167168256, LR = 1.63e-04, Steps/sec = 1.41, Samples/sec = 360.5
+Step 653500 (48.5%): Train Loss = 0.037036, Val Loss = 0.035289, Gnorm = 0.185731, Samples = 167296256, LR = 1.62e-04, Steps/sec = 1.69, Samples/sec = 433.0
+Step 654000 (48.6%): Train Loss = 0.036260, Val Loss = 0.039267, Gnorm = 0.171682, Samples = 167424256, LR = 1.62e-04, Steps/sec = 1.48, Samples/sec = 378.1
+Step 654500 (48.7%): Train Loss = 0.035434, Val Loss = 0.038404, Gnorm = 0.131508, Samples = 167552256, LR = 1.62e-04, Steps/sec = 1.50, Samples/sec = 385.3
+Step 655000 (48.8%): Train Loss = 0.035687, Val Loss = 0.038692, Gnorm = 0.235466, Samples = 167680256, LR = 1.61e-04, Steps/sec = 1.65, Samples/sec = 422.7
+Step 655500 (48.9%): Train Loss = 0.038169, Val Loss = 0.040480, Gnorm = 0.186097, Samples = 167808256, LR = 1.61e-04, Steps/sec = 1.64, Samples/sec = 420.7
+Step 656000 (49.0%): Train Loss = 0.041691, Val Loss = 0.039373, Gnorm = 0.119168, Samples = 167936256, LR = 1.60e-04, Steps/sec = 1.37, Samples/sec = 350.5
+Step 656500 (49.1%): Train Loss = 0.039059, Val Loss = 0.038098, Gnorm = 0.136007, Samples = 168064256, LR = 1.60e-04, Steps/sec = 1.52, Samples/sec = 388.7
+Step 657000 (49.2%): Train Loss = 0.038995, Val Loss = 0.043583, Gnorm = 0.306430, Samples = 168192256, LR = 1.59e-04, Steps/sec = 1.46, Samples/sec = 374.9
+Step 657500 (49.3%): Train Loss = 0.043075, Val Loss = 0.050571, Gnorm = 0.420066, Samples = 168320256, LR = 1.59e-04, Steps/sec = 1.62, Samples/sec = 415.8
+Step 658000 (49.4%): Train Loss = 0.044325, Val Loss = 0.039595, Gnorm = 0.082859, Samples = 168448256, LR = 1.58e-04, Steps/sec = 1.50, Samples/sec = 384.2
+Step 658500 (49.5%): Train Loss = 0.037967, Val Loss = 0.042016, Gnorm = 0.119807, Samples = 168576256, LR = 1.58e-04, Steps/sec = 1.71, Samples/sec = 436.8
+Step 659000 (49.6%): Train Loss = 0.037611, Val Loss = 0.042005, Gnorm = 0.215794, Samples = 168704256, LR = 1.57e-04, Steps/sec = 1.53, Samples/sec = 391.2
+Step 659500 (49.7%): Train Loss = 0.037750, Val Loss = 0.045513, Gnorm = 0.177925, Samples = 168832256, LR = 1.57e-04, Steps/sec = 1.64, Samples/sec = 420.0
+Step 660000 (49.8%): Train Loss = 0.035727, Val Loss = 0.039473, Gnorm = 0.127743, Samples = 168960256, LR = 1.57e-04, Steps/sec = 1.51, Samples/sec = 386.2
+Step 660500 (49.9%): Train Loss = 0.035413, Val Loss = 0.039552, Gnorm = 0.197348, Samples = 169088256, LR = 1.56e-04, Steps/sec = 1.63, Samples/sec = 416.5
+Step 661000 (50.0%): Train Loss = 0.033443, Val Loss = 0.046658, Gnorm = 0.266766, Samples = 169216256, LR = 1.56e-04, Steps/sec = 1.47, Samples/sec = 376.3
+Step 661500 (50.1%): Train Loss = 0.035966, Val Loss = 0.040387, Gnorm = 0.138435, Samples = 169344256, LR = 1.55e-04, Steps/sec = 1.68, Samples/sec = 429.9
+Step 662000 (50.2%): Train Loss = 0.036896, Val Loss = 0.038845, Gnorm = 0.174683, Samples = 169472256, LR = 1.55e-04, Steps/sec = 1.50, Samples/sec = 383.2
+Step 662500 (50.3%): Train Loss = 0.035970, Val Loss = 0.043159, Gnorm = 0.130931, Samples = 169600256, LR = 1.54e-04, Steps/sec = 1.69, Samples/sec = 432.8
+Step 663000 (50.4%): Train Loss = 0.040892, Val Loss = 0.035969, Gnorm = 0.138965, Samples = 169728256, LR = 1.54e-04, Steps/sec = 1.55, Samples/sec = 397.9
+Step 663500 (50.5%): Train Loss = 0.042845, Val Loss = 0.036285, Gnorm = 0.162076, Samples = 169856256, LR = 1.53e-04, Steps/sec = 1.47, Samples/sec = 375.4
+Step 664000 (50.6%): Train Loss = 0.040045, Val Loss = 0.036611, Gnorm = 0.233654, Samples = 169984256, LR = 1.53e-04, Steps/sec = 1.70, Samples/sec = 436.2
+Step 664500 (50.7%): Train Loss = 0.040443, Val Loss = 0.034424, Gnorm = 0.145472, Samples = 170112256, LR = 1.52e-04, Steps/sec = 1.64, Samples/sec = 420.1
+Step 665000 (50.8%): Train Loss = 0.037059, Val Loss = 0.043046, Gnorm = 0.118171, Samples = 170240256, LR = 1.52e-04, Steps/sec = 1.58, Samples/sec = 403.9
+Step 665500 (50.9%): Train Loss = 0.037858, Val Loss = 0.035025, Gnorm = 0.169060, Samples = 170368256, LR = 1.51e-04, Steps/sec = 1.41, Samples/sec = 359.8
+Step 666000 (51.0%): Train Loss = 0.037706, Val Loss = 0.036991, Gnorm = 0.246304, Samples = 170496256, LR = 1.51e-04, Steps/sec = 1.69, Samples/sec = 433.2
+Step 666500 (51.1%): Train Loss = 0.037985, Val Loss = 0.034330, Gnorm = 0.246700, Samples = 170624256, LR = 1.51e-04, Steps/sec = 1.47, Samples/sec = 376.9
+Step 667000 (51.2%): Train Loss = 0.038054, Val Loss = 0.041504, Gnorm = 0.137086, Samples = 170752256, LR = 1.50e-04, Steps/sec = 1.63, Samples/sec = 417.3
+Step 667500 (51.3%): Train Loss = 0.036165, Val Loss = 0.033427, Gnorm = 0.164346, Samples = 170880256, LR = 1.50e-04, Steps/sec = 1.48, Samples/sec = 379.8
+Step 668000 (51.4%): Train Loss = 0.040380, Val Loss = 0.041449, Gnorm = 0.163329, Samples = 171008256, LR = 1.49e-04, Steps/sec = 0.50, Samples/sec = 128.9
+Step 668500 (51.5%): Train Loss = 0.033619, Val Loss = 0.037579, Gnorm = 0.206166, Samples = 171136256, LR = 1.49e-04, Steps/sec = 1.45, Samples/sec = 371.6
+Step 669000 (51.6%): Train Loss = 0.044893, Val Loss = 0.035397, Gnorm = 0.123276, Samples = 171264256, LR = 1.48e-04, Steps/sec = 1.55, Samples/sec = 397.9
+Step 669500 (51.7%): Train Loss = 0.039878, Val Loss = 0.040955, Gnorm = 0.169818, Samples = 171392256, LR = 1.48e-04, Steps/sec = 1.54, Samples/sec = 394.3
+Step 670000 (51.8%): Train Loss = 0.040791, Val Loss = 0.037884, Gnorm = 0.228630, Samples = 171520256, LR = 1.47e-04, Steps/sec = 1.58, Samples/sec = 404.1
+Step 670500 (51.9%): Train Loss = 0.042738, Val Loss = 0.036601, Gnorm = 0.112805, Samples = 171648256, LR = 1.47e-04, Steps/sec = 1.52, Samples/sec = 388.2
+Step 671000 (52.0%): Train Loss = 0.041318, Val Loss = 0.036739, Gnorm = 0.240515, Samples = 171776256, LR = 1.46e-04, Steps/sec = 1.62, Samples/sec = 415.5
+Step 671500 (52.1%): Train Loss = 0.033638, Val Loss = 0.035130, Gnorm = 0.342745, Samples = 171904256, LR = 1.46e-04, Steps/sec = 1.44, Samples/sec = 369.7
+Step 672000 (52.2%): Train Loss = 0.038409, Val Loss = 0.036007, Gnorm = 0.188472, Samples = 172032256, LR = 1.46e-04, Steps/sec = 1.51, Samples/sec = 387.6
+Step 672500 (52.3%): Train Loss = 0.037187, Val Loss = 0.046097, Gnorm = 0.106449, Samples = 172160256, LR = 1.45e-04, Steps/sec = 1.30, Samples/sec = 331.8
+Step 673000 (52.4%): Train Loss = 0.037932, Val Loss = 0.037267, Gnorm = 0.101318, Samples = 172288256, LR = 1.45e-04, Steps/sec = 1.73, Samples/sec = 442.7
+Step 673500 (52.5%): Train Loss = 0.038109, Val Loss = 0.040252, Gnorm = 0.127215, Samples = 172416256, LR = 1.44e-04, Steps/sec = 1.52, Samples/sec = 388.5
+Step 674000 (52.6%): Train Loss = 0.039298, Val Loss = 0.037556, Gnorm = 0.091390, Samples = 172544256, LR = 1.44e-04, Steps/sec = 1.64, Samples/sec = 418.8
+Step 674500 (52.7%): Train Loss = 0.037963, Val Loss = 0.035315, Gnorm = 0.132033, Samples = 172672256, LR = 1.43e-04, Steps/sec = 1.49, Samples/sec = 381.2
+Step 675000 (52.8%): Train Loss = 0.035454, Val Loss = 0.041333, Gnorm = 0.294397, Samples = 172800256, LR = 1.43e-04, Steps/sec = 1.66, Samples/sec = 424.6
+Step 675500 (52.9%): Train Loss = 0.042737, Val Loss = 0.047773, Gnorm = 0.193434, Samples = 172928256, LR = 1.42e-04, Steps/sec = 1.50, Samples/sec = 383.0
+Step 676000 (53.0%): Train Loss = 0.032041, Val Loss = 0.048102, Gnorm = 0.204808, Samples = 173056256, LR = 1.42e-04, Steps/sec = 1.70, Samples/sec = 436.4
+Step 676500 (53.1%): Train Loss = 0.037308, Val Loss = 0.037176, Gnorm = 0.216197, Samples = 173184256, LR = 1.41e-04, Steps/sec = 1.51, Samples/sec = 386.1
+Step 677000 (53.2%): Train Loss = 0.040037, Val Loss = 0.035309, Gnorm = 0.189283, Samples = 173312256, LR = 1.41e-04, Steps/sec = 1.57, Samples/sec = 402.5
+Step 677500 (53.3%): Train Loss = 0.042428, Val Loss = 0.036770, Gnorm = 0.136596, Samples = 173440256, LR = 1.41e-04, Steps/sec = 1.54, Samples/sec = 395.1
+Step 678000 (53.4%): Train Loss = 0.040779, Val Loss = 0.035431, Gnorm = 0.075554, Samples = 173568256, LR = 1.40e-04, Steps/sec = 1.60, Samples/sec = 408.9
+Step 678500 (53.5%): Train Loss = 0.048956, Val Loss = 0.044331, Gnorm = 0.245984, Samples = 173696256, LR = 1.40e-04, Steps/sec = 1.57, Samples/sec = 401.8
+Step 679000 (53.6%): Train Loss = 0.038726, Val Loss = 0.039226, Gnorm = 0.124152, Samples = 173824256, LR = 1.39e-04, Steps/sec = 1.56, Samples/sec = 400.1
+Step 679500 (53.7%): Train Loss = 0.037468, Val Loss = 0.039051, Gnorm = 0.241751, Samples = 173952256, LR = 1.39e-04, Steps/sec = 1.60, Samples/sec = 408.4
+Step 680000 (53.8%): Train Loss = 0.036910, Val Loss = 0.045563, Gnorm = 0.284453, Samples = 174080256, LR = 1.38e-04, Steps/sec = 1.59, Samples/sec = 406.0
+Step 680500 (53.9%): Train Loss = 0.043759, Val Loss = 0.041459, Gnorm = 0.123400, Samples = 174208256, LR = 1.38e-04, Steps/sec = 1.56, Samples/sec = 399.3
+Step 681000 (54.0%): Train Loss = 0.040804, Val Loss = 0.034254, Gnorm = 0.078707, Samples = 174336256, LR = 1.37e-04, Steps/sec = 1.44, Samples/sec = 369.4
+Step 681500 (54.1%): Train Loss = 0.036660, Val Loss = 0.037283, Gnorm = 0.219621, Samples = 174464256, LR = 1.37e-04, Steps/sec = 1.43, Samples/sec = 367.1
+Step 682000 (54.2%): Train Loss = 0.038914, Val Loss = 0.048594, Gnorm = 0.089603, Samples = 174592256, LR = 1.36e-04, Steps/sec = 1.77, Samples/sec = 451.9
+Step 682500 (54.3%): Train Loss = 0.039662, Val Loss = 0.039015, Gnorm = 0.270485, Samples = 174720256, LR = 1.36e-04, Steps/sec = 1.52, Samples/sec = 388.5
+Step 683000 (54.4%): Train Loss = 0.039468, Val Loss = 0.032331, Gnorm = 0.093261, Samples = 174848256, LR = 1.36e-04, Steps/sec = 1.61, Samples/sec = 412.9
+Step 683500 (54.5%): Train Loss = 0.041206, Val Loss = 0.038385, Gnorm = 0.250316, Samples = 174976256, LR = 1.35e-04, Steps/sec = 1.50, Samples/sec = 384.2
+Step 684000 (54.6%): Train Loss = 0.036262, Val Loss = 0.037075, Gnorm = 0.177698, Samples = 175104256, LR = 1.35e-04, Steps/sec = 0.50, Samples/sec = 128.1
+Step 684500 (54.7%): Train Loss = 0.036290, Val Loss = 0.039114, Gnorm = 0.213646, Samples = 175232256, LR = 1.34e-04, Steps/sec = 1.54, Samples/sec = 393.2
+Step 685000 (54.8%): Train Loss = 0.035079, Val Loss = 0.037222, Gnorm = 0.077797, Samples = 175360256, LR = 1.34e-04, Steps/sec = 1.60, Samples/sec = 410.4
+Step 685500 (54.9%): Train Loss = 0.039709, Val Loss = 0.039701, Gnorm = 0.095495, Samples = 175488256, LR = 1.33e-04, Steps/sec = 1.58, Samples/sec = 404.4
+Step 686000 (55.0%): Train Loss = 0.040155, Val Loss = 0.039315, Gnorm = 0.198202, Samples = 175616256, LR = 1.33e-04, Steps/sec = 1.61, Samples/sec = 412.7
+Step 686500 (55.1%): Train Loss = 0.041310, Val Loss = 0.041310, Gnorm = 0.092887, Samples = 175744256, LR = 1.32e-04, Steps/sec = 1.53, Samples/sec = 391.1
+Step 687000 (55.2%): Train Loss = 0.034662, Val Loss = 0.035715, Gnorm = 0.097629, Samples = 175872256, LR = 1.32e-04, Steps/sec = 1.56, Samples/sec = 399.2
+Step 687500 (55.3%): Train Loss = 0.047772, Val Loss = 0.036086, Gnorm = 0.215317, Samples = 176000256, LR = 1.32e-04, Steps/sec = 1.45, Samples/sec = 372.3
+Step 688000 (55.4%): Train Loss = 0.037232, Val Loss = 0.036522, Gnorm = 0.271921, Samples = 176128256, LR = 1.31e-04, Steps/sec = 1.32, Samples/sec = 338.2
+Step 688500 (55.5%): Train Loss = 0.039975, Val Loss = 0.036035, Gnorm = 0.232223, Samples = 176256256, LR = 1.31e-04, Steps/sec = 1.47, Samples/sec = 375.6
+Step 689000 (55.6%): Train Loss = 0.038366, Val Loss = 0.043108, Gnorm = 0.117240, Samples = 176384256, LR = 1.30e-04, Steps/sec = 1.66, Samples/sec = 425.4
+Step 689500 (55.7%): Train Loss = 0.039351, Val Loss = 0.039966, Gnorm = 0.211010, Samples = 176512256, LR = 1.30e-04, Steps/sec = 1.51, Samples/sec = 386.9
+Step 690000 (55.8%): Train Loss = 0.037079, Val Loss = 0.034161, Gnorm = 0.154508, Samples = 176640256, LR = 1.29e-04, Steps/sec = 1.72, Samples/sec = 440.8
+Step 690500 (55.9%): Train Loss = 0.038091, Val Loss = 0.043297, Gnorm = 0.274928, Samples = 176768256, LR = 1.29e-04, Steps/sec = 1.38, Samples/sec = 353.8
+Step 691000 (56.0%): Train Loss = 0.043970, Val Loss = 0.036345, Gnorm = 0.197016, Samples = 176896256, LR = 1.28e-04, Steps/sec = 1.80, Samples/sec = 461.5
+Step 691500 (56.1%): Train Loss = 0.047136, Val Loss = 0.038567, Gnorm = 0.247821, Samples = 177024256, LR = 1.28e-04, Steps/sec = 1.49, Samples/sec = 382.6
+Step 692000 (56.2%): Train Loss = 0.037514, Val Loss = 0.034350, Gnorm = 0.351252, Samples = 177152256, LR = 1.27e-04, Steps/sec = 1.64, Samples/sec = 419.1
+Step 692500 (56.3%): Train Loss = 0.040112, Val Loss = 0.034576, Gnorm = 0.166864, Samples = 177280256, LR = 1.27e-04, Steps/sec = 1.47, Samples/sec = 376.2
+Step 693000 (56.4%): Train Loss = 0.043598, Val Loss = 0.035234, Gnorm = 0.112752, Samples = 177408256, LR = 1.27e-04, Steps/sec = 1.68, Samples/sec = 429.3
+Step 693500 (56.5%): Train Loss = 0.038323, Val Loss = 0.044967, Gnorm = 0.188128, Samples = 177536256, LR = 1.26e-04, Steps/sec = 1.52, Samples/sec = 390.3
+Step 694000 (56.6%): Train Loss = 0.037661, Val Loss = 0.053466, Gnorm = 0.174963, Samples = 177664256, LR = 1.26e-04, Steps/sec = 1.67, Samples/sec = 428.4
+Step 694500 (56.7%): Train Loss = 0.041256, Val Loss = 0.039851, Gnorm = 0.289728, Samples = 177792256, LR = 1.25e-04, Steps/sec = 1.48, Samples/sec = 379.4
+Step 695000 (56.8%): Train Loss = 0.044224, Val Loss = 0.036748, Gnorm = 0.149793, Samples = 177920256, LR = 1.25e-04, Steps/sec = 1.61, Samples/sec = 413.0
+Step 695500 (56.9%): Train Loss = 0.038882, Val Loss = 0.039256, Gnorm = 0.217893, Samples = 178048256, LR = 1.24e-04, Steps/sec = 1.55, Samples/sec = 395.7
+Step 696000 (57.0%): Train Loss = 0.042023, Val Loss = 0.035898, Gnorm = 0.090845, Samples = 178176256, LR = 1.24e-04, Steps/sec = 1.63, Samples/sec = 417.7
+Step 696500 (57.1%): Train Loss = 0.039222, Val Loss = 0.039361, Gnorm = 0.287687, Samples = 178304256, LR = 1.23e-04, Steps/sec = 1.39, Samples/sec = 354.8
+Step 697000 (57.2%): Train Loss = 0.036080, Val Loss = 0.037948, Gnorm = 0.090087, Samples = 178432256, LR = 1.23e-04, Steps/sec = 1.59, Samples/sec = 407.3
+Step 697500 (57.3%): Train Loss = 0.040418, Val Loss = 0.042772, Gnorm = 0.165589, Samples = 178560256, LR = 1.23e-04, Steps/sec = 1.54, Samples/sec = 393.3
+Step 698000 (57.4%): Train Loss = 0.038742, Val Loss = 0.041835, Gnorm = 0.168676, Samples = 178688256, LR = 1.22e-04, Steps/sec = 1.67, Samples/sec = 426.9
+Step 698500 (57.5%): Train Loss = 0.037551, Val Loss = 0.042313, Gnorm = 0.075574, Samples = 178816256, LR = 1.22e-04, Steps/sec = 1.53, Samples/sec = 391.5
+Step 699000 (57.6%): Train Loss = 0.035688, Val Loss = 0.038500, Gnorm = 0.162593, Samples = 178944256, LR = 1.21e-04, Steps/sec = 1.68, Samples/sec = 430.3
+Step 699500 (57.7%): Train Loss = 0.040585, Val Loss = 0.038611, Gnorm = 0.138984, Samples = 179072256, LR = 1.21e-04, Steps/sec = 0.47, Samples/sec = 120.6
+Step 700000 (57.8%): Train Loss = 0.039619, Val Loss = 0.049051, Gnorm = 0.107542, Samples = 179200256, LR = 1.20e-04, Steps/sec = 1.79, Samples/sec = 457.2
+Step 700500 (57.9%): Train Loss = 0.045435, Val Loss = 0.036329, Gnorm = 0.176643, Samples = 179328256, LR = 1.20e-04, Steps/sec = 1.50, Samples/sec = 385.1
+Step 701000 (58.0%): Train Loss = 0.047582, Val Loss = 0.040666, Gnorm = 0.231542, Samples = 179456256, LR = 1.19e-04, Steps/sec = 0.75, Samples/sec = 190.8
+Step 701500 (58.1%): Train Loss = 0.039493, Val Loss = 0.042867, Gnorm = 0.114015, Samples = 179584256, LR = 1.19e-04, Steps/sec = 0.62, Samples/sec = 158.0
+Step 702000 (58.2%): Train Loss = 0.036346, Val Loss = 0.042805, Gnorm = 0.128296, Samples = 179712256, LR = 1.19e-04, Steps/sec = 0.45, Samples/sec = 116.3
+Step 702500 (58.3%): Train Loss = 0.041703, Val Loss = 0.041018, Gnorm = 0.225431, Samples = 179840256, LR = 1.18e-04, Steps/sec = 0.54, Samples/sec = 139.5
+Step 703000 (58.4%): Train Loss = 0.034183, Val Loss = 0.040842, Gnorm = 0.151595, Samples = 179968256, LR = 1.18e-04, Steps/sec = 0.51, Samples/sec = 130.6
+Step 703500 (58.5%): Train Loss = 0.033219, Val Loss = 0.044095, Gnorm = 0.189812, Samples = 180096256, LR = 1.17e-04, Steps/sec = 0.54, Samples/sec = 137.8
+Step 704000 (58.6%): Train Loss = 0.032453, Val Loss = 0.034847, Gnorm = 0.146039, Samples = 180224256, LR = 1.17e-04, Steps/sec = 0.48, Samples/sec = 123.2
+Step 704500 (58.7%): Train Loss = 0.052333, Val Loss = 0.044995, Gnorm = 0.209542, Samples = 180352256, LR = 1.16e-04, Steps/sec = 0.46, Samples/sec = 118.9
+Step 705000 (58.8%): Train Loss = 0.043933, Val Loss = 0.034577, Gnorm = 0.191937, Samples = 180480256, LR = 1.16e-04, Steps/sec = 0.48, Samples/sec = 122.3
+Step 705500 (58.9%): Train Loss = 0.038990, Val Loss = 0.043116, Gnorm = 0.107744, Samples = 180608256, LR = 1.15e-04, Steps/sec = 0.30, Samples/sec = 75.6
+Step 706000 (59.0%): Train Loss = 0.034417, Val Loss = 0.040451, Gnorm = 0.066219, Samples = 180736256, LR = 1.15e-04, Steps/sec = 0.47, Samples/sec = 120.4
+Step 706500 (59.1%): Train Loss = 0.036447, Val Loss = 0.041052, Gnorm = 0.176450, Samples = 180864256, LR = 1.15e-04, Steps/sec = 0.52, Samples/sec = 132.8
+Step 707000 (59.2%): Train Loss = 0.040929, Val Loss = 0.041566, Gnorm = 0.341866, Samples = 180992256, LR = 1.14e-04, Steps/sec = 0.43, Samples/sec = 110.9
+Step 707500 (59.3%): Train Loss = 0.040191, Val Loss = 0.036698, Gnorm = 0.165971, Samples = 181120256, LR = 1.14e-04, Steps/sec = 0.56, Samples/sec = 142.5
+Step 708000 (59.4%): Train Loss = 0.037238, Val Loss = 0.033991, Gnorm = 0.186309, Samples = 181248256, LR = 1.13e-04, Steps/sec = 0.48, Samples/sec = 122.7
+Step 708500 (59.5%): Train Loss = 0.036454, Val Loss = 0.040659, Gnorm = 0.171495, Samples = 181376256, LR = 1.13e-04, Steps/sec = 0.46, Samples/sec = 117.6
+Step 709000 (59.6%): Train Loss = 0.039309, Val Loss = 0.041939, Gnorm = 0.171179, Samples = 181504256, LR = 1.12e-04, Steps/sec = 0.53, Samples/sec = 135.0
+Step 709500 (59.7%): Train Loss = 0.037590, Val Loss = 0.035435, Gnorm = 0.154457, Samples = 181632256, LR = 1.12e-04, Steps/sec = 0.47, Samples/sec = 119.6
+Step 710000 (59.8%): Train Loss = 0.041415, Val Loss = 0.040759, Gnorm = 0.284185, Samples = 181760256, LR = 1.12e-04, Steps/sec = 0.46, Samples/sec = 118.6
+Step 710500 (59.9%): Train Loss = 0.038604, Val Loss = 0.040375, Gnorm = 0.119264, Samples = 181888256, LR = 1.11e-04, Steps/sec = 0.29, Samples/sec = 75.3
+Step 711000 (60.0%): Train Loss = 0.034682, Val Loss = 0.043272, Gnorm = 0.240891, Samples = 182016256, LR = 1.11e-04, Steps/sec = 0.47, Samples/sec = 121.5
+Step 711500 (60.1%): Train Loss = 0.034140, Val Loss = 0.046129, Gnorm = 0.098786, Samples = 182144256, LR = 1.10e-04, Steps/sec = 0.51, Samples/sec = 130.9
+Step 712000 (60.2%): Train Loss = 0.042456, Val Loss = 0.041098, Gnorm = 0.150732, Samples = 182272256, LR = 1.10e-04, Steps/sec = 0.47, Samples/sec = 121.0
+Step 712500 (60.3%): Train Loss = 0.042757, Val Loss = 0.037230, Gnorm = 0.245889, Samples = 182400256, LR = 1.09e-04, Steps/sec = 0.52, Samples/sec = 133.8
+Step 713000 (60.4%): Train Loss = 0.039041, Val Loss = 0.046445, Gnorm = 0.106172, Samples = 182528256, LR = 1.09e-04, Steps/sec = 0.57, Samples/sec = 146.0
+Step 713500 (60.5%): Train Loss = 0.036309, Val Loss = 0.039105, Gnorm = 0.149879, Samples = 182656256, LR = 1.09e-04, Steps/sec = 0.48, Samples/sec = 123.1
+Step 714000 (60.6%): Train Loss = 0.036130, Val Loss = 0.041788, Gnorm = 0.266228, Samples = 182784256, LR = 1.08e-04, Steps/sec = 0.52, Samples/sec = 134.3
+Step 714500 (60.7%): Train Loss = 0.045744, Val Loss = 0.036657, Gnorm = 0.135956, Samples = 182912256, LR = 1.08e-04, Steps/sec = 0.48, Samples/sec = 122.3
+Step 715000 (60.8%): Train Loss = 0.039089, Val Loss = 0.041865, Gnorm = 0.210716, Samples = 183040256, LR = 1.07e-04, Steps/sec = 0.53, Samples/sec = 135.9
+Step 715500 (60.9%): Train Loss = 0.036677, Val Loss = 0.034086, Gnorm = 0.189187, Samples = 183168256, LR = 1.07e-04, Steps/sec = 0.28, Samples/sec = 71.7
+Step 716000 (61.0%): Train Loss = 0.032141, Val Loss = 0.035668, Gnorm = 0.284771, Samples = 183296256, LR = 1.06e-04, Steps/sec = 0.48, Samples/sec = 124.1
+Step 716500 (61.1%): Train Loss = 0.036271, Val Loss = 0.032674, Gnorm = 0.152573, Samples = 183424256, LR = 1.06e-04, Steps/sec = 0.43, Samples/sec = 110.4
+Step 717000 (61.2%): Train Loss = 0.043352, Val Loss = 0.037649, Gnorm = 0.409575, Samples = 183552256, LR = 1.05e-04, Steps/sec = 0.41, Samples/sec = 105.9
+Step 717500 (61.3%): Train Loss = 0.033577, Val Loss = 0.040453, Gnorm = 0.098144, Samples = 183680256, LR = 1.05e-04, Steps/sec = 0.35, Samples/sec = 90.8
+Step 718000 (61.4%): Train Loss = 0.038782, Val Loss = 0.035657, Gnorm = 0.335269, Samples = 183808256, LR = 1.05e-04, Steps/sec = 0.42, Samples/sec = 106.9
+Step 718500 (61.5%): Train Loss = 0.038822, Val Loss = 0.033309, Gnorm = 0.150271, Samples = 183936256, LR = 1.04e-04, Steps/sec = 0.34, Samples/sec = 86.3
+Step 719000 (61.6%): Train Loss = 0.037080, Val Loss = 0.036820, Gnorm = 0.158059, Samples = 184064256, LR = 1.04e-04, Steps/sec = 0.32, Samples/sec = 81.6
+Step 719500 (61.7%): Train Loss = 0.039533, Val Loss = 0.034097, Gnorm = 0.420521, Samples = 184192256, LR = 1.03e-04, Steps/sec = 0.20, Samples/sec = 51.8
+Step 720000 (61.8%): Train Loss = 0.041811, Val Loss = 0.037497, Gnorm = 0.164258, Samples = 184320256, LR = 1.03e-04, Steps/sec = 0.33, Samples/sec = 84.1
+Step 720500 (61.9%): Train Loss = 0.038760, Val Loss = 0.034188, Gnorm = 0.197882, Samples = 184448256, LR = 1.03e-04, Steps/sec = 0.30, Samples/sec = 75.9
+Step 721000 (62.0%): Train Loss = 0.039817, Val Loss = 0.037112, Gnorm = 0.345623, Samples = 184576256, LR = 1.02e-04, Steps/sec = 0.35, Samples/sec = 89.7
+Step 721500 (62.1%): Train Loss = 0.038076, Val Loss = 0.039517, Gnorm = 0.141204, Samples = 184704256, LR = 1.02e-04, Steps/sec = 0.32, Samples/sec = 82.9
+Step 722000 (62.2%): Train Loss = 0.051462, Val Loss = 0.040730, Gnorm = 0.351483, Samples = 184832256, LR = 1.01e-04, Steps/sec = 0.32, Samples/sec = 81.5
+Step 722500 (62.3%): Train Loss = 0.038924, Val Loss = 0.042150, Gnorm = 0.213213, Samples = 184960256, LR = 1.01e-04, Steps/sec = 0.32, Samples/sec = 82.7
+Step 723000 (62.4%): Train Loss = 0.036920, Val Loss = 0.033253, Gnorm = 0.162917, Samples = 185088256, LR = 1.00e-04, Steps/sec = 0.26, Samples/sec = 65.3
+Step 723500 (62.5%): Train Loss = 0.041215, Val Loss = 0.033067, Gnorm = 0.479967, Samples = 185216256, LR = 1.00e-04, Steps/sec = 0.35, Samples/sec = 88.9
+Step 724000 (62.6%): Train Loss = 0.032242, Val Loss = 0.039315, Gnorm = 0.108202, Samples = 185344256, LR = 9.95e-05, Steps/sec = 0.38, Samples/sec = 98.4
+Step 724500 (62.7%): Train Loss = 0.044722, Val Loss = 0.039426, Gnorm = 0.101407, Samples = 185472256, LR = 9.91e-05, Steps/sec = 0.37, Samples/sec = 94.4
+Step 725000 (62.8%): Train Loss = 0.033223, Val Loss = 0.039474, Gnorm = 0.225800, Samples = 185600256, LR = 9.87e-05, Steps/sec = 0.33, Samples/sec = 84.9
+Step 725500 (62.9%): Train Loss = 0.033543, Val Loss = 0.035362, Gnorm = 0.160698, Samples = 185728256, LR = 9.83e-05, Steps/sec = 0.33, Samples/sec = 85.4
+Step 726000 (63.0%): Train Loss = 0.039753, Val Loss = 0.036042, Gnorm = 0.180081, Samples = 185856256, LR = 9.79e-05, Steps/sec = 0.31, Samples/sec = 79.8
+Step 726500 (63.1%): Train Loss = 0.038913, Val Loss = 0.035095, Gnorm = 0.139237, Samples = 185984256, LR = 9.74e-05, Steps/sec = 0.21, Samples/sec = 52.9
+Step 727000 (63.2%): Train Loss = 0.032138, Val Loss = 0.037317, Gnorm = 0.134400, Samples = 186112256, LR = 9.70e-05, Steps/sec = 0.30, Samples/sec = 77.7
+Step 727500 (63.3%): Train Loss = 0.041237, Val Loss = 0.039854, Gnorm = 0.181469, Samples = 186240256, LR = 9.66e-05, Steps/sec = 0.31, Samples/sec = 78.6
+Step 728000 (63.4%): Train Loss = 0.040478, Val Loss = 0.038634, Gnorm = 0.191101, Samples = 186368256, LR = 9.62e-05, Steps/sec = 0.29, Samples/sec = 74.3
+Step 728500 (63.5%): Train Loss = 0.035554, Val Loss = 0.039117, Gnorm = 0.180840, Samples = 186496256, LR = 9.58e-05, Steps/sec = 0.31, Samples/sec = 80.3
+Step 729000 (63.6%): Train Loss = 0.038330, Val Loss = 0.046217, Gnorm = 0.283968, Samples = 186624256, LR = 9.54e-05, Steps/sec = 0.32, Samples/sec = 81.8
+Step 729500 (63.7%): Train Loss = 0.034368, Val Loss = 0.040013, Gnorm = 0.143577, Samples = 186752256, LR = 9.49e-05, Steps/sec = 0.24, Samples/sec = 61.8
+Step 730000 (63.8%): Train Loss = 0.041541, Val Loss = 0.050702, Gnorm = 0.235966, Samples = 186880256, LR = 9.45e-05, Steps/sec = 0.34, Samples/sec = 87.0
+Step 730500 (63.9%): Train Loss = 0.034490, Val Loss = 0.048956, Gnorm = 0.216427, Samples = 187008256, LR = 9.41e-05, Steps/sec = 0.33, Samples/sec = 84.9
+Step 731000 (64.0%): Train Loss = 0.032944, Val Loss = 0.031951, Gnorm = 0.090360, Samples = 187136256, LR = 9.37e-05, Steps/sec = 0.30, Samples/sec = 77.4
+Step 731500 (64.1%): Train Loss = 0.035266, Val Loss = 0.038097, Gnorm = 0.471671, Samples = 187264256, LR = 9.33e-05, Steps/sec = 0.31, Samples/sec = 80.1
+Step 732000 (64.2%): Train Loss = 0.039141, Val Loss = 0.037097, Gnorm = 0.161457, Samples = 187392256, LR = 9.29e-05, Steps/sec = 0.31, Samples/sec = 80.0
+Step 732500 (64.3%): Train Loss = 0.030209, Val Loss = 0.036270, Gnorm = 0.126118, Samples = 187520256, LR = 9.25e-05, Steps/sec = 0.22, Samples/sec = 56.0
+Step 733000 (64.4%): Train Loss = 0.035921, Val Loss = 0.038881, Gnorm = 0.225143, Samples = 187648256, LR = 9.20e-05, Steps/sec = 0.34, Samples/sec = 87.3
+Step 733500 (64.5%): Train Loss = 0.035400, Val Loss = 0.036055, Gnorm = 0.203739, Samples = 187776256, LR = 9.16e-05, Steps/sec = 0.35, Samples/sec = 88.8
+Step 734000 (64.6%): Train Loss = 0.040807, Val Loss = 0.043170, Gnorm = 0.166041, Samples = 187904256, LR = 9.12e-05, Steps/sec = 0.34, Samples/sec = 87.5
+Step 734500 (64.7%): Train Loss = 0.034370, Val Loss = 0.031784, Gnorm = 0.143687, Samples = 188032256, LR = 9.08e-05, Steps/sec = 0.35, Samples/sec = 89.4
+Step 735000 (64.8%): Train Loss = 0.038624, Val Loss = 0.038739, Gnorm = 0.259093, Samples = 188160256, LR = 9.04e-05, Steps/sec = 0.32, Samples/sec = 82.7
+Step 735500 (64.9%): Train Loss = 0.034705, Val Loss = 0.039423, Gnorm = 0.174850, Samples = 188288256, LR = 9.00e-05, Steps/sec = 0.31, Samples/sec = 78.9
+Step 736000 (65.0%): Train Loss = 0.037143, Val Loss = 0.041364, Gnorm = 0.124977, Samples = 188416256, LR = 8.96e-05, Steps/sec = 0.25, Samples/sec = 65.1
+Step 736500 (65.1%): Train Loss = 0.041508, Val Loss = 0.038950, Gnorm = 0.230632, Samples = 188544256, LR = 8.92e-05, Steps/sec = 0.35, Samples/sec = 89.3
+Step 737000 (65.2%): Train Loss = 0.038938, Val Loss = 0.040610, Gnorm = 0.258223, Samples = 188672256, LR = 8.88e-05, Steps/sec = 0.37, Samples/sec = 93.7
+Step 737500 (65.3%): Train Loss = 0.032844, Val Loss = 0.034831, Gnorm = 0.199414, Samples = 188800256, LR = 8.84e-05, Steps/sec = 0.34, Samples/sec = 86.6
+Step 738000 (65.4%): Train Loss = 0.041095, Val Loss = 0.039572, Gnorm = 0.204836, Samples = 188928256, LR = 8.80e-05, Steps/sec = 0.35, Samples/sec = 90.6
+Step 738500 (65.5%): Train Loss = 0.035078, Val Loss = 0.043159, Gnorm = 0.126010, Samples = 189056256, LR = 8.76e-05, Steps/sec = 0.34, Samples/sec = 86.4
+Step 739000 (65.6%): Train Loss = 0.045277, Val Loss = 0.033152, Gnorm = 0.237661, Samples = 189184256, LR = 8.72e-05, Steps/sec = 0.35, Samples/sec = 89.2
+Step 739500 (65.7%): Train Loss = 0.040985, Val Loss = 0.037363, Gnorm = 0.165884, Samples = 189312256, LR = 8.68e-05, Steps/sec = 0.22, Samples/sec = 56.7
+Step 740000 (65.8%): Train Loss = 0.038753, Val Loss = 0.038943, Gnorm = 0.206615, Samples = 189440256, LR = 8.63e-05, Steps/sec = 0.40, Samples/sec = 102.0
+Step 740500 (65.9%): Train Loss = 0.035030, Val Loss = 0.048233, Gnorm = 0.252917, Samples = 189568256, LR = 8.59e-05, Steps/sec = 0.37, Samples/sec = 93.9
+Step 741000 (66.0%): Train Loss = 0.038332, Val Loss = 0.042108, Gnorm = 0.158828, Samples = 189696256, LR = 8.55e-05, Steps/sec = 0.40, Samples/sec = 103.1
+Step 741500 (66.1%): Train Loss = 0.048074, Val Loss = 0.035367, Gnorm = 0.206371, Samples = 189824256, LR = 8.51e-05, Steps/sec = 0.35, Samples/sec = 89.5
+Step 742000 (66.2%): Train Loss = 0.043587, Val Loss = 0.038860, Gnorm = 0.204407, Samples = 189952256, LR = 8.47e-05, Steps/sec = 0.37, Samples/sec = 95.1
+Step 742500 (66.3%): Train Loss = 0.034979, Val Loss = 0.036256, Gnorm = 0.224235, Samples = 190080256, LR = 8.43e-05, Steps/sec = 0.32, Samples/sec = 82.2
+Step 743000 (66.4%): Train Loss = 0.042587, Val Loss = 0.035350, Gnorm = 0.139300, Samples = 190208256, LR = 8.39e-05, Steps/sec = 0.33, Samples/sec = 83.2
+Step 743500 (66.5%): Train Loss = 0.042039, Val Loss = 0.039669, Gnorm = 0.172059, Samples = 190336256, LR = 8.36e-05, Steps/sec = 0.23, Samples/sec = 59.2
+Step 744000 (66.6%): Train Loss = 0.037118, Val Loss = 0.032128, Gnorm = 0.231104, Samples = 190464256, LR = 8.32e-05, Steps/sec = 0.36, Samples/sec = 91.2
+Step 744500 (66.7%): Train Loss = 0.036862, Val Loss = 0.038512, Gnorm = 0.168371, Samples = 190592256, LR = 8.28e-05, Steps/sec = 0.32, Samples/sec = 82.7
+Step 745000 (66.8%): Train Loss = 0.041625, Val Loss = 0.038778, Gnorm = 0.163866, Samples = 190720256, LR = 8.24e-05, Steps/sec = 0.40, Samples/sec = 102.4
+Step 745500 (66.9%): Train Loss = 0.042481, Val Loss = 0.035897, Gnorm = 0.155373, Samples = 190848256, LR = 8.20e-05, Steps/sec = 0.31, Samples/sec = 78.2
+Step 746000 (67.0%): Train Loss = 0.040274, Val Loss = 0.038018, Gnorm = 0.269456, Samples = 190976256, LR = 8.16e-05, Steps/sec = 0.33, Samples/sec = 84.8
+Step 746500 (67.1%): Train Loss = 0.041887, Val Loss = 0.036407, Gnorm = 0.154308, Samples = 191104256, LR = 8.12e-05, Steps/sec = 0.27, Samples/sec = 70.2
+Step 747000 (67.2%): Train Loss = 0.035149, Val Loss = 0.043454, Gnorm = 0.148701, Samples = 191232256, LR = 8.08e-05, Steps/sec = 0.21, Samples/sec = 54.4
+Step 747500 (67.3%): Train Loss = 0.039259, Val Loss = 0.037156, Gnorm = 0.186053, Samples = 191360256, LR = 8.04e-05, Steps/sec = 0.29, Samples/sec = 73.4
+Step 748000 (67.4%): Train Loss = 0.041893, Val Loss = 0.034640, Gnorm = 0.371909, Samples = 191488256, LR = 8.00e-05, Steps/sec = 0.40, Samples/sec = 102.8
+Step 748500 (67.5%): Train Loss = 0.033940, Val Loss = 0.046006, Gnorm = 0.167031, Samples = 191616256, LR = 7.96e-05, Steps/sec = 0.38, Samples/sec = 97.9
+Step 749000 (67.6%): Train Loss = 0.039357, Val Loss = 0.042489, Gnorm = 0.151450, Samples = 191744256, LR = 7.92e-05, Steps/sec = 0.33, Samples/sec = 83.5
+Step 749500 (67.7%): Train Loss = 0.041359, Val Loss = 0.046513, Gnorm = 0.185140, Samples = 191872256, LR = 7.88e-05, Steps/sec = 0.32, Samples/sec = 81.0
+Step 750000 (67.8%): Train Loss = 0.033220, Val Loss = 0.035195, Gnorm = 0.164911, Samples = 192000256, LR = 7.84e-05, Steps/sec = 0.20, Samples/sec = 50.0
+Step 750500 (67.9%): Train Loss = 0.037218, Val Loss = 0.034867, Gnorm = 0.186814, Samples = 192128256, LR = 7.81e-05, Steps/sec = 0.31, Samples/sec = 80.0
+Step 751000 (68.0%): Train Loss = 0.032367, Val Loss = 0.037465, Gnorm = 0.157047, Samples = 192256256, LR = 7.77e-05, Steps/sec = 0.29, Samples/sec = 75.2
+Step 751500 (68.1%): Train Loss = 0.047426, Val Loss = 0.039703, Gnorm = 0.280046, Samples = 192384256, LR = 7.73e-05, Steps/sec = 0.39, Samples/sec = 99.7
+Step 752000 (68.2%): Train Loss = 0.040365, Val Loss = 0.034998, Gnorm = 0.195316, Samples = 192512256, LR = 7.69e-05, Steps/sec = 0.33, Samples/sec = 83.5
+Step 752500 (68.3%): Train Loss = 0.034355, Val Loss = 0.038186, Gnorm = 0.241207, Samples = 192640256, LR = 7.65e-05, Steps/sec = 0.35, Samples/sec = 88.8
+Step 753000 (68.4%): Train Loss = 0.039974, Val Loss = 0.036240, Gnorm = 0.234067, Samples = 192768256, LR = 7.61e-05, Steps/sec = 0.27, Samples/sec = 68.6
+Step 753500 (68.5%): Train Loss = 0.048284, Val Loss = 0.035494, Gnorm = 0.331425, Samples = 192896256, LR = 7.58e-05, Steps/sec = 0.21, Samples/sec = 54.9
+Step 754000 (68.6%): Train Loss = 0.037981, Val Loss = 0.047193, Gnorm = 0.199001, Samples = 193024256, LR = 7.54e-05, Steps/sec = 0.25, Samples/sec = 65.1
+Step 754500 (68.7%): Train Loss = 0.033703, Val Loss = 0.038750, Gnorm = 0.088408, Samples = 193152256, LR = 7.50e-05, Steps/sec = 0.37, Samples/sec = 94.4
+Step 755000 (68.8%): Train Loss = 0.031657, Val Loss = 0.042329, Gnorm = 0.199224, Samples = 193280256, LR = 7.46e-05, Steps/sec = 0.35, Samples/sec = 89.6
+Step 755500 (68.9%): Train Loss = 0.038091, Val Loss = 0.041130, Gnorm = 0.149417, Samples = 193408256, LR = 7.42e-05, Steps/sec = 0.43, Samples/sec = 110.8
+Step 756000 (69.0%): Train Loss = 0.039727, Val Loss = 0.036516, Gnorm = 0.278617, Samples = 193536256, LR = 7.39e-05, Steps/sec = 0.40, Samples/sec = 102.5
+Step 756500 (69.1%): Train Loss = 0.034727, Val Loss = 0.040486, Gnorm = 0.241196, Samples = 193664256, LR = 7.35e-05, Steps/sec = 0.41, Samples/sec = 105.5
+Step 757000 (69.2%): Train Loss = 0.039112, Val Loss = 0.038468, Gnorm = 0.165578, Samples = 193792256, LR = 7.31e-05, Steps/sec = 0.24, Samples/sec = 62.4
+Step 757500 (69.3%): Train Loss = 0.035541, Val Loss = 0.035252, Gnorm = 0.296805, Samples = 193920256, LR = 7.27e-05, Steps/sec = 0.36, Samples/sec = 92.8
+Step 758000 (69.4%): Train Loss = 0.038864, Val Loss = 0.044359, Gnorm = 0.165114, Samples = 194048256, LR = 7.23e-05, Steps/sec = 0.32, Samples/sec = 82.1
+Step 758500 (69.5%): Train Loss = 0.037746, Val Loss = 0.037262, Gnorm = 0.178652, Samples = 194176256, LR = 7.20e-05, Steps/sec = 0.39, Samples/sec = 98.6
+Step 759000 (69.6%): Train Loss = 0.038888, Val Loss = 0.036110, Gnorm = 0.140473, Samples = 194304256, LR = 7.16e-05, Steps/sec = 0.33, Samples/sec = 85.1
+Step 759500 (69.7%): Train Loss = 0.041031, Val Loss = 0.043657, Gnorm = 0.229573, Samples = 194432256, LR = 7.12e-05, Steps/sec = 0.40, Samples/sec = 102.0
+Step 760000 (69.8%): Train Loss = 0.037488, Val Loss = 0.037144, Gnorm = 0.233773, Samples = 194560256, LR = 7.09e-05, Steps/sec = 0.37, Samples/sec = 93.9
+Step 760500 (69.9%): Train Loss = 0.036948, Val Loss = 0.038249, Gnorm = 0.306961, Samples = 194688256, LR = 7.05e-05, Steps/sec = 0.24, Samples/sec = 60.9
+Step 761000 (70.0%): Train Loss = 0.039978, Val Loss = 0.035816, Gnorm = 0.133546, Samples = 194816256, LR = 7.01e-05, Steps/sec = 0.35, Samples/sec = 89.3
+Step 761500 (70.1%): Train Loss = 0.038710, Val Loss = 0.038251, Gnorm = 0.188703, Samples = 194944256, LR = 6.97e-05, Steps/sec = 0.31, Samples/sec = 79.4
+Step 762000 (70.2%): Train Loss = 0.038429, Val Loss = 0.034356, Gnorm = 0.165622, Samples = 195072256, LR = 6.94e-05, Steps/sec = 0.41, Samples/sec = 105.5
+Step 762500 (70.3%): Train Loss = 0.040218, Val Loss = 0.036896, Gnorm = 0.161320, Samples = 195200256, LR = 6.90e-05, Steps/sec = 0.38, Samples/sec = 98.3
+Step 763000 (70.4%): Train Loss = 0.039433, Val Loss = 0.039693, Gnorm = 0.151390, Samples = 195328256, LR = 6.86e-05, Steps/sec = 0.42, Samples/sec = 106.3
+Step 763500 (70.5%): Train Loss = 0.032569, Val Loss = 0.033930, Gnorm = 0.144423, Samples = 195456256, LR = 6.83e-05, Steps/sec = 0.41, Samples/sec = 104.9
+Step 764000 (70.6%): Train Loss = 0.049114, Val Loss = 0.034962, Gnorm = 0.343473, Samples = 195584256, LR = 6.79e-05, Steps/sec = 0.39, Samples/sec = 100.1
+Step 764500 (70.7%): Train Loss = 0.033572, Val Loss = 0.037957, Gnorm = 0.227934, Samples = 195712256, LR = 6.75e-05, Steps/sec = 0.24, Samples/sec = 62.0
+Step 765000 (70.8%): Train Loss = 0.039842, Val Loss = 0.042436, Gnorm = 0.177921, Samples = 195840256, LR = 6.72e-05, Steps/sec = 0.40, Samples/sec = 101.7
+Step 765500 (70.9%): Train Loss = 0.039085, Val Loss = 0.038948, Gnorm = 0.188273, Samples = 195968256, LR = 6.68e-05, Steps/sec = 0.34, Samples/sec = 86.5
+Step 766000 (71.0%): Train Loss = 0.043822, Val Loss = 0.040769, Gnorm = 0.208158, Samples = 196096256, LR = 6.65e-05, Steps/sec = 0.36, Samples/sec = 93.4
+Step 766500 (71.1%): Train Loss = 0.037079, Val Loss = 0.043432, Gnorm = 0.181015, Samples = 196224256, LR = 6.61e-05, Steps/sec = 0.35, Samples/sec = 90.3
+Step 767000 (71.2%): Train Loss = 0.040721, Val Loss = 0.038844, Gnorm = 0.206029, Samples = 196352256, LR = 6.57e-05, Steps/sec = 0.36, Samples/sec = 91.6
+Step 767500 (71.3%): Train Loss = 0.039394, Val Loss = 0.038247, Gnorm = 0.158479, Samples = 196480256, LR = 6.54e-05, Steps/sec = 0.33, Samples/sec = 83.8
+Step 768000 (71.4%): Train Loss = 0.040521, Val Loss = 0.036066, Gnorm = 0.285817, Samples = 196608256, LR = 6.50e-05, Steps/sec = 0.25, Samples/sec = 64.3
+Step 768500 (71.5%): Train Loss = 0.033511, Val Loss = 0.036009, Gnorm = 0.142303, Samples = 196736256, LR = 6.47e-05, Steps/sec = 0.35, Samples/sec = 90.0
+Step 769000 (71.6%): Train Loss = 0.036443, Val Loss = 0.036753, Gnorm = 0.118980, Samples = 196864256, LR = 6.43e-05, Steps/sec = 0.34, Samples/sec = 87.3
+Step 769500 (71.7%): Train Loss = 0.039004, Val Loss = 0.040305, Gnorm = 0.203124, Samples = 196992256, LR = 6.39e-05, Steps/sec = 0.34, Samples/sec = 86.9
+Step 770000 (71.8%): Train Loss = 0.038455, Val Loss = 0.046175, Gnorm = 0.165880, Samples = 197120256, LR = 6.36e-05, Steps/sec = 0.35, Samples/sec = 89.6
+Step 770500 (71.9%): Train Loss = 0.035693, Val Loss = 0.036615, Gnorm = 0.394228, Samples = 197248256, LR = 6.32e-05, Steps/sec = 0.31, Samples/sec = 80.6
+Step 771000 (72.0%): Train Loss = 0.035001, Val Loss = 0.034917, Gnorm = 0.268399, Samples = 197376256, LR = 6.29e-05, Steps/sec = 0.32, Samples/sec = 83.0
+Step 771500 (72.1%): Train Loss = 0.040214, Val Loss = 0.039982, Gnorm = 0.298998, Samples = 197504256, LR = 6.25e-05, Steps/sec = 0.23, Samples/sec = 58.4
+Step 772000 (72.2%): Train Loss = 0.039663, Val Loss = 0.041749, Gnorm = 0.212534, Samples = 197632256, LR = 6.22e-05, Steps/sec = 0.34, Samples/sec = 86.5
+Step 772500 (72.3%): Train Loss = 0.037780, Val Loss = 0.040413, Gnorm = 0.255857, Samples = 197760256, LR = 6.18e-05, Steps/sec = 0.31, Samples/sec = 80.6
+Step 773000 (72.4%): Train Loss = 0.036537, Val Loss = 0.034437, Gnorm = 0.108075, Samples = 197888256, LR = 6.15e-05, Steps/sec = 0.30, Samples/sec = 76.6
+Step 773500 (72.5%): Train Loss = 0.035916, Val Loss = 0.036439, Gnorm = 0.158833, Samples = 198016256, LR = 6.11e-05, Steps/sec = 0.33, Samples/sec = 83.3
+Step 774000 (72.6%): Train Loss = 0.043069, Val Loss = 0.039512, Gnorm = 0.162895, Samples = 198144256, LR = 6.08e-05, Steps/sec = 0.27, Samples/sec = 70.2
+Step 774500 (72.7%): Train Loss = 0.042882, Val Loss = 0.034910, Gnorm = 0.153697, Samples = 198272256, LR = 6.04e-05, Steps/sec = 0.21, Samples/sec = 53.6
+Step 775000 (72.8%): Train Loss = 0.041915, Val Loss = 0.043018, Gnorm = 0.346538, Samples = 198400256, LR = 6.01e-05, Steps/sec = 0.24, Samples/sec = 62.6
+Step 775500 (72.9%): Train Loss = 0.034645, Val Loss = 0.040984, Gnorm = 0.195526, Samples = 198528256, LR = 5.97e-05, Steps/sec = 0.31, Samples/sec = 80.4
+Step 776000 (73.0%): Train Loss = 0.033959, Val Loss = 0.040591, Gnorm = 0.087503, Samples = 198656256, LR = 5.94e-05, Steps/sec = 0.30, Samples/sec = 77.9
+Step 776500 (73.1%): Train Loss = 0.035726, Val Loss = 0.040978, Gnorm = 0.154878, Samples = 198784256, LR = 5.91e-05, Steps/sec = 0.33, Samples/sec = 84.6
+Step 777000 (73.2%): Train Loss = 0.037531, Val Loss = 0.034794, Gnorm = 0.215674, Samples = 198912256, LR = 5.87e-05, Steps/sec = 0.31, Samples/sec = 80.6
+Step 777500 (73.3%): Train Loss = 0.031723, Val Loss = 0.035782, Gnorm = 0.256861, Samples = 199040256, LR = 5.84e-05, Steps/sec = 0.28, Samples/sec = 71.7
+Step 778000 (73.4%): Train Loss = 0.041772, Val Loss = 0.041188, Gnorm = 0.191820, Samples = 199168256, LR = 5.80e-05, Steps/sec = 0.28, Samples/sec = 71.0
+Step 778500 (73.5%): Train Loss = 0.042434, Val Loss = 0.038342, Gnorm = 0.124554, Samples = 199296256, LR = 5.77e-05, Steps/sec = 0.27, Samples/sec = 68.8
+Step 779000 (73.6%): Train Loss = 0.037806, Val Loss = 0.040534, Gnorm = 0.162018, Samples = 199424256, LR = 5.74e-05, Steps/sec = 0.24, Samples/sec = 62.3
+Step 779500 (73.7%): Train Loss = 0.045491, Val Loss = 0.035487, Gnorm = 0.205850, Samples = 199552256, LR = 5.70e-05, Steps/sec = 0.28, Samples/sec = 72.0
+Step 780000 (73.8%): Train Loss = 0.036628, Val Loss = 0.039622, Gnorm = 0.198044, Samples = 199680256, LR = 5.67e-05, Steps/sec = 0.28, Samples/sec = 72.7
+Step 780500 (73.9%): Train Loss = 0.040080, Val Loss = 0.039629, Gnorm = 0.175611, Samples = 199808256, LR = 5.64e-05, Steps/sec = 0.21, Samples/sec = 54.5
+Step 781000 (74.0%): Train Loss = 0.040081, Val Loss = 0.038656, Gnorm = 0.198968, Samples = 199936256, LR = 5.60e-05, Steps/sec = 0.30, Samples/sec = 77.2
+Step 781500 (74.1%): Train Loss = 0.038961, Val Loss = 0.042761, Gnorm = 0.149755, Samples = 200064256, LR = 5.57e-05, Steps/sec = 0.27, Samples/sec = 69.8
+Step 782000 (74.2%): Train Loss = 0.038917, Val Loss = 0.038432, Gnorm = 0.141628, Samples = 200192256, LR = 5.54e-05, Steps/sec = 0.26, Samples/sec = 67.4
+Step 782500 (74.3%): Train Loss = 0.032398, Val Loss = 0.033614, Gnorm = 0.126094, Samples = 200320256, LR = 5.50e-05, Steps/sec = 0.28, Samples/sec = 71.0
+Step 783000 (74.4%): Train Loss = 0.038013, Val Loss = 0.033139, Gnorm = 0.214014, Samples = 200448256, LR = 5.47e-05, Steps/sec = 0.26, Samples/sec = 66.9
+Step 783500 (74.5%): Train Loss = 0.035826, Val Loss = 0.042844, Gnorm = 0.151579, Samples = 200576256, LR = 5.44e-05, Steps/sec = 0.23, Samples/sec = 57.9
+Step 784000 (74.6%): Train Loss = 0.037848, Val Loss = 0.041290, Gnorm = 0.241804, Samples = 200704256, LR = 5.40e-05, Steps/sec = 0.28, Samples/sec = 71.2
+Step 784500 (74.7%): Train Loss = 0.036758, Val Loss = 0.039547, Gnorm = 0.250898, Samples = 200832256, LR = 5.37e-05, Steps/sec = 0.27, Samples/sec = 69.5
+Step 785000 (74.8%): Train Loss = 0.035025, Val Loss = 0.037472, Gnorm = 0.206061, Samples = 200960256, LR = 5.34e-05, Steps/sec = 0.32, Samples/sec = 81.6
+Step 785500 (74.9%): Train Loss = 0.036349, Val Loss = 0.030861, Gnorm = 0.209768, Samples = 201088256, LR = 5.31e-05, Steps/sec = 0.31, Samples/sec = 78.3
+Step 786000 (75.0%): Train Loss = 0.041122, Val Loss = 0.040184, Gnorm = 0.095990, Samples = 201216256, LR = 5.27e-05, Steps/sec = 0.33, Samples/sec = 83.6
+Step 786500 (75.1%): Train Loss = 0.038535, Val Loss = 0.036925, Gnorm = 0.162490, Samples = 201344256, LR = 5.24e-05, Steps/sec = 0.25, Samples/sec = 63.1
+Step 787000 (75.2%): Train Loss = 0.034680, Val Loss = 0.039820, Gnorm = 0.243059, Samples = 201472256, LR = 5.21e-05, Steps/sec = 0.35, Samples/sec = 88.5
+Step 787500 (75.3%): Train Loss = 0.037158, Val Loss = 0.036543, Gnorm = 0.214523, Samples = 201600256, LR = 5.18e-05, Steps/sec = 0.29, Samples/sec = 74.9
+Step 788000 (75.4%): Train Loss = 0.033775, Val Loss = 0.035563, Gnorm = 0.396855, Samples = 201728256, LR = 5.14e-05, Steps/sec = 0.33, Samples/sec = 85.3
+Step 788500 (75.5%): Train Loss = 0.036544, Val Loss = 0.033820, Gnorm = 0.316298, Samples = 201856256, LR = 5.11e-05, Steps/sec = 0.30, Samples/sec = 76.3
+Step 789000 (75.6%): Train Loss = 0.044716, Val Loss = 0.040840, Gnorm = 0.182927, Samples = 201984256, LR = 5.08e-05, Steps/sec = 0.31, Samples/sec = 79.0
+Step 789500 (75.7%): Train Loss = 0.035476, Val Loss = 0.041493, Gnorm = 0.168200, Samples = 202112256, LR = 5.05e-05, Steps/sec = 0.22, Samples/sec = 56.6
+Step 790000 (75.8%): Train Loss = 0.037071, Val Loss = 0.040398, Gnorm = 0.326054, Samples = 202240256, LR = 5.02e-05, Steps/sec = 0.30, Samples/sec = 76.5
+Step 790500 (75.9%): Train Loss = 0.032834, Val Loss = 0.040969, Gnorm = 0.256808, Samples = 202368256, LR = 4.99e-05, Steps/sec = 0.25, Samples/sec = 63.4
+Step 791000 (76.0%): Train Loss = 0.044935, Val Loss = 0.041281, Gnorm = 0.167638, Samples = 202496256, LR = 4.95e-05, Steps/sec = 0.27, Samples/sec = 70.1
+Step 791500 (76.1%): Train Loss = 0.038710, Val Loss = 0.033357, Gnorm = 0.190368, Samples = 202624256, LR = 4.92e-05, Steps/sec = 0.26, Samples/sec = 67.4
+Step 792000 (76.2%): Train Loss = 0.045169, Val Loss = 0.040823, Gnorm = 0.141584, Samples = 202752256, LR = 4.89e-05, Steps/sec = 0.25, Samples/sec = 65.2
+Step 792500 (76.3%): Train Loss = 0.038277, Val Loss = 0.040020, Gnorm = 0.292562, Samples = 202880256, LR = 4.86e-05, Steps/sec = 0.21, Samples/sec = 52.6
+Step 793000 (76.4%): Train Loss = 0.039393, Val Loss = 0.037128, Gnorm = 0.141662, Samples = 203008256, LR = 4.83e-05, Steps/sec = 0.26, Samples/sec = 66.0
+Step 793500 (76.5%): Train Loss = 0.040717, Val Loss = 0.034872, Gnorm = 0.197528, Samples = 203136256, LR = 4.80e-05, Steps/sec = 0.25, Samples/sec = 64.4
+Step 794000 (76.6%): Train Loss = 0.033404, Val Loss = 0.038797, Gnorm = 0.181401, Samples = 203264256, LR = 4.77e-05, Steps/sec = 0.28, Samples/sec = 72.0
+Step 794500 (76.7%): Train Loss = 0.036800, Val Loss = 0.036774, Gnorm = 0.275255, Samples = 203392256, LR = 4.74e-05, Steps/sec = 0.26, Samples/sec = 67.4
+Step 795000 (76.8%): Train Loss = 0.034108, Val Loss = 0.039474, Gnorm = 0.111449, Samples = 203520256, LR = 4.71e-05, Steps/sec = 0.25, Samples/sec = 63.7
+Step 795500 (76.9%): Train Loss = 0.034115, Val Loss = 0.036141, Gnorm = 0.133769, Samples = 203648256, LR = 4.68e-05, Steps/sec = 0.24, Samples/sec = 61.8
+Step 796000 (77.0%): Train Loss = 0.032559, Val Loss = 0.037237, Gnorm = 0.318832, Samples = 203776256, LR = 4.65e-05, Steps/sec = 0.24, Samples/sec = 62.0
+Step 796500 (77.1%): Train Loss = 0.040505, Val Loss = 0.040064, Gnorm = 0.284131, Samples = 203904256, LR = 4.62e-05, Steps/sec = 0.28, Samples/sec = 72.8
+Step 797000 (77.2%): Train Loss = 0.041547, Val Loss = 0.045738, Gnorm = 0.164870, Samples = 204032256, LR = 4.59e-05, Steps/sec = 0.26, Samples/sec = 66.4
+Step 797500 (77.3%): Train Loss = 0.037116, Val Loss = 0.033492, Gnorm = 0.150582, Samples = 204160256, LR = 4.56e-05, Steps/sec = 0.27, Samples/sec = 69.3
+Step 798000 (77.4%): Train Loss = 0.041231, Val Loss = 0.040194, Gnorm = 0.179255, Samples = 204288256, LR = 4.53e-05, Steps/sec = 0.21, Samples/sec = 53.8
+Step 798500 (77.5%): Train Loss = 0.042190, Val Loss = 0.039834, Gnorm = 0.133861, Samples = 204416256, LR = 4.50e-05, Steps/sec = 0.24, Samples/sec = 60.8
+Step 799000 (77.6%): Train Loss = 0.041355, Val Loss = 0.033907, Gnorm = 0.131407, Samples = 204544256, LR = 4.47e-05, Steps/sec = 0.26, Samples/sec = 67.1
+Step 799500 (77.7%): Train Loss = 0.034097, Val Loss = 0.044949, Gnorm = 0.211009, Samples = 204672256, LR = 4.44e-05, Steps/sec = 0.22, Samples/sec = 56.6
+Step 800000 (77.8%): Train Loss = 0.037940, Val Loss = 0.032193, Gnorm = 0.178034, Samples = 204800256, LR = 4.41e-05, Steps/sec = 0.25, Samples/sec = 64.1
+Step 800500 (77.9%): Train Loss = 0.038371, Val Loss = 0.040816, Gnorm = 0.122467, Samples = 204928256, LR = 4.38e-05, Steps/sec = 0.23, Samples/sec = 57.6
+Step 801000 (78.0%): Train Loss = 0.036747, Val Loss = 0.039248, Gnorm = 0.119827, Samples = 205056256, LR = 4.35e-05, Steps/sec = 0.25, Samples/sec = 63.1
+Step 801500 (78.1%): Train Loss = 0.036787, Val Loss = 0.048799, Gnorm = 0.146525, Samples = 205184256, LR = 4.32e-05, Steps/sec = 0.28, Samples/sec = 71.2
+Step 802000 (78.2%): Train Loss = 0.039750, Val Loss = 0.035074, Gnorm = 0.282125, Samples = 205312256, LR = 4.29e-05, Steps/sec = 0.26, Samples/sec = 66.6
+Step 802500 (78.3%): Train Loss = 0.036137, Val Loss = 0.039075, Gnorm = 0.224451, Samples = 205440256, LR = 4.26e-05, Steps/sec = 0.27, Samples/sec = 69.7
+Step 803000 (78.4%): Train Loss = 0.040087, Val Loss = 0.045530, Gnorm = 0.140030, Samples = 205568256, LR = 4.23e-05, Steps/sec = 0.28, Samples/sec = 70.6
+Step 803500 (78.5%): Train Loss = 0.042275, Val Loss = 0.049725, Gnorm = 0.162428, Samples = 205696256, LR = 4.21e-05, Steps/sec = 0.31, Samples/sec = 80.3
+Step 804000 (78.6%): Train Loss = 0.033303, Val Loss = 0.038163, Gnorm = 0.215401, Samples = 205824256, LR = 4.18e-05, Steps/sec = 0.29, Samples/sec = 74.0
+Step 804500 (78.7%): Train Loss = 0.039779, Val Loss = 0.037593, Gnorm = 0.167430, Samples = 205952256, LR = 4.15e-05, Steps/sec = 0.31, Samples/sec = 79.8
+Step 805000 (78.8%): Train Loss = 0.036744, Val Loss = 0.033538, Gnorm = 0.155117, Samples = 206080256, LR = 4.12e-05, Steps/sec = 0.29, Samples/sec = 73.7
+Step 805500 (78.9%): Train Loss = 0.038196, Val Loss = 0.033967, Gnorm = 0.256009, Samples = 206208256, LR = 4.09e-05, Steps/sec = 0.32, Samples/sec = 80.7
+Step 806000 (79.0%): Train Loss = 0.035707, Val Loss = 0.041588, Gnorm = 0.191764, Samples = 206336256, LR = 4.06e-05, Steps/sec = 0.27, Samples/sec = 69.1
+Step 806500 (79.1%): Train Loss = 0.038524, Val Loss = 0.036700, Gnorm = 0.109168, Samples = 206464256, LR = 4.04e-05, Steps/sec = 0.34, Samples/sec = 86.4
+Step 807000 (79.2%): Train Loss = 0.038745, Val Loss = 0.032278, Gnorm = 0.162876, Samples = 206592256, LR = 4.01e-05, Steps/sec = 0.31, Samples/sec = 78.9
+Step 807500 (79.3%): Train Loss = 0.037347, Val Loss = 0.045224, Gnorm = 0.263925, Samples = 206720256, LR = 3.98e-05, Steps/sec = 0.31, Samples/sec = 80.5
+Step 808000 (79.4%): Train Loss = 0.047809, Val Loss = 0.039268, Gnorm = 0.310361, Samples = 206848256, LR = 3.95e-05, Steps/sec = 0.38, Samples/sec = 96.6
+Step 808500 (79.5%): Train Loss = 0.038765, Val Loss = 0.041101, Gnorm = 0.308244, Samples = 206976256, LR = 3.92e-05, Steps/sec = 0.32, Samples/sec = 81.8
+Step 809000 (79.6%): Train Loss = 0.040204, Val Loss = 0.044480, Gnorm = 0.142720, Samples = 207104256, LR = 3.90e-05, Steps/sec = 0.35, Samples/sec = 90.1
+Step 809500 (79.7%): Train Loss = 0.039242, Val Loss = 0.039798, Gnorm = 0.251640, Samples = 207232256, LR = 3.87e-05, Steps/sec = 0.28, Samples/sec = 72.5
+Step 810000 (79.8%): Train Loss = 0.037672, Val Loss = 0.046855, Gnorm = 0.240906, Samples = 207360256, LR = 3.84e-05, Steps/sec = 0.33, Samples/sec = 85.7
+Step 810500 (79.9%): Train Loss = 0.038504, Val Loss = 0.038624, Gnorm = 0.134918, Samples = 207488256, LR = 3.82e-05, Steps/sec = 0.30, Samples/sec = 76.6
+Step 811000 (80.0%): Train Loss = 0.035515, Val Loss = 0.049137, Gnorm = 0.255692, Samples = 207616256, LR = 3.79e-05, Steps/sec = 0.31, Samples/sec = 80.5
+Step 811500 (80.1%): Train Loss = 0.036780, Val Loss = 0.041805, Gnorm = 0.201394, Samples = 207744256, LR = 3.76e-05, Steps/sec = 0.30, Samples/sec = 75.7
+Step 812000 (80.2%): Train Loss = 0.040780, Val Loss = 0.038978, Gnorm = 0.156263, Samples = 207872256, LR = 3.73e-05, Steps/sec = 0.31, Samples/sec = 78.9
+Step 812500 (80.3%): Train Loss = 0.037447, Val Loss = 0.038236, Gnorm = 0.199835, Samples = 208000256, LR = 3.71e-05, Steps/sec = 0.27, Samples/sec = 69.9
+Step 813000 (80.4%): Train Loss = 0.049243, Val Loss = 0.035107, Gnorm = 0.201361, Samples = 208128256, LR = 3.68e-05, Steps/sec = 0.30, Samples/sec = 76.1
+Step 813500 (80.5%): Train Loss = 0.034778, Val Loss = 0.037671, Gnorm = 0.269577, Samples = 208256256, LR = 3.66e-05, Steps/sec = 0.28, Samples/sec = 72.1
+Step 814000 (80.6%): Train Loss = 0.035285, Val Loss = 0.037712, Gnorm = 0.237225, Samples = 208384256, LR = 3.63e-05, Steps/sec = 0.31, Samples/sec = 79.7
+Step 814500 (80.7%): Train Loss = 0.035171, Val Loss = 0.045634, Gnorm = 0.676492, Samples = 208512256, LR = 3.60e-05, Steps/sec = 0.29, Samples/sec = 74.3
+Step 815000 (80.8%): Train Loss = 0.034609, Val Loss = 0.035349, Gnorm = 0.163294, Samples = 208640256, LR = 3.58e-05, Steps/sec = 0.31, Samples/sec = 80.3
+Step 815500 (80.9%): Train Loss = 0.037237, Val Loss = 0.035730, Gnorm = 0.127060, Samples = 208768256, LR = 3.55e-05, Steps/sec = 0.31, Samples/sec = 79.4
+Step 816000 (81.0%): Train Loss = 0.037675, Val Loss = 0.039383, Gnorm = 0.153756, Samples = 208896256, LR = 3.53e-05, Steps/sec = 0.30, Samples/sec = 77.9
+Step 816500 (81.1%): Train Loss = 0.034972, Val Loss = 0.044488, Gnorm = 0.162293, Samples = 209024256, LR = 3.50e-05, Steps/sec = 0.28, Samples/sec = 71.4
+Step 817000 (81.2%): Train Loss = 0.035789, Val Loss = 0.039471, Gnorm = 0.184345, Samples = 209152256, LR = 3.47e-05, Steps/sec = 0.34, Samples/sec = 87.5
+Step 817500 (81.3%): Train Loss = 0.038981, Val Loss = 0.037038, Gnorm = 0.351029, Samples = 209280256, LR = 3.45e-05, Steps/sec = 0.29, Samples/sec = 73.3
+Step 818000 (81.4%): Train Loss = 0.033879, Val Loss = 0.031737, Gnorm = 0.130195, Samples = 209408256, LR = 3.42e-05, Steps/sec = 0.28, Samples/sec = 71.9
+Step 818500 (81.5%): Train Loss = 0.040534, Val Loss = 0.040193, Gnorm = 0.345168, Samples = 209536256, LR = 3.40e-05, Steps/sec = 0.26, Samples/sec = 67.0
+Step 819000 (81.6%): Train Loss = 0.036727, Val Loss = 0.038551, Gnorm = 0.198545, Samples = 209664256, LR = 3.37e-05, Steps/sec = 0.25, Samples/sec = 64.5

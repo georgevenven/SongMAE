@@ -1,0 +1,4 @@
+Loading BirdSet dataset: XCL, split: train
+Starting to process samples...
+BirdSet workers: 9 threads, max in flight: 36
+Processed 250 samples → 250 spectrograms (0 skipped) in 69.4s

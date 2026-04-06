@@ -1,0 +1,2 @@
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 9c5aa2c3-9a5f-4c71-afc3-cf0c68655dda)')' thrown while requesting GET https://huggingface.co/datasets/DBD-research-group/BirdSet/resolve/data/XCL/XCL_shard_0003.tar.gz
+Retrying in 1s [Retry 1/5].
