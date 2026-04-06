@@ -17,7 +17,7 @@ from utils import (
 )
 
 class SpectogramDataset(Dataset):
-    def __init__(self, dir, n_timebins=1024):
+    def __init__(self, dir, n_timebins=1024, normalization="audio_params"):
         """
         n_timebins = None means no cropping
         """
@@ -33,8 +33,10 @@ class SpectogramDataset(Dataset):
         self.mean = self.audio_data_json["mean"]
         self.std = self.audio_data_json["std"]
         self.n_timebins = n_timebins
+        self.normalization = normalization
         self.mean = np.float32(self.mean)
         self.std = np.float32(self.std)
+        assert self.normalization in {"audio_params", "per_file_zscore"}
 
         if len(self.file_dirs) == 0:
             raise SystemExit("no files!!")
@@ -73,9 +75,14 @@ class SpectogramDataset(Dataset):
 
         arr = np.array(arr, dtype=np.float32)
 
-        # Apply z-score normalization in-place
-        arr -= self.mean
-        arr /= self.std
+        if self.normalization == "audio_params":
+            arr -= self.mean
+            arr /= self.std
+        else:
+            arr_mean = np.float32(arr.mean())
+            arr_std = np.float32(arr.std())
+            arr -= arr_mean
+            arr /= max(arr_std, np.float32(1e-6))
 
         spec = torch.from_numpy(arr).unsqueeze(0)  # since we are dealing with image data, conv requires channels 
 

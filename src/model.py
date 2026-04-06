@@ -1,4 +1,5 @@
 import torch, math 
+import torch.nn.functional as F
 from torch import nn, zero_
 
 class LoRALinear(nn.Module):
@@ -278,7 +279,39 @@ class TinyBird(nn.Module):
         h = self.encoder(z_keep)                   # (B, keep, D_enc)
         return h, idx_restore, bool_mask, T
     
-    def forward_encoder_inference(self, x, encoder_layer_idx=None):
+    def _forward_encoder_layer(self, layer, x, target_feature_type="end_of_block"):
+        if not layer.norm_first:
+            raise RuntimeError("TinyBird teacher feature extraction expects norm_first=True transformer layers.")
+
+        attn_input = layer.norm1(x)
+        attn_out = layer.self_attn(attn_input, attn_input, attn_input, need_weights=False)[0]
+        attn_out = layer.dropout1(attn_out)
+        x = x + attn_out
+
+        ffn_input = layer.norm2(x)
+        ffn_out = layer.linear1(ffn_input)
+        ffn_out = layer.activation(ffn_out)
+        ffn_out = layer.dropout(ffn_out)
+        ffn_out = layer.linear2(ffn_out)
+        ffn_out = layer.dropout2(ffn_out)
+
+        if target_feature_type == "ffn":
+            feature = ffn_out
+        elif target_feature_type == "end_of_block":
+            feature = x + ffn_out
+        else:
+            raise ValueError(f"Unsupported target_feature_type: {target_feature_type}")
+
+        x = x + ffn_out
+        return x, feature
+
+    def forward_encoder_inference(
+        self,
+        x,
+        encoder_layer_idx=None,
+        average_top_k=None,
+        target_feature_type="end_of_block",
+    ):
         z = self.patch_projection(x)               # (B, D_enc, H', W')
         B, D, H, W = z.shape
 
@@ -286,25 +319,34 @@ class TinyBird(nn.Module):
         z = z + pos_enc
         z_seq = z.flatten(2).transpose(1, 2)        # (B, T, D_enc)
 
-        if encoder_layer_idx is None:
-            h = self.encoder(z_seq)
+        layers = getattr(self.encoder, "layers", None)
+        if layers is None:
+            raise RuntimeError("TinyBird.encoder does not expose .layers; cannot run encoder inference.")
+
+        layer_features = []
+        out = z_seq
+        for layer in layers:
+            out, feature = self._forward_encoder_layer(layer, out, target_feature_type=target_feature_type)
+            layer_features.append(feature)
+
+        if average_top_k is not None:
+            top_k = int(average_top_k)
+            num_layers = len(layer_features)
+            if top_k <= 0 or top_k > num_layers:
+                raise ValueError(f"average_top_k out of range: {average_top_k} (num_layers={num_layers})")
+            top_features = layer_features[-top_k:]
+            normed_features = [F.layer_norm(feature, (feature.shape[-1],)) for feature in top_features]
+            h = torch.stack(normed_features, dim=0).mean(dim=0)
+        elif encoder_layer_idx is None:
+            h = out
         else:
-            layers = getattr(self.encoder, "layers", None)
-            if layers is None:
-                raise RuntimeError("TinyBird.encoder does not expose .layers; cannot select intermediate layer.")
-            num_layers = len(layers)
+            num_layers = len(layer_features)
             idx = int(encoder_layer_idx)
             if idx < 0:
                 idx = num_layers + idx
             if idx < 0 or idx >= num_layers:
                 raise ValueError(f"encoder_layer_idx out of range: {encoder_layer_idx} (num_layers={num_layers})")
-
-            out = z_seq
-            for layer_i, layer in enumerate(layers):
-                out = layer(out)
-                if layer_i == idx:
-                    break
-            h = out
+            h = layer_features[idx]
         return h, z_seq # z seq is encoded patches + pos enc 
 
     def forward_decoder(self, h, idx_restore, T):

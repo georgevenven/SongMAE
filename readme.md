@@ -221,3 +221,5 @@ Two details matter when reading these arrays:
 ## Bugs
 
 - [ ] irregularity with number of specs made in log for XCM vs HSN_test
+
+Converter note: TinyBird uses a standard `annotations.json` schema for downstream training, evaluation, and embedding workflows, but source datasets arrive with many different native annotation formats. Existing species-specific converters in `scripts/` remain in place and should not be treated as the canonical place for all future work. For newly downloaded datasets, add new isolated converter scripts under a root-level `dataset_utils/` folder, with one subfolder per source dataset or source annotation schema, and have each converter map that dataset's native metadata into the same standard TinyBird JSON format. The goal is to preserve provenance and dataset-specific logic while keeping all downstream code dependent on one shared annotation structure rather than on species-specific source formats.
