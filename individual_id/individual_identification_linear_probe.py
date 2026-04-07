@@ -238,10 +238,13 @@ def _apply_normalization_preset(args):
 
     stats_dir = args.audio_params_stats_dir
     if args.encoder == "SongMAE":
-        assert args.normalization_preset in {"vanilla", "zscore_rescaled"}
+        assert args.normalization_preset in {"vanilla", "zscore", "zscore_rescaled"}
         args.songmae_feature_normalization = "none"
         if args.normalization_preset == "vanilla":
             args.songmae_input_normalization = "none"
+            return
+        if args.normalization_preset == "zscore":
+            args.songmae_input_normalization = "per_model_input_zscore"
             return
         args.songmae_input_normalization = "per_recording_cmvn_rescaled_to_target_stats"
         args.songmae_input_normalization_stats_dir = stats_dir
@@ -291,7 +294,7 @@ def main():
     parser.add_argument("--songmae_feature_normalization", choices=["none", "per_recording_zscore"], default="none")
     parser.add_argument(
         "--songmae_input_normalization",
-        choices=["none", "per_recording_cmvn_rescaled_to_target_stats"],
+        choices=["none", "per_model_input_zscore", "per_recording_cmvn_rescaled_to_target_stats"],
         default="none",
     )
     parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
