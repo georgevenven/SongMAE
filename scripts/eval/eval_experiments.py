@@ -19,6 +19,17 @@ def ensure_abs(path):
     return p
 
 
+def ensure_run_dir(path):
+    p = Path(path)
+    if p.is_absolute():
+        return p
+    project_path = ROOT / p
+    if project_path.exists():
+        return project_path
+    runs_path = ROOT / "runs" / p
+    return runs_path
+
+
 def load_config(path):
     with Path(path).expanduser().open("r") as handle:
         return json.load(handle)
@@ -42,14 +53,14 @@ def merge_eval_args(*levels):
 
 def _normalize_run(entry, defaults):
     if isinstance(entry, str):
-        run_dir = ensure_abs(entry)
+        run_dir = ensure_run_dir(entry)
         name = Path(entry).name
         checkpoint = None
         data = {}
     else:
         name = entry.get("name")
         if entry.get("run_dir"):
-            run_dir = ensure_abs(entry["run_dir"])
+            run_dir = ensure_run_dir(entry["run_dir"])
         else:
             base = defaults.get("run_base", ROOT / "runs")
             if name is None:

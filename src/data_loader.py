@@ -16,8 +16,95 @@ from utils import (
     get_num_classes_from_annotations,
 )
 
+SUPPORTED_NORMALIZATIONS = {"none", "audio_params", "per_file_zscore"}
+SUPPORTED_OUTPUT_DTYPES = {"float32", "float16", "bfloat16"}
+SUPPORTED_STORAGE_DTYPES = {"float32", "float8_e4m3fn", "float8_e5m2"}
+SUPPORTED_STORAGE_NORMALIZATIONS = {"none", "per_file_zscore"}
+
+
+def resolve_output_dtype(output_dtype):
+    assert output_dtype in SUPPORTED_OUTPUT_DTYPES
+    if output_dtype == "float32":
+        return torch.float32
+    if output_dtype == "float16":
+        return torch.float16
+    return torch.bfloat16
+
+
+def load_quantization_manifest(data_dir, audio_data_json):
+    storage_normalization = audio_data_json.get("storage_normalization", "none")
+    manifest_name = audio_data_json.get("storage_manifest")
+    if storage_normalization != "per_file_zscore":
+        return {}
+    assert manifest_name is not None
+    manifest_path = Path(data_dir) / manifest_name
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    return {row["file"]: row for row in rows}
+
+
+def decode_fp8_array(arr, storage_dtype):
+    assert storage_dtype in {"float8_e4m3fn", "float8_e5m2"}
+    tensor = torch.from_numpy(np.array(arr, dtype=np.uint8, copy=True))
+    if storage_dtype == "float8_e4m3fn":
+        return tensor.view(torch.float8_e4m3fn).float().numpy()
+    return tensor.view(torch.float8_e5m2).float().numpy()
+
+
+def decode_storage_to_raw(arr, storage_dtype, storage_normalization, file_stats):
+    assert storage_dtype in SUPPORTED_STORAGE_DTYPES
+    assert storage_normalization in SUPPORTED_STORAGE_NORMALIZATIONS
+
+    if storage_dtype == "float32":
+        stored = np.asarray(arr, dtype=np.float32)
+    else:
+        stored = decode_fp8_array(arr, storage_dtype)
+
+    if storage_normalization == "none":
+        return stored.astype(np.float32, copy=False)
+
+    assert file_stats is not None
+    mean = np.float32(file_stats["mean"])
+    std = np.float32(file_stats["std"])
+    return (stored * std + mean).astype(np.float32, copy=False)
+
+
+def normalize_spectrogram_numpy(arr, normalization, mean=None, std=None):
+    arr = np.asarray(arr, dtype=np.float32)
+    assert normalization in SUPPORTED_NORMALIZATIONS
+    if normalization == "none":
+        return arr.astype(np.float32, copy=False)
+    if normalization == "audio_params":
+        assert mean is not None
+        assert std is not None
+        return ((arr - np.float32(mean)) / np.float32(std)).astype(np.float32, copy=False)
+
+    arr_mean = np.float32(arr.mean())
+    arr_std = max(np.float32(arr.std()), np.float32(1e-6))
+    return ((arr - arr_mean) / arr_std).astype(np.float32, copy=False)
+
+
+def normalize_spectrogram_tensor(arr, normalization, mean=None, std=None, dims=None):
+    assert normalization in SUPPORTED_NORMALIZATIONS
+    if dims is None:
+        dims = tuple(range(1, arr.ndim))
+
+    if normalization == "none":
+        return arr
+    if normalization == "audio_params":
+        assert mean is not None
+        assert std is not None
+        mean_tensor = torch.as_tensor(mean, dtype=arr.dtype, device=arr.device)
+        std_tensor = torch.as_tensor(std, dtype=arr.dtype, device=arr.device)
+        return (arr - mean_tensor) / std_tensor
+
+    arr_mean = arr.mean(dim=dims, keepdim=True)
+    arr_std = arr.std(dim=dims, keepdim=True)
+    arr_std = torch.clamp(arr_std, min=1e-6)
+    return (arr - arr_mean) / arr_std
+
 class SpectogramDataset(Dataset):
-    def __init__(self, dir, n_timebins=1024, normalization="audio_params"):
+    def __init__(self, dir, n_timebins=1024, normalization="audio_params", output_dtype="float32"):
         """
         n_timebins = None means no cropping
         """
@@ -34,9 +121,16 @@ class SpectogramDataset(Dataset):
         self.std = self.audio_data_json["std"]
         self.n_timebins = n_timebins
         self.normalization = normalization
+        self.output_dtype = output_dtype
         self.mean = np.float32(self.mean)
         self.std = np.float32(self.std)
-        assert self.normalization in {"audio_params", "per_file_zscore"}
+        assert self.normalization in SUPPORTED_NORMALIZATIONS
+        self.output_torch_dtype = resolve_output_dtype(output_dtype)
+        self.storage_dtype = self.audio_data_json.get("storage_dtype", "float32")
+        self.storage_normalization = self.audio_data_json.get("storage_normalization", "none")
+        assert self.storage_dtype in SUPPORTED_STORAGE_DTYPES
+        assert self.storage_normalization in SUPPORTED_STORAGE_NORMALIZATIONS
+        self.quantization_manifest = load_quantization_manifest(dir, self.audio_data_json)
 
         if len(self.file_dirs) == 0:
             raise SystemExit("no files!!")
@@ -48,11 +142,13 @@ class SpectogramDataset(Dataset):
         filename = path.stem
         arr = np.load(path, mmap_mode="r")
         time = arr.shape[1]
+        file_stats = self.quantization_manifest.get(path.name)
 
         # we want to load the whole file if n_timebins is None
         if self.n_timebins is None:
             start = 0
             end = time
+            arr = arr[:, start:end]
 
         # loading a chunk 
         else:
@@ -60,31 +156,39 @@ class SpectogramDataset(Dataset):
             if time > self.n_timebins:
                 start = random.randint(0, time - self.n_timebins)
                 end = start + self.n_timebins
-                arr = arr[:,start:end]
+                arr = arr[:, start:end]
 
             # do nothing 
             if time == self.n_timebins:
-                pass 
+                start = 0
+                end = time
+                arr = arr[:, start:end]
 
             # pad 
             if time < self.n_timebins:
                 start = 0
                 end = self.n_timebins
-                pad_amount = self.n_timebins - arr.shape[1]
-                arr = np.pad(arr, ((0, 0), (0, pad_amount)), mode='constant')
+                arr = arr[:, :]
 
-        arr = np.array(arr, dtype=np.float32)
+        arr = decode_storage_to_raw(
+            arr,
+            self.storage_dtype,
+            self.storage_normalization,
+            file_stats,
+        )
 
-        if self.normalization == "audio_params":
-            arr -= self.mean
-            arr /= self.std
-        else:
-            arr_mean = np.float32(arr.mean())
-            arr_std = np.float32(arr.std())
-            arr -= arr_mean
-            arr /= max(arr_std, np.float32(1e-6))
+        if self.n_timebins is not None and time < self.n_timebins:
+            pad_amount = self.n_timebins - arr.shape[1]
+            arr = np.pad(arr, ((0, 0), (0, pad_amount)), mode='constant')
 
-        spec = torch.from_numpy(arr).unsqueeze(0)  # since we are dealing with image data, conv requires channels 
+        arr = normalize_spectrogram_numpy(
+            arr,
+            self.normalization,
+            mean=self.mean,
+            std=self.std,
+        )
+
+        spec = torch.from_numpy(arr).unsqueeze(0).to(dtype=self.output_torch_dtype)
 
         return spec, filename 
 
@@ -100,6 +204,8 @@ class SupervisedSpectogramDataset(Dataset):
         mode="detect",
         white_noise=0.0,
         audio_params_override=None,
+        normalization="audio_params",
+        output_dtype="float32",
     ):
         """
         n_timebins = None means no cropping
@@ -108,10 +214,11 @@ class SupervisedSpectogramDataset(Dataset):
         self.file_dirs = sorted(list(Path(dir).glob("*.npy")))
 
         # Load audio parameters using utility function (or override with pretrain params)
-        if audio_params_override is None:
-            self.audio_data_json = load_audio_params(dir)
-        else:
-            self.audio_data_json = audio_params_override
+        self.audio_data_json = load_audio_params(dir)
+        if audio_params_override is not None:
+            merged_audio_params = dict(self.audio_data_json)
+            merged_audio_params.update(audio_params_override)
+            self.audio_data_json = merged_audio_params
         
         self.n_mels = self.audio_data_json["mels"]
         self.sr = self.audio_data_json["sr"]
@@ -122,10 +229,19 @@ class SupervisedSpectogramDataset(Dataset):
         self.n_timebins = n_timebins
         self.mean = np.float32(self.mean)
         self.std = np.float32(self.std)
+        self.normalization = normalization
+        self.output_dtype = output_dtype
 
         self.mode = mode ## detect = vocalization present/absent, unit_detect = syllable present/absent, classify = syllable class
         self.annotation_file_path = annotation_file_path
         self.white_noise = white_noise
+        assert self.normalization in SUPPORTED_NORMALIZATIONS
+        self.output_torch_dtype = resolve_output_dtype(output_dtype)
+        self.storage_dtype = self.audio_data_json.get("storage_dtype", "float32")
+        self.storage_normalization = self.audio_data_json.get("storage_normalization", "none")
+        assert self.storage_dtype in SUPPORTED_STORAGE_DTYPES
+        assert self.storage_normalization in SUPPORTED_STORAGE_NORMALIZATIONS
+        self.quantization_manifest = load_quantization_manifest(dir, self.audio_data_json)
 
         with open(annotation_file_path, "r", encoding="utf-8") as f:
             annotations = json.load(f)
@@ -224,6 +340,7 @@ class SupervisedSpectogramDataset(Dataset):
         filename = path.stem
         arr = np.load(path, mmap_mode="r")
         time = arr.shape[1]
+        file_stats = self.quantization_manifest.get(path.name)
 
         base_filename, chunk_start_ms, chunk_end_ms = parse_chunk_ms(filename)
         labels = self._label_index.get(base_filename)
@@ -235,6 +352,7 @@ class SupervisedSpectogramDataset(Dataset):
         if self.n_timebins is None:
             start = 0
             end = time
+            arr = arr[:, start:end]
 
         # loading a chunk 
         else:
@@ -242,37 +360,46 @@ class SupervisedSpectogramDataset(Dataset):
             if time > self.n_timebins:
                 start = random.randint(0, time - self.n_timebins)
                 end = start + self.n_timebins
+                arr = arr[:, start:end]
             elif time == self.n_timebins:
                 start = 0
                 end = time
+                arr = arr[:, start:end]
             else:
                 start = 0
                 end = time
+                arr = arr[:, :]
 
         # Create label array matching spectrogram time dimension
         labels = self.create_label_array(labels, start, end)
 
+        arr = decode_storage_to_raw(
+            arr,
+            self.storage_dtype,
+            self.storage_normalization,
+            file_stats,
+        )
+
         # Crop/pad spectrograms and labels
         if self.n_timebins is not None:
-            if time > self.n_timebins:
-                arr = arr[:, start:end]
-            elif time < self.n_timebins:
+            if time < self.n_timebins:
                 pad_amount = self.n_timebins - arr.shape[1]
                 arr = np.pad(arr, ((0, 0), (0, pad_amount)), mode='constant')
                 labels = np.pad(labels, (0, pad_amount), mode='constant', constant_values=0)  # pad with silence (class 0)
 
-        arr = np.array(arr, dtype=np.float32)
-
-        # Apply z-score normalization in-place
-        arr -= self.mean
-        arr /= self.std
+        arr = normalize_spectrogram_numpy(
+            arr,
+            self.normalization,
+            mean=self.mean,
+            std=self.std,
+        )
 
         # Apply white noise augmentation if enabled
         if self.white_noise > 0.0:
             noise = np.random.normal(0, self.white_noise, arr.shape).astype(np.float32)
             arr += noise
 
-        spec = torch.from_numpy(arr).unsqueeze(0)
+        spec = torch.from_numpy(arr).unsqueeze(0).to(dtype=self.output_torch_dtype)
         labels = torch.from_numpy(labels)
 
         return spec, labels, filename

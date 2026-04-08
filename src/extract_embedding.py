@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from data_loader import normalize_spectrogram_numpy, normalize_spectrogram_tensor
 from utils import load_audio_params, load_model_from_checkpoint
 
 
@@ -199,7 +200,12 @@ def normalize_recording_segments(segments, mode, target_stats=None):
         target_mean, target_std = target_stats
         normalized = []
         for segment in segments:
-            spectrogram = ((segment["spectrogram"] - target_mean) / target_std).astype(np.float32, copy=False)
+            spectrogram = normalize_spectrogram_numpy(
+                segment["spectrogram"],
+                "audio_params",
+                mean=target_mean,
+                std=target_std,
+            )
             normalized.append(
                 {
                     "recording_stem": segment["recording_stem"],
@@ -260,10 +266,10 @@ def _extract_segment_arrays(
     _, mel, _ = spec_tensor.shape
     batched_spec = spec_tensor.reshape(1, mel, batch_size, model_num_timebins).permute(2, 0, 1, 3)
     if input_normalization_mode == "per_model_input_zscore":
-        chunk_mean = batched_spec.mean(dim=(1, 2, 3), keepdim=True)
-        chunk_std = batched_spec.std(dim=(1, 2, 3), keepdim=True)
-        chunk_std = torch.clamp(chunk_std, min=1e-6)
-        batched_spec = (batched_spec - chunk_mean) / chunk_std
+        batched_spec = normalize_spectrogram_tensor(
+            batched_spec,
+            "per_file_zscore",
+        )
 
     with torch.no_grad():
         encoded, patch = model.forward_encoder_inference(
