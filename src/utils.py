@@ -169,15 +169,16 @@ def load_model_from_checkpoint(run_dir="", checkpoint_file=None, fallback_to_ran
     
     return tinybird, config
 
-def load_audio_params(data_dir):
+def load_audio_params(data_dir, require_stats=True):
     """
     Load audio parameters from audio_params.json in the specified directory.
     
     Args:
         data_dir (str): Path to directory containing audio_params.json
+        require_stats (bool): Whether mean/std must be present
     
     Returns:
-        dict: Dictionary containing audio parameters (mels, sr, hop_size, fft, mean, std)
+        dict: Dictionary containing audio parameters
     
     Raises:
         SystemExit: If audio_params.json is missing or lacks required keys
@@ -191,7 +192,9 @@ def load_audio_params(data_dir):
         audio_data_json = json.load(f)
     
     # Validate required keys
-    required_keys = ["mels", "sr", "hop_size", "fft", "mean", "std"]
+    required_keys = ["mels", "sr", "hop_size", "fft"]
+    if require_stats:
+        required_keys.extend(["mean", "std"])
     for key in required_keys:
         if key not in audio_data_json:
             raise SystemExit(f"Missing required key '{key}' in audio_params.json. Exiting.")

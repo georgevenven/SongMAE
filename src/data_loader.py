@@ -110,20 +110,17 @@ class SpectogramDataset(Dataset):
         """
         self.file_dirs = sorted(list(Path(dir).glob("*.npy")))
 
-        # Load audio parameters using utility function
-        self.audio_data_json = load_audio_params(dir)
+        # Per-file z-score only needs the structural spectrogram metadata.
+        require_stats = normalization == "audio_params"
+        self.audio_data_json = load_audio_params(dir, require_stats=require_stats)
         
         self.n_mels = self.audio_data_json["mels"]
         self.sr = self.audio_data_json["sr"]
         self.hop_size = self.audio_data_json["hop_size"]
         self.fft = self.audio_data_json["fft"]
-        self.mean = self.audio_data_json["mean"]
-        self.std = self.audio_data_json["std"]
         self.n_timebins = n_timebins
         self.normalization = normalization
         self.output_dtype = output_dtype
-        self.mean = np.float32(self.mean)
-        self.std = np.float32(self.std)
         assert self.normalization in SUPPORTED_NORMALIZATIONS
         self.output_torch_dtype = resolve_output_dtype(output_dtype)
         self.storage_dtype = self.audio_data_json.get("storage_dtype", "float32")
@@ -131,6 +128,12 @@ class SpectogramDataset(Dataset):
         assert self.storage_dtype in SUPPORTED_STORAGE_DTYPES
         assert self.storage_normalization in SUPPORTED_STORAGE_NORMALIZATIONS
         self.quantization_manifest = load_quantization_manifest(dir, self.audio_data_json)
+        if self.normalization == "audio_params":
+            self.mean = np.float32(self.audio_data_json["mean"])
+            self.std = np.float32(self.audio_data_json["std"])
+        else:
+            self.mean = None
+            self.std = None
 
         if len(self.file_dirs) == 0:
             raise SystemExit("no files!!")

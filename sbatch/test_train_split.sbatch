@@ -19,10 +19,10 @@ pip install -r "$HOME/TinyBird/requirements.txt"
 # --- scratch on Talapas is /scratch/<PIRG>/<USER>
 PIRG=${PIRG:-gardnerlab}
 MY_SCRATCH=/scratch/${PIRG}/${USER}
-SPEC_DIR="$MY_SCRATCH/XCM_Bambird"
-ANNOTATION_JSON="$SPEC_DIR/XCM_train_annotations.json"
-TRAIN_DIR="$MY_SCRATCH/XCM_Train"
-TEST_DIR="$MY_SCRATCH/XCM_Test"
+SPEC_DIR="$MY_SCRATCH/XCL_corpus_v2"
+ANNOTATION_JSON="$SPEC_DIR/XCL_train_annotations.json"
+TRAIN_DIR="$MY_SCRATCH/XCL_Train"
+TEST_DIR="$MY_SCRATCH/XCL_Test"
 chmod -R g+rwX "$MY_SCRATCH"
 
 # --- keep libraries from oversubscribing threads
@@ -52,6 +52,9 @@ python -u "$SPLIT_SCRIPT" \
   --annotation_json "$ANNOTATION_JSON" \
   --train_percent 95 \
   --ignore_bird_id \
-  --seed 42
+  --seed 42 \
+  --max_workers "$workers" \
+  --exact_npy_only \
+  --move
 
 echo "Done. Train: $TRAIN_DIR | Test: $TEST_DIR"

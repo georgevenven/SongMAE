@@ -3,6 +3,7 @@ import argparse
 import os
 import shutil
 import glob
+from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 from itertools import combinations
 from tqdm import tqdm
@@ -16,7 +17,10 @@ def calculate_ms(detected_events):
     return total_ms
 
 
-def find_spec_matches(spec_dir, base_name):
+def find_spec_matches(spec_dir, base_name, exact_npy_only=False):
+    if exact_npy_only:
+        candidate = os.path.join(spec_dir, f"{base_name}.npy")
+        return [candidate] if os.path.exists(candidate) else []
     patterns = [
         os.path.join(spec_dir, f"{base_name}.*"),
         os.path.join(spec_dir, f"{base_name}__ms_*"),
@@ -45,13 +49,62 @@ def _copy_or_move(src, dst, move_files):
         shutil.copy2(src, dst)
     return True
 
-def split_data_random(input_file, spec_dir, train_dir, test_dir, train_percent=80, move_files=False):
+
+def _transfer_recording(recording, spec_dir, output_dir, move_files, exact_npy_only=False):
+    filename = recording['recording']['filename']
+    base_name = os.path.splitext(filename)[0]
+    matches = find_spec_matches(spec_dir, base_name, exact_npy_only=exact_npy_only)
+    moved = 0
+    for src in matches:
+        dst = os.path.join(output_dir, os.path.basename(src))
+        if _copy_or_move(src, dst, move_files):
+            moved += 1
+    return moved
+
+
+def _transfer_recordings(recordings, spec_dir, output_dir, move_files, max_workers=1, exact_npy_only=False):
+    if max_workers <= 1:
+        moved = 0
+        for recording in tqdm(recordings):
+            moved += _transfer_recording(recording, spec_dir, output_dir, move_files, exact_npy_only=exact_npy_only)
+        return moved
+
+    moved = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        iterator = executor.map(
+            _transfer_recording,
+            recordings,
+            [spec_dir] * len(recordings),
+            [output_dir] * len(recordings),
+            [move_files] * len(recordings),
+            [exact_npy_only] * len(recordings),
+        )
+        for count in tqdm(iterator, total=len(recordings)):
+            moved += count
+    return moved
+
+
+def _copy_audio_params(spec_dir, *output_dirs):
+    audio_params = os.path.join(spec_dir, "audio_params.json")
+    if not os.path.exists(audio_params):
+        return
+    for output_dir in output_dirs:
+        if output_dir:
+            shutil.copy2(audio_params, os.path.join(output_dir, "audio_params.json"))
+
+
+def split_data_random(
+    input_file,
+    spec_dir,
+    train_dir,
+    test_dir,
+    train_percent=80,
+    move_files=False,
+    max_workers=1,
+    exact_npy_only=False,
+):
     """Randomly split recordings without considering bird_id"""
-    
-    # Create output directories
-    os.makedirs(train_dir, exist_ok=True)
-    os.makedirs(test_dir, exist_ok=True)
-    
+
     # Load data
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -69,33 +122,53 @@ def split_data_random(input_file, spec_dir, train_dir, test_dir, train_percent=8
     train_ms = sum(calculate_ms(r['detected_events']) for r in train_recordings)
     test_ms = sum(calculate_ms(r['detected_events']) for r in test_recordings)
     total_ms = train_ms + test_ms
-    
-    # Copy/move train spec files
+
     action = "Moving" if move_files else "Copying"
-    print(f"{action} train files...")
-    for recording in tqdm(train_recordings):
-        filename = recording['recording']['filename']
-        base_name = os.path.splitext(filename)[0]
-        matches = find_spec_matches(spec_dir, base_name)
-        for src in matches:
-            dst = os.path.join(train_dir, os.path.basename(src))
-            _copy_or_move(src, dst, move_files)
-    
-    # Copy/move test spec files
-    print(f"{action} test files...")
-    for recording in tqdm(test_recordings):
-        filename = recording['recording']['filename']
-        base_name = os.path.splitext(filename)[0]
-        matches = find_spec_matches(spec_dir, base_name)
-        for src in matches:
-            dst = os.path.join(test_dir, os.path.basename(src))
-            _copy_or_move(src, dst, move_files)
-    
-    # Copy audio_params.json to both directories
-    audio_params = os.path.join(spec_dir, "audio_params.json")
-    if os.path.exists(audio_params):
-        shutil.copy2(audio_params, os.path.join(train_dir, "audio_params.json"))
-        shutil.copy2(audio_params, os.path.join(test_dir, "audio_params.json"))
+    if move_files:
+        if os.path.exists(train_dir):
+            raise FileExistsError(f"Train directory already exists: {train_dir}")
+        os.makedirs(test_dir, exist_ok=True)
+
+        print(f"{action} only test files with {max_workers} workers...")
+        moved_test = _transfer_recordings(
+            test_recordings,
+            spec_dir,
+            test_dir,
+            move_files,
+            max_workers=max_workers,
+            exact_npy_only=exact_npy_only,
+        )
+        print(f"Moved {moved_test} files into test split")
+
+        _copy_audio_params(spec_dir, test_dir)
+
+        print(f"Renaming remaining corpus {spec_dir} -> {train_dir}")
+        os.rename(spec_dir, train_dir)
+    else:
+        os.makedirs(train_dir, exist_ok=True)
+        os.makedirs(test_dir, exist_ok=True)
+
+        print(f"{action} train files with {max_workers} workers...")
+        _transfer_recordings(
+            train_recordings,
+            spec_dir,
+            train_dir,
+            move_files,
+            max_workers=max_workers,
+            exact_npy_only=exact_npy_only,
+        )
+
+        print(f"{action} test files with {max_workers} workers...")
+        _transfer_recordings(
+            test_recordings,
+            spec_dir,
+            test_dir,
+            move_files,
+            max_workers=max_workers,
+            exact_npy_only=exact_npy_only,
+        )
+
+        _copy_audio_params(spec_dir, train_dir, test_dir)
     
     # Print stats
     print(f"\n=== Split Statistics (Random) ===")
@@ -277,6 +350,10 @@ if __name__ == '__main__':
                         help='Random seed for deterministic splits/sampling')
     parser.add_argument('--move', action='store_true',
                         help='Move files instead of copying (saves space)')
+    parser.add_argument('--max_workers', type=int, default=1,
+                        help='Worker count for per-record transfer operations')
+    parser.add_argument('--exact_npy_only', action='store_true',
+                        help='Use exact <base_name>.npy matches instead of glob scans')
     
     # New arguments
     parser.add_argument('--mode', type=str, default='split', choices=['split', 'filter_bird', 'sample'],
@@ -293,7 +370,16 @@ if __name__ == '__main__':
         if not args.train_dir or not args.test_dir or not args.annotation_json:
              parser.error("--mode split requires --train_dir, --test_dir, and --annotation_json")
         if args.ignore_bird_id:
-            split_data_random(args.annotation_json, args.spec_dir, args.train_dir, args.test_dir, args.train_percent, args.move)
+            split_data_random(
+                args.annotation_json,
+                args.spec_dir,
+                args.train_dir,
+                args.test_dir,
+                args.train_percent,
+                args.move,
+                max_workers=args.max_workers,
+                exact_npy_only=args.exact_npy_only,
+            )
         else:
             split_data(args.annotation_json, args.spec_dir, args.train_dir, args.test_dir, args.train_percent, args.move)
             

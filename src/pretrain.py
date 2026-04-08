@@ -499,7 +499,8 @@ if __name__ == "__main__":
     # Load audio params from training directory
     from utils import load_audio_params
     
-    audio_params = load_audio_params(config["train_dir"])
+    require_stats = config["input_normalization"] == "audio_params"
+    audio_params = load_audio_params(config["train_dir"], require_stats=require_stats)
     config["mels"] = audio_params["mels"]
     # Configure patch size and max sequence length for model
     config["patch_size"] = (config["patch_height"], config["patch_width"])

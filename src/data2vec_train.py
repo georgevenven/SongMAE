@@ -675,7 +675,8 @@ if __name__ == "__main__":
         if config["input_normalization"] is None:
             config["input_normalization"] = "audio_params"
 
-        audio_params = load_audio_params(config["train_dir"])
+        require_stats = config["input_normalization"] == "audio_params"
+        audio_params = load_audio_params(config["train_dir"], require_stats=require_stats)
         config["mels"] = audio_params["mels"]
 
         if args.init_from_pretrained_run:
