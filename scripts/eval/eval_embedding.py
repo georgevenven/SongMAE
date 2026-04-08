@@ -123,6 +123,17 @@ def main():
         default=None,
         help="If set, extract embeddings from this encoder layer index (0-based; negative allowed). Default uses final encoder output.",
     )
+    parser.add_argument(
+        "--songmae_input_normalization",
+        choices=["none", "audio_params", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
+        default="none",
+        help="Normalization mode applied to model inputs during embedding extraction.",
+    )
+    parser.add_argument(
+        "--songmae_input_normalization_stats_dir",
+        default=None,
+        help="Optional stats directory for normalization modes that require dataset stats.",
+    )
     parser.add_argument("--umap_neighbors", type=int, default=200, help="Number of neighbors for UMAP")
     parser.add_argument("--max_spectrograms", type=int, default=5, help="Maximum number of event spectrograms to save")
     parser.add_argument("--deterministic", action="store_true", help="Use deterministic UMAP with random_state")
@@ -142,6 +153,8 @@ def main():
         "json_path": args.json_path,
         "bird": args.bird,
         "encoder_layer_idx": args.encoder_layer_idx,
+        "spec_normalization": args.songmae_input_normalization,
+        "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
     }
     extract_embedding.main(extract_args)
 
@@ -180,6 +193,8 @@ def main():
         "npz_path": str(npz_path),
         "encoded_umap_plots": umap_paths,
         "spectrograms": spectrograms,
+        "songmae_input_normalization": args.songmae_input_normalization,
+        "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
     }
     if args.encoder_layer_idx is not None:
         metrics["encoder_layer_idx"] = int(args.encoder_layer_idx)

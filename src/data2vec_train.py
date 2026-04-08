@@ -413,11 +413,13 @@ class Trainer:
             dir=self.config["train_dir"],
             n_timebins=self.config["num_timebins"],
             normalization=self.config["input_normalization"],
+            output_dtype=self.config["input_dtype"],
         )
         val_dataset = SpectogramDataset(
             dir=self.config["val_dir"],
             n_timebins=self.config["num_timebins"],
             normalization=self.config["input_normalization"],
+            output_dtype=self.config["input_dtype"],
         )
 
         train_loader = DataLoader(
@@ -588,10 +590,11 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=0.1, help="weight decay")
     parser.add_argument(
         "--input_normalization",
-        choices=["audio_params", "per_file_zscore"],
+        choices=["none", "audio_params", "per_file_zscore"],
         default=None,
         help="normalize each spectrogram using dataset audio_params stats or per-file z-score",
     )
+    parser.add_argument("--input_dtype", choices=["float32", "float16", "bfloat16"], default="float32", help="dtype to emit from the dataloader")
     parser.add_argument("--continue_from", type=str, help="continue training from existing data2vec run directory")
     parser.add_argument("--init_from_pretrained_run", type=str, help="initialize student/teacher from a TinyBird pretrain run")
     parser.add_argument("--wandb", action="store_true", help="enable Weights & Biases logging")
@@ -654,6 +657,7 @@ if __name__ == "__main__":
         config.setdefault("mask_c", args.mask_c)
         config.setdefault("mask_type", args.mask_type)
         config.setdefault("input_normalization", "audio_params")
+        config.setdefault("input_dtype", "float32")
         config.setdefault("ema_decay", args.ema_decay)
         config.setdefault("loss_type", args.loss_type)
         config.setdefault("teacher_top_k", args.teacher_top_k)
@@ -661,6 +665,7 @@ if __name__ == "__main__":
         config.setdefault("target_layer_norm", True)
         if args.input_normalization is not None:
             config["input_normalization"] = args.input_normalization
+        config["input_dtype"] = args.input_dtype
     else:
         if not args.train_dir or not args.val_dir or not args.run_name:
             parser.error("--train_dir, --val_dir, and --run_name are required when not using --continue_from")

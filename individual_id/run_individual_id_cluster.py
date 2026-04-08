@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import umap
 from numba import njit
-from sklearn.cluster import KMeans
+from sklearn.cluster import HDBSCAN
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT / "src"))
@@ -30,7 +30,7 @@ DEFAULT_RUN_DIR = (
 )
 DEFAULT_SPEC_DIR = "/media/george-vengrovski/disk2/specs/zf_64hop_32khz"
 DEFAULT_ANNOTATION_JSON = "/home/george-vengrovski/Documents/projects/TinyBird/files/zf_annotations.json"
-DEFAULT_OUT_DIR = str(ROOT / "results" / "individual_id_kmeans")
+DEFAULT_OUT_DIR = str(ROOT / "results" / "individual_id_cluster")
 
 
 def _load_recording_features(args, bird_id, recording_stem, model_state):
@@ -154,16 +154,38 @@ def _fit_umap(features, neighbors, min_dist, metric, seed):
     return reducer.fit_transform(features).astype(np.float32, copy=False)
 
 
-def _fit_kmeans(features, n_clusters, seed):
-    used_clusters = min(int(n_clusters), int(features.shape[0]))
-    assert used_clusters > 0
-    model = KMeans(
-        n_clusters=used_clusters,
-        random_state=int(seed),
-        n_init="auto",
+def _reindex_cluster_ids(labels):
+    labels = np.asarray(labels, dtype=np.int64)
+    remapped = np.full(labels.shape, -1, dtype=np.int64)
+
+    next_cluster_id = 0
+    for raw_label in np.unique(labels):
+        if int(raw_label) < 0:
+            continue
+        remapped[labels == raw_label] = next_cluster_id
+        next_cluster_id += 1
+
+    noise_points = labels < 0
+    if noise_points.any():
+        remapped[noise_points] = next_cluster_id
+        next_cluster_id += 1
+
+    assert next_cluster_id > 0
+    return remapped, next_cluster_id, int(noise_points.sum())
+
+
+def _fit_hdbscan(features, min_cluster_size, min_samples):
+    point_count = int(features.shape[0])
+    used_min_cluster_size = max(2, min(int(min_cluster_size), point_count))
+    used_min_samples = None if min_samples is None else min(max(1, int(min_samples)), point_count)
+    model = HDBSCAN(
+        min_cluster_size=used_min_cluster_size,
+        min_samples=used_min_samples,
+        n_jobs=-1,
     )
-    labels = model.fit_predict(features)
-    return labels.astype(np.int64, copy=False), used_clusters
+    raw_labels = model.fit_predict(features)
+    labels, cluster_count, noise_points = _reindex_cluster_ids(raw_labels)
+    return labels.astype(np.int64, copy=False), cluster_count, noise_points
 
 
 def _cluster_colors(cluster_ids, n_clusters):
@@ -239,6 +261,48 @@ def _jaccard_similarity(barcodes):
     union = size[:, None] + size[None, :] - overlap
     similarity = np.divide(overlap, union, out=np.ones_like(overlap), where=union > 0)
     return similarity.astype(np.float32, copy=False)
+
+
+def _make_histogram_edges(values, bins):
+    values = np.asarray(values, dtype=np.float32)
+    assert values.ndim == 1
+    assert values.size > 0
+    lower = float(values.min())
+    upper = float(values.max())
+    if lower == upper:
+        lower -= 0.5
+        upper += 0.5
+    return np.linspace(lower, upper, int(bins) + 1, dtype=np.float32)
+
+
+def _build_recording_umap_histograms(xy, recording_indices, n_recordings, bins):
+    assert xy.ndim == 2 and xy.shape[1] == 2
+    x_edges = _make_histogram_edges(xy[:, 0], bins)
+    y_edges = _make_histogram_edges(xy[:, 1], bins)
+
+    histograms = np.zeros((n_recordings, int(bins), int(bins)), dtype=np.float32)
+    point_counts = np.zeros((n_recordings,), dtype=np.int64)
+    for recording_index in range(n_recordings):
+        points = xy[recording_indices == recording_index]
+        assert points.shape[0] > 0
+        counts, _, _ = np.histogram2d(points[:, 0], points[:, 1], bins=[x_edges, y_edges])
+        histograms[recording_index] = counts.astype(np.float32, copy=False)
+        point_counts[recording_index] = int(points.shape[0])
+    return histograms, point_counts
+
+
+def _bhattacharyya_similarity_matrix(histograms):
+    flattened = histograms.reshape(histograms.shape[0], -1).astype(np.float32, copy=False)
+    totals = flattened.sum(axis=1, keepdims=True)
+    normalized = np.divide(flattened, totals, out=np.zeros_like(flattened), where=totals > 0)
+
+    similarity = np.ones((histograms.shape[0], histograms.shape[0]), dtype=np.float32)
+    for i in range(histograms.shape[0]):
+        for j in range(i + 1, histograms.shape[0]):
+            sim = float(np.sqrt(normalized[i] * normalized[j]).sum())
+            similarity[i, j] = sim
+            similarity[j, i] = sim
+    return similarity
 
 
 def _build_cluster_sequences(recording_indices, cluster_ids, n_recordings):
@@ -400,42 +464,39 @@ def _save_similarity_heatmap(similarity, recordings, title, out_base):
     plt.close(fig)
 
 
-def _analyze_clustering(name, cluster_ids, recording_indices, recordings, n_clusters, args):
+def _analyze_clustering(name, xy, recording_indices, recordings, n_clusters, noise_points, args):
     true_birds = np.asarray([recording["bird_id"] for recording in recordings], dtype=object)
-    barcodes, unique_cluster_counts, barcode_cluster_counts = _build_barcodes(
+    histogram_bins = int(args.overlap_bins)
+    # Previous barcode/sequence-based similarity path is intentionally disabled:
+    # barcodes, unique_cluster_counts, barcode_cluster_counts = _build_barcodes(...)
+    # sequences, sequence_lengths = _build_cluster_sequences(...)
+    # similarity = _levenshtein_similarity_matrix(sequences, sequence_lengths)
+    histograms, point_counts = _build_recording_umap_histograms(
+        xy=xy,
         recording_indices=recording_indices,
-        cluster_ids=cluster_ids,
         n_recordings=len(recordings),
-        n_clusters=n_clusters,
-        min_hits=args.min_cluster_hits,
+        bins=histogram_bins,
     )
-    sequences, sequence_lengths = _build_cluster_sequences(
-        recording_indices=recording_indices,
-        cluster_ids=cluster_ids,
-        n_recordings=len(recordings),
-    )
-    # similarity = _jaccard_similarity(barcodes)
-    similarity = _levenshtein_similarity_matrix(sequences, sequence_lengths)
+    similarity = _bhattacharyya_similarity_matrix(histograms)
     group_ids = _connected_components(similarity, args.overlap_threshold)
     return {
         "name": name,
-        "barcodes": barcodes,
-        "sequences": sequences,
-        "sequence_lengths": sequence_lengths,
+        "histograms": histograms,
+        "point_counts": point_counts,
         "similarity": similarity,
         "group_ids": group_ids,
-        "unique_cluster_counts": unique_cluster_counts,
-        "barcode_cluster_counts": barcode_cluster_counts,
         "summary": {
-            "similarity_mode": "normalized_levenshtein",
-            "requested_clusters": int(args.n_clusters),
-            "used_clusters": int(n_clusters),
+            "similarity_mode": "umap_bhattacharyya",
+            "clusterer": "hdbscan",
+            "min_cluster_size": int(args.min_cluster_size),
+            "min_samples": None if args.min_samples is None else int(args.min_samples),
+            "cluster_label_count": int(n_clusters),
+            "noise_points": int(noise_points),
+            "overlap_bins": histogram_bins,
             "predicted_individuals": int(len(np.unique(group_ids))),
             "true_individuals": int(len(np.unique(true_birds))),
             "recording_majority_accuracy": _majority_vote_accuracy(true_birds, group_ids),
-            "recording_sequence_length": _summarize_values(sequence_lengths),
-            "recording_unique_cluster_count": _summarize_values(unique_cluster_counts),
-            "recording_barcode_cluster_count": _summarize_values(barcode_cluster_counts),
+            "recording_point_count": _summarize_values(point_counts),
             "mean_off_diagonal_overlap": float(
                 similarity[~np.eye(similarity.shape[0], dtype=bool)].mean()
             )
@@ -475,9 +536,11 @@ def _write_summary(out_path, args, recordings, total_points, analyses):
             "audio_params_stats_dir": args.audio_params_stats_dir,
             "songmae_input_normalization": args.songmae_input_normalization,
             "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
-            "n_clusters": int(args.n_clusters),
+            "min_cluster_size": int(args.min_cluster_size),
+            "min_samples": None if args.min_samples is None else int(args.min_samples),
             "min_cluster_hits": int(args.min_cluster_hits),
             "overlap_threshold": float(args.overlap_threshold),
+            "overlap_bins": int(args.overlap_bins),
             "umap_neighbors": int(args.umap_neighbors),
             "umap_min_dist": float(args.umap_min_dist),
             "umap_metric": args.umap_metric,
@@ -489,11 +552,9 @@ def _write_summary(out_path, args, recordings, total_points, analyses):
                 "recording_stem": recording["recording_stem"],
                 "points": int(recording["features"].shape[0]),
                 "embedding_group": int(analyses[0]["group_ids"][index]),
-                "embedding_unique_clusters": int(analyses[0]["unique_cluster_counts"][index]),
-                "embedding_barcode_clusters": int(analyses[0]["barcode_cluster_counts"][index]),
+                "embedding_overlap_points": int(analyses[0]["point_counts"][index]),
                 "umap_group": int(analyses[1]["group_ids"][index]),
-                "umap_unique_clusters": int(analyses[1]["unique_cluster_counts"][index]),
-                "umap_barcode_clusters": int(analyses[1]["barcode_cluster_counts"][index]),
+                "umap_overlap_points": int(analyses[1]["point_counts"][index]),
             }
             for index, recording in enumerate(recordings)
         ],
@@ -502,7 +563,7 @@ def _write_summary(out_path, args, recordings, total_points, analyses):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cluster pooled recording embeddings and compare recording barcodes.")
+    parser = argparse.ArgumentParser(description="Cluster pooled recording embeddings with HDBSCAN and compare recording barcodes.")
     parser.add_argument("--species", default="Zebra_Finch")
     parser.add_argument("--annotation_json", default=DEFAULT_ANNOTATION_JSON)
     parser.add_argument("--spec_dir", default=DEFAULT_SPEC_DIR)
@@ -527,9 +588,11 @@ def main():
         default="none",
     )
     parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
-    parser.add_argument("--n_clusters", type=int, default=100)
+    parser.add_argument("--min_cluster_size", "--n_clusters", dest="min_cluster_size", type=int, default=100)
+    parser.add_argument("--min_samples", type=int, default=None)
     parser.add_argument("--min_cluster_hits", type=int, default=1)
     parser.add_argument("--overlap_threshold", type=float, default=0.3)
+    parser.add_argument("--overlap_bins", type=int, default=300)
     parser.add_argument("--umap_neighbors", type=int, default=100)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
@@ -570,52 +633,62 @@ def main():
         seed=args.seed,
     )
 
-    embedding_cluster_ids, embedding_cluster_count = _fit_kmeans(features, args.n_clusters, args.seed)
-    umap_cluster_ids, umap_cluster_count = _fit_kmeans(xy, args.n_clusters, args.seed)
+    embedding_cluster_ids, embedding_cluster_count, embedding_noise_points = _fit_hdbscan(
+        features,
+        args.min_cluster_size,
+        args.min_samples,
+    )
+    umap_cluster_ids, umap_cluster_count, umap_noise_points = _fit_hdbscan(
+        xy,
+        args.min_cluster_size,
+        args.min_samples,
+    )
 
     _save_cluster_umap(
         xy,
         embedding_cluster_ids,
         embedding_cluster_count,
-        f"{args.species} | KMeans on embeddings",
-        out_dir / "embedding_kmeans_on_umap",
+        f"{args.species} | HDBSCAN on embeddings",
+        out_dir / "embedding_cluster_on_umap",
     )
     _save_cluster_umap(
         xy,
         umap_cluster_ids,
         umap_cluster_count,
-        f"{args.species} | KMeans on UMAP",
-        out_dir / "umap_kmeans_on_umap",
+        f"{args.species} | HDBSCAN on UMAP",
+        out_dir / "umap_cluster_on_umap",
     )
 
     embedding_analysis = _analyze_clustering(
-        "embedding_kmeans",
-        embedding_cluster_ids,
+        "embedding_cluster",
+        xy,
         recording_indices,
         recordings,
         embedding_cluster_count,
+        embedding_noise_points,
         args,
     )
     umap_analysis = _analyze_clustering(
-        "umap_kmeans",
-        umap_cluster_ids,
+        "umap_cluster",
+        xy,
         recording_indices,
         recordings,
         umap_cluster_count,
+        umap_noise_points,
         args,
     )
 
     _save_similarity_heatmap(
         embedding_analysis["similarity"],
         recordings,
-        f"{args.species} | Recording overlap from embedding KMeans",
-        out_dir / "embedding_kmeans_overlap",
+        f"{args.species} | Recording UMAP overlap (Bhattacharyya)",
+        out_dir / "embedding_cluster_overlap",
     )
     _save_similarity_heatmap(
         umap_analysis["similarity"],
         recordings,
-        f"{args.species} | Recording overlap from UMAP KMeans",
-        out_dir / "umap_kmeans_overlap",
+        f"{args.species} | Recording UMAP overlap (Bhattacharyya)",
+        out_dir / "umap_cluster_overlap",
     )
 
     _write_summary(
@@ -626,14 +699,14 @@ def main():
         [embedding_analysis, umap_analysis],
     )
 
-    print(f"[kmeans] recordings={len(recordings)} points={features.shape[0]}")
+    print(f"[cluster] recordings={len(recordings)} points={features.shape[0]}")
     print(
-        "[kmeans] embedding_kmeans: "
+        "[cluster] embedding_cluster: "
         f"predicted={embedding_analysis['summary']['predicted_individuals']} "
         f"true={embedding_analysis['summary']['true_individuals']}"
     )
     print(
-        "[kmeans] umap_kmeans: "
+        "[cluster] umap_cluster: "
         f"predicted={umap_analysis['summary']['predicted_individuals']} "
         f"true={umap_analysis['summary']['true_individuals']}"
     )

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from data_loader import normalize_spectrogram_numpy, normalize_spectrogram_tensor
 from utils import load_audio_params, load_model_from_checkpoint
 
 
@@ -51,14 +52,14 @@ def load_json_events(json_path, audio_params, selected_bird=None):
     return event_map
 
 
-def create_label_arr(event, rounded_spec_length):
-    labels = np.full((rounded_spec_length,), fill_value=-1, dtype=np.int64)
+def create_label_arr(event, start_timebin, end_timebin):
+    labels = np.full((end_timebin - start_timebin,), fill_value=-1, dtype=np.int64)
     for start, end, unit_id in event["units"]:
-        lo = max(0, int(start))
-        hi = min(int(end) + 1, rounded_spec_length)
+        lo = max(int(start_timebin), int(start))
+        hi = min(int(end) + 1, int(end_timebin))
         if lo >= hi:
             continue
-        labels[lo:hi] = int(unit_id)
+        labels[lo - start_timebin : hi - start_timebin] = int(unit_id)
     return labels
 
 
@@ -102,9 +103,22 @@ def load_recording_segments(args, patch_width):
 
     recording_mode = _resolve_recording_mode(args)
     recording_stem = args.get("recording_stem")
+    max_timebins = args.get("num_timebins")
+    if max_timebins is not None:
+        max_timebins = int(max_timebins)
+        if max_timebins <= 0:
+            max_timebins = None
     segments = []
+    collected_timebins = 0
 
-    for path in _resolve_spec_paths(spec_dir, recording_stem):
+    paths = _resolve_spec_paths(spec_dir, recording_stem)
+    if recording_stem is None and event_map:
+        allowed_stems = set(event_map)
+        paths = [path for path in paths if path.stem in allowed_stems]
+
+    for path in paths:
+        if max_timebins is not None and collected_timebins >= max_timebins:
+            break
         stem = path.stem
         spec = np.load(path, mmap_mode="r")
         rounded_spec_length = spec.shape[1] - (spec.shape[1] % patch_width)
@@ -131,13 +145,19 @@ def load_recording_segments(args, patch_width):
             continue
 
         for event in selected_events:
-            labels = create_label_arr(event, rounded_spec_length)
             start = max(0, min(int(event["on_timebins"]), rounded_spec_length))
             end = max(start, min(int(event["off_timebins"]), rounded_spec_length))
             if start == end:
                 continue
+            if max_timebins is not None:
+                remaining_timebins = max_timebins - collected_timebins
+                if remaining_timebins <= 0:
+                    break
+                end = min(end, start + remaining_timebins)
+                if start == end:
+                    continue
             spec_segment = spec[:, start:end]
-            labels_segment = labels[start:end]
+            labels_segment = create_label_arr(event, start, end)
             if spec_segment.shape[1] == 0:
                 continue
             segments.append(
@@ -147,6 +167,7 @@ def load_recording_segments(args, patch_width):
                     "labels_original": labels_segment,
                 }
             )
+            collected_timebins += spec_segment.shape[1]
 
     return {
         "audio_params": audio_params,
@@ -179,7 +200,12 @@ def normalize_recording_segments(segments, mode, target_stats=None):
         target_mean, target_std = target_stats
         normalized = []
         for segment in segments:
-            spectrogram = ((segment["spectrogram"] - target_mean) / target_std).astype(np.float32, copy=False)
+            spectrogram = normalize_spectrogram_numpy(
+                segment["spectrogram"],
+                "audio_params",
+                mean=target_mean,
+                std=target_std,
+            )
             normalized.append(
                 {
                     "recording_stem": segment["recording_stem"],
@@ -240,10 +266,10 @@ def _extract_segment_arrays(
     _, mel, _ = spec_tensor.shape
     batched_spec = spec_tensor.reshape(1, mel, batch_size, model_num_timebins).permute(2, 0, 1, 3)
     if input_normalization_mode == "per_model_input_zscore":
-        chunk_mean = batched_spec.mean(dim=(1, 2, 3), keepdim=True)
-        chunk_std = batched_spec.std(dim=(1, 2, 3), keepdim=True)
-        chunk_std = torch.clamp(chunk_std, min=1e-6)
-        batched_spec = (batched_spec - chunk_mean) / chunk_std
+        batched_spec = normalize_spectrogram_tensor(
+            batched_spec,
+            "per_file_zscore",
+        )
 
     with torch.no_grad():
         encoded, patch = model.forward_encoder_inference(

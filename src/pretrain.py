@@ -265,12 +265,14 @@ class Trainer():
             dir=self.config["train_dir"],
             n_timebins=self.config["num_timebins"],
             normalization=self.config["input_normalization"],
+            output_dtype=self.config["input_dtype"],
         )
         
         val_dataset = SpectogramDataset(
             dir=self.config["val_dir"],
             n_timebins=self.config["num_timebins"],
             normalization=self.config["input_normalization"],
+            output_dtype=self.config["input_dtype"],
         )
         
         # Initialize dataloaders
@@ -445,7 +447,8 @@ if __name__ == "__main__":
     parser.add_argument("--amp", action="store_true", help="enable automatic mixed precision training")
     parser.add_argument("--weight_decay", type=float, default=0.1, help="weight decay")
     parser.add_argument("--no_normalize_patches", action="store_false", dest="normalize_patches", help="disable patch-level normalization in loss computation (enabled by default)")
-    parser.add_argument("--input_normalization", choices=["audio_params", "per_file_zscore"], default=None, help="normalize each spectrogram using dataset audio_params stats or per-file z-score")
+    parser.add_argument("--input_normalization", choices=["none", "audio_params", "per_file_zscore"], default=None, help="normalize each spectrogram using raw values, dataset audio_params stats, or per-file z-score")
+    parser.add_argument("--input_dtype", choices=["float32", "float16", "bfloat16"], default="float32", help="dtype to emit from the dataloader")
     parser.add_argument("--continue_from", type=str, help="continue training from existing run directory (path to run dir)")
     parser.add_argument("--wandb", action="store_true", help="enable Weights & Biases logging")
 
@@ -478,8 +481,10 @@ if __name__ == "__main__":
         config.setdefault("mask_type", args.mask_type)
         config.setdefault("normalize_patches", True)  # Default to True for backward compatibility
         config.setdefault("input_normalization", "audio_params")
+        config.setdefault("input_dtype", "float32")
         if args.input_normalization is not None:
             config["input_normalization"] = args.input_normalization
+        config["input_dtype"] = args.input_dtype
         config["wandb"] = args.wandb
     else:
         # New training mode - validate required args

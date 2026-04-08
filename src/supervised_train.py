@@ -613,6 +613,8 @@ class Trainer():
             n_timebins=self.config["num_timebins"],
             mode=self.config["mode"],
             audio_params_override=self.config.get("audio_params_override"),
+            normalization=self.config["input_normalization"],
+            output_dtype=self.config["input_dtype"],
         )
         
         val_dataset = SupervisedSpectogramDataset(
@@ -621,6 +623,8 @@ class Trainer():
             n_timebins=self.config["num_timebins"],
             mode=self.config["mode"],
             audio_params_override=self.config.get("audio_params_override"),
+            normalization=self.config["input_normalization"],
+            output_dtype=self.config["input_dtype"],
         )
         
         # Verify num_classes matches dataset
@@ -775,6 +779,8 @@ if __name__ == "__main__":
         choices=["pretrain", "spec"],
         help="where to load audio_params.json for supervised normalization: pretrain run or spec/train_dir",
     )
+    parser.add_argument("--input_normalization", choices=["none", "audio_params", "per_file_zscore"], default="audio_params", help="normalize each spectrogram using raw values, dataset audio_params stats, or per-file z-score")
+    parser.add_argument("--input_dtype", choices=["float32", "float16", "bfloat16"], default="float32", help="dtype to emit from the dataloader")
     
     # Training hyperparameters
     parser.add_argument("--steps", type=int, default=1000, help="number of training steps")
