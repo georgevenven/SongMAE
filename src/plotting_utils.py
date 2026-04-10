@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-import umap
 from matplotlib import cm
 
 SPEC_FIGSIZE: Tuple[float, float] = (10.0, 6.0)  # matches plot_embedding chunk visuals
@@ -35,7 +34,6 @@ __all__ = [
     "save_supervised_prediction_plot",
     "plot_theoretical_resolution_limit",
     "plot_species_f1_curves",
-    "generate_umap_plots",
 ]
 
 
@@ -952,76 +950,3 @@ def _build_palette(labels, colormap=cm.tab20):
             rgb = rgb[:3]
         palette[int(uid)] = rgb
     return palette
-
-
-def _scatter_umap(xy, labels, palette, path, title):
-    plt.figure(figsize=(5.5, 5.5), dpi=300)
-    mask = labels >= 0
-    if (~mask).any():
-        plt.scatter(xy[~mask, 0], xy[~mask, 1], s=10, color="#404040", alpha=0.1, edgecolors="none")
-    for lab, color in palette.items():
-        idx = labels == lab
-        if idx.any():
-            plt.scatter(xy[idx, 0], xy[idx, 1], s=10, color=color, alpha=0.15, edgecolors="none")
-    plt.xlabel("UMAP 1", fontsize=20, fontweight="bold")
-    plt.ylabel("UMAP 2", fontsize=20, fontweight="bold")
-    plt.xticks([])
-    plt.yticks([])
-    plt.tight_layout()
-    plt.savefig(path, dpi=300, format="pdf")
-    plt.close()
-
-
-def _fit_umap_embedding(embeddings, n_neighbors, deterministic):
-    reducer_kwargs = {
-        "n_components": 2,
-        "n_neighbors": n_neighbors,
-        "metric": "cosine",
-        "min_dist": 0.1,
-    }
-    if deterministic:
-        reducer_kwargs["random_state"] = 42
-    else:
-        reducer_kwargs["low_memory"] = True
-        reducer_kwargs["n_jobs"] = -1
-    reducer = umap.UMAP(**reducer_kwargs)
-    return reducer.fit_transform(embeddings)
-
-
-def generate_umap_plots(npz_path: str, output_dir: str, umap_neighbors: int = 200, deterministic: bool = False):
-    """
-    Generate UMAP plots from an embedding NPZ file.
-    """
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-
-    npz = np.load(npz_path, allow_pickle=True)
-    labels_down = npz["labels_downsampled"]
-    
-    base_palette = _build_palette(labels_down)
-    
-    if "patch_embeddings_before_pos_removal" not in npz:
-        raise KeyError(
-            f"`patch_embeddings_before_pos_removal` is missing in {npz_path}. "
-            f"Available keys: {list(npz.keys())}"
-        )
-    embedding_array = npz["patch_embeddings_before_pos_removal"]
-    
-    umap_dir = os.path.join(output_dir, "umap")
-    os.makedirs(umap_dir, exist_ok=True)
-    
-    paths = {}
-    
-    xy = _fit_umap_embedding(embedding_array, umap_neighbors, deterministic)
-    umap_path = os.path.join(umap_dir, "patch_before_pos_removal.pdf")
-    _scatter_umap(
-        xy,
-        labels_down,
-        base_palette,
-        umap_path,
-        title="",
-    )
-    paths["patch_before_pos_removal"] = umap_path
-    print(f"Generated UMAP plot from `patch_embeddings_before_pos_removal`: {umap_path}")
-        
-    return paths
