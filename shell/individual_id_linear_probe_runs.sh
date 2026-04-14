@@ -20,12 +20,15 @@ IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD:-30}"
 IID_MAX_BIRDS="${IID_MAX_BIRDS:-0}"
 IID_SEED="${IID_SEED:-42}"
 IID_POOL_WINDOW="${IID_POOL_WINDOW:-30}"
-IID_POOL_HOP="${IID_POOL_HOP:-5}"
+# Linear probes default to non-overlapping pooled windows and per-recording
+# normalization rescaled to dataset stats to reduce recording-condition leakage.
+IID_LINEAR_POOL_HOP="${IID_LINEAR_POOL_HOP:-$IID_POOL_WINDOW}"
 IID_POOL_MODE="${IID_POOL_MODE:-mean}"
 IID_LINEAR_VAL_FRACTION="${IID_LINEAR_VAL_FRACTION:-0.2}"
 IID_LINEAR_C="${IID_LINEAR_C:-1.0}"
 IID_LINEAR_MAX_ITER="${IID_LINEAR_MAX_ITER:-2000}"
-IID_LINEAR_NORMALIZATION_PRESET="${IID_LINEAR_NORMALIZATION_PRESET:-vanilla}"
+IID_LINEAR_NORMALIZATION_PRESET="${IID_LINEAR_NORMALIZATION_PRESET:-zscore_rescaled}"
+IID_LINEAR_AUDIO_PARAMS_STATS_DIR="${IID_LINEAR_AUDIO_PARAMS_STATS_DIR:-$IID_SPEC_DIR}"
 IID_LINEAR_SONGMAE_EMBEDDING_VARIANT="${IID_LINEAR_SONGMAE_EMBEDDING_VARIANT:-before}"
 
 mkdir -p "$RESULTS_DIR"
@@ -43,7 +46,7 @@ cmd=(
   --max_birds "$IID_MAX_BIRDS"
   --seed "$IID_SEED"
   --pool_window "$IID_POOL_WINDOW"
-  --pool_hop "$IID_POOL_HOP"
+  --pool_hop "$IID_LINEAR_POOL_HOP"
   --pool_mode "$IID_POOL_MODE"
   --val_fraction "$IID_LINEAR_VAL_FRACTION"
   --c "$IID_LINEAR_C"
@@ -54,7 +57,7 @@ cmd=(
 if [[ -n "${IID_CHECKPOINT:-}" ]]; then
   cmd+=(--checkpoint "$IID_CHECKPOINT")
 fi
-if [[ -n "${IID_LINEAR_AUDIO_PARAMS_STATS_DIR:-}" ]]; then
+if [[ -n "$IID_LINEAR_AUDIO_PARAMS_STATS_DIR" ]]; then
   cmd+=(--audio_params_stats_dir "$IID_LINEAR_AUDIO_PARAMS_STATS_DIR")
 fi
 if [[ -n "${IID_LINEAR_SPEC_NORMALIZATION:-}" ]]; then
