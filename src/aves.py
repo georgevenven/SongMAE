@@ -14,6 +14,7 @@ import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
+from individual_id.audio_augmentations import augment_audio_segment
 
 from utils import (
     parse_chunk_ms,
@@ -138,6 +139,357 @@ def build_wav_index(wav_root, exts=(".wav", ".flac", ".ogg", ".mp3"), manifest_p
         raise FileNotFoundError(f"No audio files found under: {wav_root}")
     _WAV_INDEX_CACHE[cache_key] = index
     return index
+
+
+def _parse_wav_exts(wav_exts):
+    if wav_exts is None:
+        return (".wav", ".flac", ".ogg", ".mp3")
+    if isinstance(wav_exts, str):
+        parts = [part.strip() for part in wav_exts.split(",")]
+        return tuple(part for part in parts if part)
+    return tuple(str(part).strip() for part in wav_exts if str(part).strip())
+
+
+def _load_json_events_ms(json_path, selected_bird=None):
+    data = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    event_map = {}
+    for rec in data.get("recordings", []):
+        recording = rec.get("recording", {})
+        bird_id = str(recording.get("bird_id", "")).strip()
+        if selected_bird is not None and bird_id != selected_bird:
+            continue
+        stem = Path(str(recording.get("filename", "")).strip()).stem
+        if not stem:
+            continue
+
+        events = []
+        for event in rec.get("detected_events", []):
+            units = []
+            for unit in event.get("units", []):
+                units.append(
+                    {
+                        "onset_ms": float(unit["onset_ms"]),
+                        "offset_ms": float(unit["offset_ms"]),
+                        "id": int(unit["id"]),
+                    }
+                )
+            events.append(
+                {
+                    "onset_ms": float(event["onset_ms"]),
+                    "offset_ms": float(event["offset_ms"]),
+                    "units": units,
+                }
+            )
+        event_map[stem] = events
+    return event_map
+
+
+def _resolve_recording_mode(args):
+    mode = args.get("recording_mode")
+    if mode is None:
+        mode = "full_recordings" if args.get("full_recordings", False) else "events"
+    if mode not in {"events", "full_recordings"}:
+        raise ValueError(f"Unknown recording_mode: {mode}")
+    return mode
+
+
+def load_recording_audio_segments(args):
+    _require_torchaudio()
+    wav_root = args.get("wav_root")
+    wav_manifest = args.get("wav_manifest")
+    wav_exts = _parse_wav_exts(args.get("wav_exts"))
+    wav_index = build_wav_index(wav_root, exts=wav_exts, manifest_path=wav_manifest)
+    audio_sr = int(args.get("audio_sr", 16000))
+
+    event_map = {}
+    json_path = args.get("json_path")
+    if json_path:
+        event_map = _load_json_events_ms(
+            json_path,
+            selected_bird=args.get("bird"),
+        )
+
+    recording_mode = _resolve_recording_mode(args)
+    recording_stem = args.get("recording_stem")
+    if recording_stem is not None:
+        if recording_stem not in wav_index:
+            raise FileNotFoundError(f"Wav not found for stem: {recording_stem}")
+        stems = [recording_stem]
+    else:
+        stems = sorted(wav_index)
+        if event_map:
+            allowed_stems = set(event_map)
+            stems = [stem for stem in stems if stem in allowed_stems]
+
+    segments = []
+    for stem in stems:
+        wav_path = wav_index[stem]
+        wav, sr = torchaudio.load(str(wav_path))
+        if wav.ndim == 2:
+            wav = wav[0]
+        if sr != audio_sr:
+            wav = torchaudio.functional.resample(wav, sr, audio_sr)
+        wav = wav.to(torch.float32)
+
+        duration_ms = float(wav.shape[0]) / float(audio_sr) * 1000.0
+        events = event_map.get(stem, [])
+        if recording_mode == "full_recordings":
+            units = []
+            for event in events:
+                units.extend(event["units"])
+            selected_events = [
+                {
+                    "onset_ms": 0.0,
+                    "offset_ms": duration_ms,
+                    "units": units,
+                }
+            ]
+        else:
+            selected_events = events
+
+        if not selected_events:
+            continue
+
+        for event in selected_events:
+            start_ms = max(0.0, min(float(event["onset_ms"]), duration_ms))
+            end_ms = max(start_ms, min(float(event["offset_ms"]), duration_ms))
+            if end_ms <= start_ms:
+                continue
+
+            start_sample = int(round(start_ms / 1000.0 * audio_sr))
+            end_sample = int(round(end_ms / 1000.0 * audio_sr))
+            end_sample = max(start_sample, min(end_sample, int(wav.shape[0])))
+            if end_sample <= start_sample:
+                continue
+
+            units = []
+            for unit in event["units"]:
+                unit_start = max(start_ms, min(float(unit["onset_ms"]), end_ms))
+                unit_end = max(unit_start, min(float(unit["offset_ms"]), end_ms))
+                if unit_end <= unit_start:
+                    continue
+                units.append(
+                    {
+                        "onset_ms": unit_start - start_ms,
+                        "offset_ms": unit_end - start_ms,
+                        "id": int(unit["id"]),
+                    }
+                )
+
+            segments.append(
+                {
+                    "recording_stem": stem,
+                    "audio": wav[start_sample:end_sample].contiguous(),
+                    "duration_ms": end_ms - start_ms,
+                    "labels_original": units,
+                }
+            )
+
+    return {
+        "audio_sr": audio_sr,
+        "segments": segments,
+    }
+
+
+def _resolve_aves_paths(args):
+    run_dir = args.get("run_dir")
+    run_config = {}
+    if run_dir:
+        config_path = Path(run_dir) / "config.json"
+        if config_path.exists():
+            run_config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    aves_model_path = args.get("aves_model_path") or run_config.get("aves_model_path")
+    aves_config_path = args.get("aves_config_path") or run_config.get("aves_config_path")
+    wav_root = args.get("wav_root") or run_config.get("wav_root")
+    wav_manifest = args.get("wav_manifest") or run_config.get("wav_manifest")
+    audio_sr = int(args.get("audio_sr") or run_config.get("audio_sr") or 16000)
+    wav_exts = _parse_wav_exts(args.get("wav_exts") or run_config.get("wav_exts"))
+
+    if not aves_model_path:
+        raise ValueError("AVES requires aves_model_path or a run_dir config with aves_model_path.")
+    if not aves_config_path:
+        raise ValueError("AVES requires aves_config_path or a run_dir config with aves_config_path.")
+    if not wav_root and not wav_manifest:
+        raise ValueError("AVES requires wav_root or wav_manifest.")
+
+    return {
+        "run_config": run_config,
+        "aves_model_path": str(Path(aves_model_path).resolve()),
+        "aves_config_path": str(Path(aves_config_path).resolve()),
+        "wav_root": None if wav_root is None else str(Path(wav_root).resolve()),
+        "wav_manifest": None if wav_manifest is None else str(Path(wav_manifest).resolve()),
+        "audio_sr": audio_sr,
+        "wav_exts": wav_exts,
+    }
+
+
+def load_model_state_for_inference(args):
+    resolved = _resolve_aves_paths(args)
+    run_config = resolved["run_config"]
+    model = AvesClassifier(
+        config_path=resolved["aves_config_path"],
+        model_path=resolved["aves_model_path"],
+        num_classes=int(run_config.get("num_classes", 2)),
+        mode=str(run_config.get("mode", "classify")),
+        embedding_dim=run_config.get("embedding_dim", None),
+        trainable=bool(run_config.get("finetune", False)),
+        linear_probe=bool(run_config.get("linear_probe", True)),
+        encoder_layer_idx=args.get("encoder_layer_idx", run_config.get("encoder_layer_idx")),
+        hidden_dim=int(run_config.get("hidden_dim", 256)),
+    )
+
+    checkpoint = args.get("checkpoint")
+    run_dir = args.get("run_dir")
+    if checkpoint and run_dir:
+        checkpoint_path = Path(run_dir) / "weights" / checkpoint
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"AVES checkpoint not found: {checkpoint_path}")
+        state_dict = torch.load(checkpoint_path, map_location="cpu")
+        model.load_state_dict(state_dict)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    model.set_eval_mode()
+    return {
+        "model": model,
+        "device": device,
+        "audio_sr": resolved["audio_sr"],
+        "wav_root": resolved["wav_root"],
+        "wav_manifest": resolved["wav_manifest"],
+        "wav_exts": resolved["wav_exts"],
+        "aves_model_path": resolved["aves_model_path"],
+        "aves_config_path": resolved["aves_config_path"],
+    }
+
+
+def _token_labels_from_units(units, token_len, duration_ms):
+    labels = np.full((int(token_len),), -1, dtype=np.int64)
+    if token_len <= 0 or duration_ms <= 0:
+        return labels
+    for unit in units:
+        onset = max(0.0, min(float(unit["onset_ms"]), duration_ms))
+        offset = max(onset, min(float(unit["offset_ms"]), duration_ms))
+        if offset <= onset:
+            continue
+        start = int(math.floor(onset / duration_ms * token_len))
+        end = int(math.ceil(offset / duration_ms * token_len))
+        start = max(0, min(start, token_len))
+        end = max(start + 1, min(end, token_len))
+        labels[start:end] = int(unit["id"])
+    return labels
+
+
+def _split_audio_segment_into_context_windows(raw_segment, audio_sr, context_seconds):
+    if context_seconds is None or float(context_seconds) <= 0.0:
+        return [raw_segment]
+
+    context_ms = float(context_seconds) * 1000.0
+    context_samples = max(1, int(round(float(context_seconds) * float(audio_sr))))
+    audio = raw_segment["audio"]
+    windows = []
+    for start_sample in range(0, int(audio.shape[0]), context_samples):
+        end_sample = min(start_sample + context_samples, int(audio.shape[0]))
+        if end_sample <= start_sample:
+            continue
+        start_ms = float(start_sample) / float(audio_sr) * 1000.0
+        end_ms = float(end_sample) / float(audio_sr) * 1000.0
+        windows.append(
+            {
+                "recording_stem": raw_segment["recording_stem"],
+                "audio": audio[start_sample:end_sample].contiguous(),
+                "duration_ms": end_ms - start_ms,
+                "labels_original": clip_labels_to_chunk(
+                    raw_segment["labels_original"],
+                    start_ms,
+                    end_ms,
+                ),
+            }
+        )
+    return windows
+
+
+def extract_recording_embeddings_with_state(args, model_state):
+    model = model_state["model"]
+    device = model_state["device"]
+    raw = load_recording_audio_segments(
+        {
+            "wav_root": model_state["wav_root"],
+            "wav_manifest": model_state["wav_manifest"],
+            "wav_exts": model_state["wav_exts"],
+            "audio_sr": model_state["audio_sr"],
+            "json_path": args.get("json_path"),
+            "bird": args.get("bird"),
+            "recording_stem": args.get("recording_stem"),
+            "recording_mode": args.get("recording_mode"),
+        }
+    )
+
+    segments = []
+    min_samples = int(model.min_input_samples())
+    context_seconds = args.get("audio_context_seconds")
+    for segment_index, raw_segment in enumerate(raw["segments"]):
+        raw_segment = augment_audio_segment(raw_segment, args, segment_index)
+        windows = _split_audio_segment_into_context_windows(
+            raw_segment,
+            audio_sr=int(raw["audio_sr"]),
+            context_seconds=context_seconds,
+        )
+        for window in windows:
+            wav = window["audio"]
+            orig_len = int(wav.shape[0])
+            if orig_len <= 0:
+                continue
+            if orig_len < min_samples:
+                wav = F.pad(wav, (0, min_samples - orig_len))
+
+            audio = wav.unsqueeze(0).to(device)
+            lengths = torch.tensor([orig_len], device=device, dtype=torch.long)
+            with torch.no_grad():
+                feats, out_lengths = model._extract_features(audio, lengths)
+
+            if model.encoder_layer_idx is None:
+                encoded = feats[-1]
+            else:
+                idx = int(model.encoder_layer_idx)
+                if idx < 0:
+                    idx = len(feats) + idx
+                if idx < 0 or idx >= len(feats):
+                    raise ValueError(
+                        f"encoder_layer_idx out of range: {model.encoder_layer_idx} (num_layers={len(feats)})"
+                    )
+                encoded = feats[idx]
+
+            token_len = int(out_lengths[0].item()) if out_lengths is not None else int(encoded.shape[1])
+            token_len = min(token_len, int(encoded.shape[1]))
+            if token_len <= 0:
+                continue
+
+            encoded = encoded[0, :token_len].detach().cpu().numpy().astype(np.float32, copy=False)
+            token_labels = _token_labels_from_units(
+                window["labels_original"],
+                token_len=token_len,
+                duration_ms=float(window["duration_ms"]),
+            )
+            segments.append(
+                {
+                    "recording_stem": window["recording_stem"],
+                    "encoded_embeddings_before_pos_removal": encoded,
+                    "encoded_embeddings_after_pos_removal": encoded,
+                    "labels_original": token_labels,
+                    "labels_downsampled": token_labels,
+                }
+            )
+
+    if not segments:
+        raise ValueError("No valid AVES tokens extracted for the requested recording set.")
+
+    return {
+        "segments": segments,
+        "audio_sr": int(raw["audio_sr"]),
+        "patch_width": 1,
+        "checkpoint": args.get("checkpoint") or "",
+    }
 
 
 def _build_label_index(annotation_file, mode, class_id_map=None):

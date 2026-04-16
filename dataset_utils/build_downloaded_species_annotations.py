@@ -2,28 +2,20 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import re
-import subprocess
-import zipfile
-from pathlib import Path
 import wave
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DOWNLOADS = Path("/home/george-vengrovski/Downloads")
 FILES_DIR = ROOT / "files"
-
-DATASET_1413495 = DOWNLOADS / "1413495"
-DATASET_3237218 = DOWNLOADS / "3237218"
-DATASET_DRYAD = DOWNLOADS / "doi_10_5061_dryad_th40d__v20161009"
+RAW_DATA_ROOT = Path("/media/george-vengrovski/disk2/raw_data")
 
 SPECIES_OUTPUTS = {
     "Chiffchaff": FILES_DIR / "chiffchaff_annotations.json",
     "Little Owl": FILES_DIR / "little_owl_annotations.json",
     "Tree Pipit": FILES_DIR / "tree_pipit_annotations.json",
-    "European Starling": FILES_DIR / "european_starling_annotations.json",
 }
 
 SPECIES_CODE_TO_NAME = {
@@ -32,33 +24,33 @@ SPECIES_CODE_TO_NAME = {
     "pipit": "Tree Pipit",
 }
 
+DATASET_1413495_DIRS = {
+    "chiffchaff": RAW_DATA_ROOT / "chiffchaff" / "audio_files" / "stowell_linhart_1413495",
+    "littleowl": RAW_DATA_ROOT / "little_owl" / "audio_files" / "stowell_linhart_1413495",
+    "pipit": RAW_DATA_ROOT / "tree_pipit" / "audio_files" / "stowell_linhart_1413495",
+}
+
 CSV_NAME_RE = re.compile(
     r"^(?P<species>[a-z]+)-(?P<protocol>[a-z]+)-(?P<recording_type>fg|bg)-(?P<split>trn|tst)\.csv$"
 )
 
-TEST_PACKAGE_ZIP = "Tree+Pipit+male+ID+-+test+package.zip"
-SOLUTION_PDF = "Tree+Pipit+male+ID+-+test+solution.pdf"
 
-
-def wav_duration_ms_from_reader(reader) -> float:
-    with wave.open(reader, "rb") as wav_file:
-        frames = wav_file.getnframes()
-        sample_rate = wav_file.getframerate()
+def wav_duration_ms(path: Path) -> float:
+    with path.open("rb") as handle:
+        with wave.open(handle, "rb") as wav_file:
+            frames = wav_file.getnframes()
+            sample_rate = wav_file.getframerate()
     return (frames / sample_rate) * 1000.0
 
 
-def read_text_from_zip(zip_path: Path, member_name: str) -> str:
-    with zipfile.ZipFile(zip_path) as zf:
-        return zf.read(member_name).decode("utf-8")
-
-
-def build_audio_zip_member_map(zf: zipfile.ZipFile) -> dict[str, str]:
-    members: dict[str, str] = {}
-    for name in zf.namelist():
-        basename = Path(name).name
-        if basename.startswith("._") or not basename.lower().endswith(".wav"):
+def build_audio_member_map(audio_dir: Path) -> dict[str, Path]:
+    members: dict[str, Path] = {}
+    for path in audio_dir.rglob("*"):
+        if not path.is_file():
             continue
-        members[basename] = name
+        if path.name.startswith("._") or path.suffix.lower() != ".wav":
+            continue
+        members[path.name] = path
     return members
 
 
@@ -73,217 +65,88 @@ def resolve_one_hot_bird_id(row: dict[str, str], label_columns: list[str], filen
     return active[0]
 
 
-def add_or_merge(recordings_by_species: dict[str, dict[str, dict[str, object]]], species: str, recording: dict[str, object]) -> None:
+def add_or_merge(
+    recordings_by_species: dict[str, dict[str, dict[str, object]]],
+    species: str,
+    recording: dict[str, object],
+) -> None:
     filename = recording["recording"]["filename"]
     existing = recordings_by_species.setdefault(species, {}).get(filename)
     if existing is None:
         recordings_by_species[species][filename] = recording
         return
-
     if existing["recording"]["bird_id"] != recording["recording"]["bird_id"]:
         raise ValueError(f"Conflicting bird_id for {species} / {filename}")
-
     existing["recording"]["detected_vocalizations"] = len(existing["detected_events"])
 
 
 def load_1413495_species(recordings_by_species: dict[str, dict[str, dict[str, object]]]) -> None:
-    csv_zip = DATASET_1413495 / "csv.zip"
-    csv_names = []
-    with zipfile.ZipFile(csv_zip) as zf:
-        for name in zf.namelist():
-            if name.endswith(".csv"):
-                csv_names.append(Path(name).name)
+    for species_code, dataset_dir in DATASET_1413495_DIRS.items():
+        csv_dir = dataset_dir / "csv"
+        assert csv_dir.is_dir(), f"Missing CSV directory: {csv_dir}"
 
-    audio_zips = {
-        species_code: {
-            "fg": zipfile.ZipFile(DATASET_1413495 / f"{species_code}-fg.zip"),
-            "bg": zipfile.ZipFile(DATASET_1413495 / f"{species_code}-bg.zip"),
+        audio_members = {
+            recording_type: build_audio_member_map(dataset_dir / recording_type)
+            for recording_type in ("fg", "bg")
         }
-        for species_code in SPECIES_CODE_TO_NAME
-    }
+        species = SPECIES_CODE_TO_NAME[species_code]
 
-    audio_members = {
-        species_code: {
-            recording_type: build_audio_zip_member_map(zf)
-            for recording_type, zf in zip_group.items()
-        }
-        for species_code, zip_group in audio_zips.items()
-    }
-
-    try:
-        for csv_name in sorted(csv_names):
-            match = CSV_NAME_RE.match(csv_name)
+        for csv_path in sorted(csv_dir.glob(f"{species_code}-*.csv")):
+            match = CSV_NAME_RE.match(csv_path.name)
             if match is None:
                 continue
 
-            species_code = match.group("species")
-            species = SPECIES_CODE_TO_NAME[species_code]
-            protocol = match.group("protocol")
             recording_type = match.group("recording_type")
-            split = match.group("split")
+            rows = list(csv.DictReader(csv_path.open("r", encoding="utf-8")))
+            if not rows:
+                continue
 
-            csv_text = read_text_from_zip(csv_zip, f"csv/{csv_name}")
-            reader = csv.DictReader(io.StringIO(csv_text))
-            rows = list(reader)
-            label_columns = [field for field in (reader.fieldnames or []) if field != "wavfilename"]
-            zf = audio_zips[species_code][recording_type]
-            members = audio_members[species_code][recording_type]
+            with csv_path.open("r", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                assert reader.fieldnames is not None
+                label_columns = [field for field in reader.fieldnames if field != "wavfilename"]
+                members = audio_members[recording_type]
 
-            for row in rows:
-                filename = Path((row.get("wavfilename") or "").strip()).name
-                if not filename:
-                    continue
+                for row in reader:
+                    filename = Path((row.get("wavfilename") or "").strip()).name
+                    if not filename:
+                        continue
 
-                bird_id = resolve_one_hot_bird_id(row, label_columns, filename)
-                member_name = members[filename]
-                with zf.open(member_name) as handle:
-                    duration_ms = wav_duration_ms_from_reader(handle)
+                    bird_id = resolve_one_hot_bird_id(row, label_columns, filename)
+                    audio_path = members.get(filename)
+                    if audio_path is None:
+                        raise FileNotFoundError(f"Audio file not found for CSV row: {csv_path.name} / {filename}")
+                    duration_ms = wav_duration_ms(audio_path)
 
-                detected_events = []
-                if recording_type == "fg":
-                    detected_events.append(
-                        {
-                            "onset_ms": 0.0,
-                            "offset_ms": duration_ms,
-                            "units": [],
-                        }
-                    )
-
-                add_or_merge(
-                    recordings_by_species,
-                    species,
-                    {
-                        "recording": {
-                            "filename": filename,
-                            "bird_id": bird_id,
-                            "detected_vocalizations": len(detected_events),
-                        },
-                        "detected_events": detected_events,
-                    },
-                )
-    finally:
-        for zip_group in audio_zips.values():
-            for zf in zip_group.values():
-                zf.close()
-
-
-def load_3237218_species(recordings_by_species: dict[str, dict[str, dict[str, object]]]) -> None:
-    bird_id_rows = {}
-    with (DATASET_3237218 / "bird_IDs.txt").open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f, skipinitialspace=True)
-        for row in reader:
-            bird_id_rows[row["individual_ID"]] = row
-
-    for zip_path in sorted(DATASET_3237218.glob("*.zip")):
-        with zipfile.ZipFile(zip_path) as zf:
-            sidecars = {}
-            for name in zf.namelist():
-                basename = Path(name).name
-                if basename.startswith("._") or "__MACOSX" in Path(name).parts:
-                    continue
-                if name.endswith(".csv"):
-                    row = next(csv.reader(io.StringIO(zf.read(name).decode("utf-8", errors="replace"))))
-                    sidecars[Path(name).stem] = {
-                        "bird_id": row[0],
-                        "source_wav_path": row[1],
-                    }
-
-            for name in sorted(zf.namelist()):
-                basename = Path(name).name
-                if basename.startswith("._") or "__MACOSX" in Path(name).parts or not name.endswith(".wav"):
-                    continue
-
-                stem = Path(basename).stem
-                sidecar = sidecars.get(stem, {})
-                bird_id = sidecar.get("bird_id", zip_path.stem)
-                filename = f"{bird_id}__{basename}"
-                with zf.open(name) as handle:
-                    duration_ms = wav_duration_ms_from_reader(handle)
-
-                add_or_merge(
-                    recordings_by_species,
-                    "European Starling",
-                    {
-                        "recording": {
-                            "filename": filename,
-                            "bird_id": bird_id,
-                            "detected_vocalizations": 1,
-                        },
-                        "detected_events": [
+                    detected_events = []
+                    if recording_type == "fg":
+                        detected_events.append(
                             {
                                 "onset_ms": 0.0,
                                 "offset_ms": duration_ms,
                                 "units": [],
                             }
-                        ],
-                    },
-                )
+                        )
 
-
-def extract_pdf_text(pdf_path: Path) -> str:
-    result = subprocess.run(
-        ["pdftotext", str(pdf_path), "-"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout
-
-
-def parse_dryad_solution_mapping(pdf_text: str) -> dict[int, str]:
-    lines = [line.strip() for line in pdf_text.splitlines() if line.strip()]
-    male_idx = lines.index("male ID")
-    recording_idx = lines.index("recording nos.")
-    bi_idx = lines.index("bi-syllable(s)")
-
-    male_ids = lines[male_idx + 1 : recording_idx]
-    recording_lists = lines[recording_idx + 1 : bi_idx]
-    mapping: dict[int, str] = {}
-    for male_id, recording_list in zip(male_ids, recording_lists):
-        for item in recording_list.split(","):
-            mapping[int(item.strip())] = male_id
-    return mapping
-
-
-def load_dryad_tree_pipit(recordings_by_species: dict[str, dict[str, dict[str, object]]]) -> None:
-    mapping = parse_dryad_solution_mapping(extract_pdf_text(DATASET_DRYAD / SOLUTION_PDF))
-    with zipfile.ZipFile(DATASET_DRYAD / TEST_PACKAGE_ZIP) as zf:
-        for name in sorted(
-            [n for n in zf.namelist() if n.lower().endswith(".wav") and not Path(n).name.startswith("._")],
-            key=lambda value: int(Path(value).stem),
-        ):
-            filename = Path(name).name
-            recording_number = int(Path(filename).stem)
-            with zf.open(name) as handle:
-                duration_ms = wav_duration_ms_from_reader(handle)
-            add_or_merge(
-                recordings_by_species,
-                "Tree Pipit",
-                {
-                    "recording": {
-                        "filename": filename,
-                        "bird_id": mapping[recording_number],
-                        "detected_vocalizations": 1,
-                    },
-                    "detected_events": [
+                    add_or_merge(
+                        recordings_by_species,
+                        species,
                         {
-                            "onset_ms": 0.0,
-                            "offset_ms": duration_ms,
-                            "units": [],
-                        }
-                    ],
-                },
-            )
+                            "recording": {
+                                "filename": filename,
+                                "bird_id": bird_id,
+                                "detected_vocalizations": len(detected_events),
+                            },
+                            "detected_events": detected_events,
+                        },
+                    )
 
 
 def main() -> None:
     recordings_by_species: dict[str, dict[str, dict[str, object]]] = {}
     load_1413495_species(recordings_by_species)
-    load_3237218_species(recordings_by_species)
-    load_dryad_tree_pipit(recordings_by_species)
 
     FILES_DIR.mkdir(parents=True, exist_ok=True)
-
     for species, dst_path in SPECIES_OUTPUTS.items():
         recordings = sorted(
             recordings_by_species.get(species, {}).values(),
@@ -296,9 +159,9 @@ def main() -> None:
             },
             "recordings": recordings,
         }
-        with dst_path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-            f.write("\n")
+        with dst_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
         print(f"Wrote {len(recordings)} recordings to {dst_path}")
 
 

@@ -532,8 +532,6 @@ def _write_summary(out_path, args, recordings, total_points, analyses):
             "embedding_variant": args.embedding_variant,
             "drop_silence": bool(args.drop_silence),
             "encoder_layer_idx": args.encoder_layer_idx,
-            "normalization_preset": args.normalization_preset,
-            "audio_params_stats_dir": args.audio_params_stats_dir,
             "songmae_input_normalization": args.songmae_input_normalization,
             "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
             "min_cluster_size": int(args.min_cluster_size),
@@ -580,14 +578,6 @@ def main():
     parser.add_argument("--embedding_variant", default="before", choices=["before", "after"])
     parser.add_argument("--drop_silence", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
-    parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)
-    parser.add_argument("--audio_params_stats_dir", default=None)
-    parser.add_argument(
-        "--songmae_input_normalization",
-        choices=["none", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
-        default="none",
-    )
-    parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
     parser.add_argument("--min_cluster_size", "--n_clusters", dest="min_cluster_size", type=int, default=100)
     parser.add_argument("--min_samples", type=int, default=None)
     parser.add_argument("--min_cluster_hits", type=int, default=1)
@@ -602,25 +592,15 @@ def main():
     args.spec_dir = str(Path(args.spec_dir).resolve())
     args.out_dir = str(Path(args.out_dir).resolve())
     args.run_dir = str(_resolve_run_dir(args.run_dir))
-    if args.audio_params_stats_dir is not None:
-        args.audio_params_stats_dir = str(Path(args.audio_params_stats_dir).resolve())
-    if args.songmae_input_normalization_stats_dir is not None:
-        args.songmae_input_normalization_stats_dir = str(Path(args.songmae_input_normalization_stats_dir).resolve())
-
-    if args.normalization_preset is not None:
-        if args.normalization_preset == "vanilla":
-            args.songmae_input_normalization = "none"
-        elif args.normalization_preset == "zscore":
-            args.songmae_input_normalization = "per_model_input_zscore"
-        else:
-            assert args.normalization_preset == "zscore_rescaled"
-            args.songmae_input_normalization = "per_recording_cmvn_rescaled_to_target_stats"
-            args.songmae_input_normalization_stats_dir = args.audio_params_stats_dir
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     model_state = extract_embedding.load_model_state({"run_dir": str(args.run_dir), "checkpoint": args.checkpoint})
+    (
+        args.songmae_input_normalization,
+        args.songmae_input_normalization_stats_dir,
+    ) = extract_embedding.get_native_input_normalization(model_state)
     recordings = _build_recordings(args, model_state)
     features, _, recording_indices, point_counts = _stack_recordings(recordings)
     assert features.shape[0] >= 2, "Need at least two pooled points."

@@ -14,10 +14,12 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 sys.path.append(str(ROOT / "src"))
 
 import extract_embedding
 from run_individual_id_umap import (
+    _load_aves_segments,
     _load_patch_width,
     _load_recording_stems_by_bird,
     _load_spec_segments,
@@ -26,6 +28,7 @@ from run_individual_id_umap import (
     _pool_embeddings,
     _resolve_run_dir,
 )
+import aves
 
 
 def _split_recordings(recording_stems, val_fraction, seed, bird_id):
@@ -80,6 +83,18 @@ def _load_target_stats(stats_dir):
     return np.float32(audio["mean"]), np.float32(audio["std"])
 
 
+def _audio_speed_args(args, apply_audio_speed_augmentation):
+    if not apply_audio_speed_augmentation:
+        return {
+            "train_audio_speed_min_pct": 0.0,
+            "train_audio_speed_max_pct": 0.0,
+        }
+    return {
+        "train_audio_speed_min_pct": args.train_audio_speed_min_pct,
+        "train_audio_speed_max_pct": args.train_audio_speed_max_pct,
+    }
+
+
 def _normalize_spec_segments(segments, mode, target_stats=None):
     if mode == "none":
         return segments
@@ -109,20 +124,33 @@ def _normalize_spec_segments(segments, mode, target_stats=None):
     return normalized
 
 
-def _normalize_embedding_features(features, mode):
-    if mode == "none":
-        return features
-
-    assert mode == "per_recording_zscore"
+def _mean_pool_segment(features):
     assert features.ndim == 2
     assert features.shape[0] > 0
-    mean = features.mean(axis=0, keepdims=True)
-    std = features.std(axis=0, keepdims=True)
-    std = np.maximum(std, 1e-6)
-    return ((features - mean) / std).astype(np.float32, copy=False)
+    return features.mean(axis=0, keepdims=True).astype(np.float32, copy=False)
 
 
-def _pool_recording(args, bird_id, recording_stem, patch_width, model_state):
+def _mean_pool_songmae_windows(features, tokens_per_window):
+    assert features.ndim == 2
+    assert tokens_per_window > 0
+    pooled = []
+    for start in range(0, features.shape[0], tokens_per_window):
+        chunk = features[start : start + tokens_per_window]
+        if chunk.shape[0] == 0:
+            continue
+        pooled.append(chunk.mean(axis=0))
+    return np.asarray(pooled, dtype=np.float32)
+
+
+def _pool_recording(
+    args,
+    bird_id,
+    recording_stem,
+    patch_width,
+    model_state,
+    apply_audio_speed_augmentation,
+):
+    audio_speed_args = _audio_speed_args(args, apply_audio_speed_augmentation)
     if args.encoder == "SongMAE":
         try:
             extracted = extract_embedding.extract_recording_embeddings_with_state(
@@ -137,6 +165,11 @@ def _pool_recording(args, bird_id, recording_stem, patch_width, model_state):
                     "encoder_layer_idx": args.encoder_layer_idx,
                     "spec_normalization": args.songmae_input_normalization,
                     "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+                    "seed": args.seed,
+                    "wav_root": args.wav_root,
+                    "wav_manifest": args.wav_manifest,
+                    "wav_exts": args.wav_exts,
+                    **audio_speed_args,
                 },
                 model_state,
             )
@@ -146,17 +179,18 @@ def _pool_recording(args, bird_id, recording_stem, patch_width, model_state):
             raise
         pooled_parts = []
         embedding_key = f"encoded_embeddings_{args.songmae_embedding_variant}_pos_removal"
+        tokens_per_window = int(extracted["num_patches_time"])
         for segment in extracted["segments"]:
-            features = _normalize_embedding_features(
-                segment[embedding_key],
-                args.songmae_feature_normalization,
-            )
-            pooled = _pool_embeddings(
-                features,
-                args.pool_window,
-                args.pool_mode,
-                args.pool_hop,
-            )
+            features = segment[embedding_key]
+            if args.window_mean_pool:
+                pooled = _mean_pool_songmae_windows(features, tokens_per_window)
+            else:
+                pooled = _pool_embeddings(
+                    features,
+                    args.pool_window,
+                    args.pool_mode,
+                    args.pool_hop,
+                )
             if pooled.shape[0] > 0:
                 pooled_parts.append(pooled)
     elif args.encoder == "Spec":
@@ -168,7 +202,9 @@ def _pool_recording(args, bird_id, recording_stem, patch_width, model_state):
         segments = _normalize_spec_segments(segments, args.spec_normalization, target_stats=target_stats)
         pooled_parts = []
         for segment in segments:
-            if args.pool_window == 0:
+            if args.window_mean_pool:
+                pooled = _mean_pool_segment(segment["features"].T)
+            elif args.pool_window == 0:
                 pooled = segment["features"][:, :: args.pool_hop].T.astype(np.float32, copy=False)
             else:
                 pooled = _mean_pool_spectrogram(
@@ -178,15 +214,39 @@ def _pool_recording(args, bird_id, recording_stem, patch_width, model_state):
                 )
             if pooled.shape[0] > 0:
                 pooled_parts.append(pooled)
+    elif args.encoder == "AVES":
+        aves_args = argparse.Namespace(**vars(args))
+        aves_args.train_audio_speed_min_pct = audio_speed_args["train_audio_speed_min_pct"]
+        aves_args.train_audio_speed_max_pct = audio_speed_args["train_audio_speed_max_pct"]
+        segments = _load_aves_segments(aves_args, bird_id, recording_stem, model_state)
+        pooled_parts = []
+        for segment in segments:
+            if args.window_mean_pool:
+                pooled = _mean_pool_segment(segment["features"])
+            else:
+                pooled = _pool_embeddings(
+                    segment["features"],
+                    args.pool_window,
+                    args.pool_mode,
+                    args.pool_hop,
+                )
+            if pooled.shape[0] > 0:
+                pooled_parts.append(pooled)
     else:
-        raise SystemExit("encoder=AVES is not implemented yet.")
+        raise SystemExit(f"Unsupported encoder: {args.encoder}")
 
     if not pooled_parts:
         return np.zeros((0, 0), dtype=np.float32)
     return np.vstack(pooled_parts).astype(np.float32, copy=False)
 
 
-def _build_split_matrix(args, split_recordings, patch_width, model_state):
+def _build_split_matrix(
+    args,
+    split_recordings,
+    patch_width,
+    model_state,
+    apply_audio_speed_augmentation,
+):
     x_parts = []
     y_parts = []
     recording_counts = {}
@@ -197,7 +257,14 @@ def _build_split_matrix(args, split_recordings, patch_width, model_state):
         recording_counts[bird_id] = len(bird_recordings)
         example_counts[bird_id] = 0
         for recording_stem in bird_recordings:
-            pooled = _pool_recording(args, bird_id, recording_stem, patch_width, model_state)
+            pooled = _pool_recording(
+                args,
+                bird_id,
+                recording_stem,
+                patch_width,
+                model_state,
+                apply_audio_speed_augmentation,
+            )
             if pooled.shape[0] == 0:
                 continue
             x_parts.append(pooled)
@@ -232,25 +299,11 @@ def _plot_confusion(y_true, y_pred, class_names, out_base):
     plt.close(fig)
 
 
-def _apply_normalization_preset(args):
-    if args.normalization_preset is None:
+def _apply_spec_normalization_preset(args):
+    if args.encoder != "Spec" or args.normalization_preset is None:
         return
 
     stats_dir = args.audio_params_stats_dir
-    if args.encoder == "SongMAE":
-        assert args.normalization_preset in {"vanilla", "zscore", "zscore_rescaled"}
-        args.songmae_feature_normalization = "none"
-        if args.normalization_preset == "vanilla":
-            args.songmae_input_normalization = "none"
-            return
-        if args.normalization_preset == "zscore":
-            args.songmae_input_normalization = "per_model_input_zscore"
-            return
-        args.songmae_input_normalization = "per_recording_cmvn_rescaled_to_target_stats"
-        args.songmae_input_normalization_stats_dir = stats_dir
-        return
-
-    assert args.encoder == "Spec"
     if args.normalization_preset == "vanilla":
         args.spec_normalization = "none"
         return
@@ -278,6 +331,7 @@ def main():
     parser.add_argument("--pool_window", type=int, required=True)
     parser.add_argument("--pool_hop", type=int, required=True)
     parser.add_argument("--pool_mode", default="mean", choices=["mean", "max", "sum"])
+    parser.add_argument("--window_mean_pool", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
     parser.add_argument("--val_fraction", type=float, default=0.2)
     parser.add_argument("--c", type=float, default=1.0)
@@ -290,14 +344,16 @@ def main():
         default="none",
     )
     parser.add_argument("--spec_normalization_stats_dir", default=None)
-    parser.add_argument("--songmae_embedding_variant", choices=["before", "after"], default="after")
-    parser.add_argument("--songmae_feature_normalization", choices=["none", "per_recording_zscore"], default="none")
-    parser.add_argument(
-        "--songmae_input_normalization",
-        choices=["none", "per_model_input_zscore", "per_recording_cmvn_rescaled_to_target_stats"],
-        default="none",
-    )
-    parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
+    parser.add_argument("--songmae_embedding_variant", choices=["before", "after"], default="before")
+    parser.add_argument("--aves_model_path", default=None)
+    parser.add_argument("--aves_config_path", default=None)
+    parser.add_argument("--wav_root", default=None)
+    parser.add_argument("--wav_manifest", default=None)
+    parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
+    parser.add_argument("--aves_audio_sr", type=int, default=16000)
+    parser.add_argument("--audio_context_seconds", type=float, default=2.0)
+    parser.add_argument("--train_audio_speed_min_pct", type=float, default=0.0)
+    parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.0)
     args = parser.parse_args()
 
     annotation_json = Path(args.annotation_json).resolve()
@@ -310,29 +366,65 @@ def main():
     args.run_dir = str(run_dir)
     if args.audio_params_stats_dir is not None:
         args.audio_params_stats_dir = str(Path(args.audio_params_stats_dir).resolve())
+    if args.aves_model_path is not None:
+        args.aves_model_path = str(Path(args.aves_model_path).resolve())
+    if args.aves_config_path is not None:
+        args.aves_config_path = str(Path(args.aves_config_path).resolve())
+    if args.wav_root is not None:
+        args.wav_root = str(Path(args.wav_root).resolve())
+    if args.wav_manifest is not None:
+        args.wav_manifest = str(Path(args.wav_manifest).resolve())
 
     assert annotation_json.exists(), f"annotation_json not found: {annotation_json}"
     assert spec_dir.is_dir(), f"spec_dir not found: {spec_dir}"
     assert 0.0 < args.val_fraction < 1.0
+    assert args.audio_context_seconds > 0.0
+    assert 0.0 <= args.train_audio_speed_min_pct <= args.train_audio_speed_max_pct < 1.0
     assert args.pool_hop > 0
     if args.encoder == "SongMAE":
         assert args.pool_window > 0
     else:
         assert args.pool_window >= 0
+    if args.window_mean_pool:
+        assert args.pool_mode == "mean"
+    if args.train_audio_speed_max_pct > 0.0:
+        assert args.encoder in {"SongMAE", "AVES", "Spec"}
+        assert args.wav_root is not None or args.wav_manifest is not None
 
     if args.encoder == "Spec":
         assert args.pool_mode == "mean", "Spec uses mean pooling only."
 
-    _apply_normalization_preset(args)
+    _apply_spec_normalization_preset(args)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    patch_width = _load_patch_width(run_dir)
+    patch_width = 1 if args.encoder == "AVES" else _load_patch_width(run_dir)
     model_state = None
+    args.songmae_input_normalization = None
+    args.songmae_input_normalization_stats_dir = None
     if args.encoder == "SongMAE":
         model_state = extract_embedding.load_model_state(
             {
                 "run_dir": str(run_dir),
                 "checkpoint": args.checkpoint,
+            }
+        )
+        (
+            args.songmae_input_normalization,
+            args.songmae_input_normalization_stats_dir,
+        ) = extract_embedding.get_native_input_normalization(model_state)
+    elif args.encoder == "AVES":
+        model_state = aves.load_model_state_for_inference(
+            {
+                "run_dir": str(run_dir),
+                "checkpoint": args.checkpoint,
+                "encoder_layer_idx": args.encoder_layer_idx,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "audio_sr": args.aves_audio_sr,
+                "audio_context_seconds": args.audio_context_seconds,
+                "aves_model_path": args.aves_model_path,
+                "aves_config_path": args.aves_config_path,
             }
         )
 
@@ -344,12 +436,14 @@ def main():
         train_recordings,
         patch_width,
         model_state,
+        apply_audio_speed_augmentation=True,
     )
     x_val, y_val_raw, val_recording_counts, val_example_counts = _build_split_matrix(
         args,
         val_recordings,
         patch_width,
         model_state,
+        apply_audio_speed_augmentation=False,
     )
 
     label_encoder = LabelEncoder()
@@ -402,6 +496,7 @@ def main():
             "pool_window": int(args.pool_window),
             "pool_hop": int(args.pool_hop),
             "pool_mode": args.pool_mode,
+            "window_mean_pool": bool(args.window_mean_pool),
             "encoder_layer_idx": args.encoder_layer_idx,
             "val_fraction": float(args.val_fraction),
             "c": float(args.c),
@@ -411,9 +506,17 @@ def main():
             "spec_normalization": args.spec_normalization,
             "spec_normalization_stats_dir": args.spec_normalization_stats_dir,
             "songmae_embedding_variant": args.songmae_embedding_variant,
-            "songmae_feature_normalization": args.songmae_feature_normalization,
             "songmae_input_normalization": args.songmae_input_normalization,
             "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+            "aves_model_path": args.aves_model_path,
+            "aves_config_path": args.aves_config_path,
+            "wav_root": args.wav_root,
+            "wav_manifest": args.wav_manifest,
+            "wav_exts": args.wav_exts,
+            "aves_audio_sr": int(args.aves_audio_sr),
+            "audio_context_seconds": float(args.audio_context_seconds),
+            "train_audio_speed_min_pct": float(args.train_audio_speed_min_pct),
+            "train_audio_speed_max_pct": float(args.train_audio_speed_max_pct),
         },
     }
     metrics = {

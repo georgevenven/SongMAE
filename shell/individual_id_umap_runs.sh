@@ -25,8 +25,12 @@ IID_POOL_HOP="${IID_POOL_HOP:-5}"
 IID_POOL_MODE="${IID_POOL_MODE:-mean}"
 IID_UMAP_NORMALIZATION_PRESET="${IID_UMAP_NORMALIZATION_PRESET:-zscore_rescaled}"
 IID_UMAP_AUDIO_PARAMS_STATS_DIR="${IID_UMAP_AUDIO_PARAMS_STATS_DIR:-$IID_SPEC_DIR}"
-IID_UMAP_SONGMAE_INPUT_NORMALIZATION="${IID_UMAP_SONGMAE_INPUT_NORMALIZATION:-}"
-IID_UMAP_SONGMAE_INPUT_NORMALIZATION_STATS_DIR="${IID_UMAP_SONGMAE_INPUT_NORMALIZATION_STATS_DIR:-$IID_SPEC_DIR}"
+IID_AVES_MODEL_PATH="${IID_AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
+IID_AVES_CONFIG_PATH="${IID_AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
+IID_AVES_WAV_ROOT="${IID_AVES_WAV_ROOT:-/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae}"
+IID_AVES_WAV_MANIFEST="${IID_AVES_WAV_MANIFEST:-}"
+IID_AVES_WAV_EXTS="${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
+IID_AVES_AUDIO_SR="${IID_AVES_AUDIO_SR:-16000}"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -50,10 +54,10 @@ cmd=(
 if [[ -n "${IID_CHECKPOINT:-}" ]]; then
   cmd+=(--checkpoint "$IID_CHECKPOINT")
 fi
-if [[ -n "$IID_UMAP_NORMALIZATION_PRESET" ]]; then
+if [[ "$IID_ENCODER" == "Spec" ]] && [[ -n "$IID_UMAP_NORMALIZATION_PRESET" ]]; then
   cmd+=(--normalization_preset "$IID_UMAP_NORMALIZATION_PRESET")
 fi
-if [[ -n "$IID_UMAP_AUDIO_PARAMS_STATS_DIR" ]]; then
+if [[ "$IID_ENCODER" == "Spec" ]] && [[ -n "$IID_UMAP_AUDIO_PARAMS_STATS_DIR" ]]; then
   cmd+=(--audio_params_stats_dir "$IID_UMAP_AUDIO_PARAMS_STATS_DIR")
 fi
 if [[ -n "${IID_UMAP_SPEC_NORMALIZATION:-}" ]]; then
@@ -62,12 +66,14 @@ fi
 if [[ -n "${IID_UMAP_SPEC_NORMALIZATION_STATS_DIR:-}" ]]; then
   cmd+=(--spec_normalization_stats_dir "$IID_UMAP_SPEC_NORMALIZATION_STATS_DIR")
 fi
-if [[ "$IID_ENCODER" == "SongMAE" ]]; then
-  if [[ -n "$IID_UMAP_SONGMAE_INPUT_NORMALIZATION" ]]; then
-    cmd+=(--songmae_input_normalization "$IID_UMAP_SONGMAE_INPUT_NORMALIZATION")
-  fi
-  if [[ -n "$IID_UMAP_SONGMAE_INPUT_NORMALIZATION_STATS_DIR" ]]; then
-    cmd+=(--songmae_input_normalization_stats_dir "$IID_UMAP_SONGMAE_INPUT_NORMALIZATION_STATS_DIR")
+if [[ "$IID_ENCODER" == "AVES" ]]; then
+  cmd+=(--aves_model_path "$IID_AVES_MODEL_PATH")
+  cmd+=(--aves_config_path "$IID_AVES_CONFIG_PATH")
+  cmd+=(--wav_root "$IID_AVES_WAV_ROOT")
+  cmd+=(--wav_exts "$IID_AVES_WAV_EXTS")
+  cmd+=(--aves_audio_sr "$IID_AVES_AUDIO_SR")
+  if [[ -n "$IID_AVES_WAV_MANIFEST" ]]; then
+    cmd+=(--wav_manifest "$IID_AVES_WAV_MANIFEST")
   fi
 fi
 if [[ "${IID_UMAP_PER_BIRD_UMAPS:-0}" == "1" ]]; then

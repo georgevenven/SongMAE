@@ -20,8 +20,9 @@ IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD:-30}"
 IID_MAX_BIRDS="${IID_MAX_BIRDS:-0}"
 IID_SEED="${IID_SEED:-42}"
 IID_POOL_WINDOW="${IID_POOL_WINDOW:-30}"
-# Linear probes default to non-overlapping pooled windows and per-recording
-# normalization rescaled to dataset stats to reduce recording-condition leakage.
+# Linear probes default to non-overlapping pooled windows, "before" SongMAE
+# embeddings, and train-only raw-audio speed perturbation so SongMAE and AVES
+# see the same underlying augmentation.
 IID_LINEAR_POOL_HOP="${IID_LINEAR_POOL_HOP:-$IID_POOL_WINDOW}"
 IID_POOL_MODE="${IID_POOL_MODE:-mean}"
 IID_LINEAR_VAL_FRACTION="${IID_LINEAR_VAL_FRACTION:-0.2}"
@@ -30,6 +31,16 @@ IID_LINEAR_MAX_ITER="${IID_LINEAR_MAX_ITER:-2000}"
 IID_LINEAR_NORMALIZATION_PRESET="${IID_LINEAR_NORMALIZATION_PRESET:-zscore_rescaled}"
 IID_LINEAR_AUDIO_PARAMS_STATS_DIR="${IID_LINEAR_AUDIO_PARAMS_STATS_DIR:-$IID_SPEC_DIR}"
 IID_LINEAR_SONGMAE_EMBEDDING_VARIANT="${IID_LINEAR_SONGMAE_EMBEDDING_VARIANT:-before}"
+IID_LINEAR_WINDOW_MEAN_POOL="${IID_LINEAR_WINDOW_MEAN_POOL:-0}"
+IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT="${IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT:-0.0}"
+IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT="${IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT:-0.5}"
+IID_AVES_MODEL_PATH="${IID_AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
+IID_AVES_CONFIG_PATH="${IID_AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
+IID_WAV_ROOT="${IID_WAV_ROOT:-${IID_AVES_WAV_ROOT:-}}"
+IID_WAV_MANIFEST="${IID_WAV_MANIFEST:-${IID_AVES_WAV_MANIFEST:-}}"
+IID_WAV_EXTS="${IID_WAV_EXTS:-${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}}"
+IID_AVES_AUDIO_SR="${IID_AVES_AUDIO_SR:-16000}"
+IID_AUDIO_CONTEXT_SECONDS="${IID_AUDIO_CONTEXT_SECONDS:-2.0}"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -51,13 +62,15 @@ cmd=(
   --val_fraction "$IID_LINEAR_VAL_FRACTION"
   --c "$IID_LINEAR_C"
   --max_iter "$IID_LINEAR_MAX_ITER"
-  --normalization_preset "$IID_LINEAR_NORMALIZATION_PRESET"
 )
 
 if [[ -n "${IID_CHECKPOINT:-}" ]]; then
   cmd+=(--checkpoint "$IID_CHECKPOINT")
 fi
-if [[ -n "$IID_LINEAR_AUDIO_PARAMS_STATS_DIR" ]]; then
+if [[ "$IID_ENCODER" == "Spec" ]] && [[ -n "$IID_LINEAR_NORMALIZATION_PRESET" ]]; then
+  cmd+=(--normalization_preset "$IID_LINEAR_NORMALIZATION_PRESET")
+fi
+if [[ "$IID_ENCODER" == "Spec" ]] && [[ -n "$IID_LINEAR_AUDIO_PARAMS_STATS_DIR" ]]; then
   cmd+=(--audio_params_stats_dir "$IID_LINEAR_AUDIO_PARAMS_STATS_DIR")
 fi
 if [[ -n "${IID_LINEAR_SPEC_NORMALIZATION:-}" ]]; then
@@ -66,17 +79,32 @@ fi
 if [[ -n "${IID_LINEAR_SPEC_NORMALIZATION_STATS_DIR:-}" ]]; then
   cmd+=(--spec_normalization_stats_dir "$IID_LINEAR_SPEC_NORMALIZATION_STATS_DIR")
 fi
+if [[ -n "$IID_WAV_ROOT" ]]; then
+  cmd+=(--wav_root "$IID_WAV_ROOT")
+fi
+if [[ -n "$IID_WAV_MANIFEST" ]]; then
+  cmd+=(--wav_manifest "$IID_WAV_MANIFEST")
+fi
+if [[ -n "$IID_WAV_EXTS" ]]; then
+  cmd+=(--wav_exts "$IID_WAV_EXTS")
+fi
+if [[ -n "$IID_AUDIO_CONTEXT_SECONDS" ]]; then
+  cmd+=(--audio_context_seconds "$IID_AUDIO_CONTEXT_SECONDS")
+fi
+if [[ "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT" != "0.0" ]]; then
+  cmd+=(--train_audio_speed_min_pct "$IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT")
+  cmd+=(--train_audio_speed_max_pct "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT")
+fi
+if [[ "$IID_LINEAR_WINDOW_MEAN_POOL" == "1" ]]; then
+  cmd+=(--window_mean_pool)
+fi
 if [[ "$IID_ENCODER" == "SongMAE" ]]; then
   cmd+=(--songmae_embedding_variant "$IID_LINEAR_SONGMAE_EMBEDDING_VARIANT")
-  if [[ -n "${IID_LINEAR_SONGMAE_FEATURE_NORMALIZATION:-}" ]]; then
-    cmd+=(--songmae_feature_normalization "$IID_LINEAR_SONGMAE_FEATURE_NORMALIZATION")
-  fi
-  if [[ -n "${IID_LINEAR_SONGMAE_INPUT_NORMALIZATION:-}" ]]; then
-    cmd+=(--songmae_input_normalization "$IID_LINEAR_SONGMAE_INPUT_NORMALIZATION")
-  fi
-  if [[ -n "${IID_LINEAR_SONGMAE_INPUT_NORMALIZATION_STATS_DIR:-}" ]]; then
-    cmd+=(--songmae_input_normalization_stats_dir "$IID_LINEAR_SONGMAE_INPUT_NORMALIZATION_STATS_DIR")
-  fi
+fi
+if [[ "$IID_ENCODER" == "AVES" ]]; then
+  cmd+=(--aves_model_path "$IID_AVES_MODEL_PATH")
+  cmd+=(--aves_config_path "$IID_AVES_CONFIG_PATH")
+  cmd+=(--aves_audio_sr "$IID_AVES_AUDIO_SR")
 fi
 
 "${cmd[@]}"

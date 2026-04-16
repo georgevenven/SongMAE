@@ -11,8 +11,10 @@ import numpy as np
 import umap
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 sys.path.append(str(ROOT / "src"))
 
+import aves  # noqa: E402
 import extract_embedding  # noqa: E402
 
 
@@ -273,8 +275,8 @@ def _save_per_bird_umaps(
 
     for bird_id in birds:
         single_bird = {bird_id: per_bird_segments[bird_id]}
-        if args.encoder == "SongMAE":
-            features, _, _ = _build_songmae_representation(
+        if args.encoder in {"SongMAE", "AVES"}:
+            features, _, _ = _build_embedding_representation(
                 per_bird_segments=single_bird,
                 pool_window=args.pool_window,
                 pool_hop=args.pool_hop,
@@ -353,17 +355,80 @@ def _load_songmae_segments(args, bird_id, recording_stem, model_state):
     return segments
 
 
+def _load_aves_segments(args, bird_id, recording_stem, model_state):
+    try:
+        extracted = aves.extract_recording_embeddings_with_state(
+            {
+                "run_dir": str(args.run_dir),
+                "checkpoint": args.checkpoint,
+                "json_path": str(args.annotation_json),
+                "bird": bird_id,
+                "recording_stem": recording_stem,
+                "recording_mode": args.recording_mode,
+                "encoder_layer_idx": args.encoder_layer_idx,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "audio_sr": args.aves_audio_sr,
+                "audio_context_seconds": getattr(args, "audio_context_seconds", 0.0),
+                "aves_model_path": args.aves_model_path,
+                "aves_config_path": args.aves_config_path,
+                "seed": getattr(args, "seed", 0),
+                "train_audio_speed_min_pct": getattr(args, "train_audio_speed_min_pct", 0.0),
+                "train_audio_speed_max_pct": getattr(args, "train_audio_speed_max_pct", 0.0),
+            },
+            model_state,
+        )
+    except ValueError as exc:
+        if str(exc) == "No valid AVES tokens extracted for the requested recording set.":
+            return []
+        raise
+
+    segments = []
+    for segment in extracted["segments"]:
+        features = segment["encoded_embeddings_before_pos_removal"]
+        labels = segment["labels_downsampled"]
+        count = min(features.shape[0], labels.shape[0])
+        if count == 0:
+            continue
+        segments.append(
+            {
+                "features": features[:count],
+                "labels": labels[:count],
+            }
+        )
+    return segments
+
+
 def _load_spec_segments(args, bird_id, recording_stem, patch_width):
-    loaded = extract_embedding.load_recording_segments(
-        {
-            "spec_dir": str(args.spec_dir),
-            "json_path": str(args.annotation_json),
-            "bird": bird_id,
-            "recording_stem": recording_stem,
-            "recording_mode": args.recording_mode,
-        },
-        patch_width=patch_width,
-    )
+    if float(getattr(args, "train_audio_speed_max_pct", 0.0)) > 0.0:
+        loaded = extract_embedding.load_recording_segments_from_audio(
+            {
+                "spec_dir": str(args.spec_dir),
+                "json_path": str(args.annotation_json),
+                "bird": bird_id,
+                "recording_stem": recording_stem,
+                "recording_mode": args.recording_mode,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "seed": getattr(args, "seed", 0),
+                "train_audio_speed_min_pct": getattr(args, "train_audio_speed_min_pct", 0.0),
+                "train_audio_speed_max_pct": getattr(args, "train_audio_speed_max_pct", 0.0),
+            },
+            patch_width=patch_width,
+        )
+    else:
+        loaded = extract_embedding.load_recording_segments(
+            {
+                "spec_dir": str(args.spec_dir),
+                "json_path": str(args.annotation_json),
+                "bird": bird_id,
+                "recording_stem": recording_stem,
+                "recording_mode": args.recording_mode,
+            },
+            patch_width=patch_width,
+        )
     target_stats = None
     if args.spec_normalization == "per_recording_cmvn_rescaled_to_target_stats":
         stats_dir = args.spec_normalization_stats_dir or args.spec_dir
@@ -375,22 +440,45 @@ def _load_spec_segments(args, bird_id, recording_stem, patch_width):
     )
 
     segments = []
+    audio_params = loaded["audio_params"]
+    context_seconds = float(getattr(args, "audio_context_seconds", 0.0) or 0.0)
+    context_timebins = 0
+    if context_seconds > 0.0:
+        context_timebins = int(round(context_seconds * float(audio_params[0]) / float(audio_params[2])))
+        context_timebins = max(patch_width, context_timebins)
+        context_timebins -= context_timebins % patch_width
+        if context_timebins == 0:
+            context_timebins = patch_width
     for segment in normalized_segments:
         spec = segment["spectrogram"]
         labels = segment["labels_original"]
         count = min(spec.shape[1], labels.shape[0])
         if count == 0:
             continue
-        segments.append(
-            {
-                "features": spec[:, :count],
-                "labels": labels[:count],
-            }
-        )
+        spec = spec[:, :count]
+        labels = labels[:count]
+        if context_timebins <= 0 or spec.shape[1] <= context_timebins:
+            segments.append(
+                {
+                    "features": spec,
+                    "labels": labels,
+                }
+            )
+            continue
+        for start in range(0, spec.shape[1], context_timebins):
+            end = min(start + context_timebins, spec.shape[1])
+            if end <= start:
+                continue
+            segments.append(
+                {
+                    "features": spec[:, start:end],
+                    "labels": labels[start:end],
+                }
+            )
     return segments
 
 
-def _build_songmae_representation(per_bird_segments, pool_window, pool_hop, pool_mode):
+def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, pool_mode):
     x_parts = []
     y_parts = []
     s_parts = []
@@ -416,7 +504,7 @@ def _build_songmae_representation(per_bird_segments, pool_window, pool_hop, pool
         y_parts.extend([bird_id] * bird_features.shape[0])
         s_parts.append(bird_labels)
 
-    assert x_parts, "No valid SongMAE segments were pooled."
+    assert x_parts, "No valid embedding segments were pooled."
     return (
         np.vstack(x_parts),
         np.asarray(y_parts, dtype=object),
@@ -469,24 +557,11 @@ def _load_patch_width(run_dir):
     return patch_width
 
 
-def _apply_normalization_preset(args):
-    if args.normalization_preset is None:
+def _apply_spec_normalization_preset(args):
+    if args.encoder != "Spec" or args.normalization_preset is None:
         return
 
     stats_dir = args.audio_params_stats_dir
-    if args.encoder == "SongMAE":
-        assert args.normalization_preset in {"vanilla", "zscore", "zscore_rescaled"}
-        if args.normalization_preset == "vanilla":
-            args.songmae_input_normalization = "none"
-            return
-        if args.normalization_preset == "zscore":
-            args.songmae_input_normalization = "per_model_input_zscore"
-            return
-        args.songmae_input_normalization = "per_recording_cmvn_rescaled_to_target_stats"
-        args.songmae_input_normalization_stats_dir = stats_dir
-        return
-
-    assert args.encoder == "Spec"
     if args.normalization_preset == "vanilla":
         args.spec_normalization = "none"
         return
@@ -524,12 +599,12 @@ def main():
         default="none",
     )
     parser.add_argument("--spec_normalization_stats_dir", default=None)
-    parser.add_argument(
-        "--songmae_input_normalization",
-        choices=["none", "audio_params", "per_model_input_zscore", "per_recording_cmvn", "per_recording_cmvn_rescaled_to_target_stats"],
-        default="none",
-    )
-    parser.add_argument("--songmae_input_normalization_stats_dir", default=None)
+    parser.add_argument("--aves_model_path", default=None)
+    parser.add_argument("--aves_config_path", default=None)
+    parser.add_argument("--wav_root", default=None)
+    parser.add_argument("--wav_manifest", default=None)
+    parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
+    parser.add_argument("--aves_audio_sr", type=int, default=16000)
     parser.add_argument("--umap_neighbors", type=int, default=100)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
@@ -547,29 +622,52 @@ def main():
         args.audio_params_stats_dir = str(Path(args.audio_params_stats_dir).resolve())
     if args.spec_normalization_stats_dir is not None:
         args.spec_normalization_stats_dir = str(Path(args.spec_normalization_stats_dir).resolve())
-    if args.songmae_input_normalization_stats_dir is not None:
-        args.songmae_input_normalization_stats_dir = str(Path(args.songmae_input_normalization_stats_dir).resolve())
+    if args.aves_model_path is not None:
+        args.aves_model_path = str(Path(args.aves_model_path).resolve())
+    if args.aves_config_path is not None:
+        args.aves_config_path = str(Path(args.aves_config_path).resolve())
+    if args.wav_root is not None:
+        args.wav_root = str(Path(args.wav_root).resolve())
+    if args.wav_manifest is not None:
+        args.wav_manifest = str(Path(args.wav_manifest).resolve())
 
     assert annotation_json.exists(), f"annotation_json not found: {annotation_json}"
     assert spec_dir.is_dir(), f"spec_dir not found: {spec_dir}"
     assert args.pool_window > 0
     assert args.pool_hop > 0
-    if args.encoder == "AVES":
-        raise SystemExit("encoder=AVES is not implemented yet.")
-
     if args.encoder == "Spec":
         assert args.pool_mode == "mean", "Spec uses mean pooling only."
 
-    _apply_normalization_preset(args)
+    _apply_spec_normalization_preset(args)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    patch_width = _load_patch_width(run_dir)
+    patch_width = 1 if args.encoder == "AVES" else _load_patch_width(run_dir)
     model_state = None
+    args.songmae_input_normalization = None
+    args.songmae_input_normalization_stats_dir = None
     if args.encoder == "SongMAE":
         model_state = extract_embedding.load_model_state(
             {
                 "run_dir": str(args.run_dir),
                 "checkpoint": args.checkpoint,
+            }
+        )
+        (
+            args.songmae_input_normalization,
+            args.songmae_input_normalization_stats_dir,
+        ) = extract_embedding.get_native_input_normalization(model_state)
+    elif args.encoder == "AVES":
+        model_state = aves.load_model_state_for_inference(
+            {
+                "run_dir": str(args.run_dir),
+                "checkpoint": args.checkpoint,
+                "encoder_layer_idx": args.encoder_layer_idx,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "audio_sr": args.aves_audio_sr,
+                "aves_model_path": args.aves_model_path,
+                "aves_config_path": args.aves_config_path,
             }
         )
 
@@ -597,6 +695,8 @@ def main():
         for recording_stem in sampled_recordings[bird_id]:
             if args.encoder == "SongMAE":
                 loaded_segments = _load_songmae_segments(args, bird_id, recording_stem, model_state)
+            elif args.encoder == "AVES":
+                loaded_segments = _load_aves_segments(args, bird_id, recording_stem, model_state)
             else:
                 loaded_segments = _load_spec_segments(args, bird_id, recording_stem, patch_width)
             bird_segments.extend(loaded_segments)
@@ -605,14 +705,15 @@ def main():
 
     assert per_bird_segments, "No valid segments were extracted."
 
-    if args.encoder == "SongMAE":
-        features, bird_labels, syllable_labels = _build_songmae_representation(
+    if args.encoder in {"SongMAE", "AVES"}:
+        features, bird_labels, syllable_labels = _build_embedding_representation(
             per_bird_segments=per_bird_segments,
             pool_window=args.pool_window,
             pool_hop=args.pool_hop,
             pool_mode=args.pool_mode,
         )
-        rep_name = f"songmae_pool_{args.pool_mode}_w{args.pool_window}_h{args.pool_hop}"
+        prefix = "songmae" if args.encoder == "SongMAE" else "aves"
+        rep_name = f"{prefix}_pool_{args.pool_mode}_w{args.pool_window}_h{args.pool_hop}"
     else:
         features, bird_labels, syllable_labels = _build_spec_representation(
             per_bird_segments=per_bird_segments,
@@ -681,6 +782,12 @@ def main():
             "spec_normalization_stats_dir": args.spec_normalization_stats_dir,
             "songmae_input_normalization": args.songmae_input_normalization,
             "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+            "aves_model_path": args.aves_model_path,
+            "aves_config_path": args.aves_config_path,
+            "wav_root": args.wav_root,
+            "wav_manifest": args.wav_manifest,
+            "wav_exts": args.wav_exts,
+            "aves_audio_sr": int(args.aves_audio_sr),
             "encoder_layer_idx": args.encoder_layer_idx,
             "umap_neighbors": int(args.umap_neighbors),
             "umap_min_dist": float(args.umap_min_dist),
