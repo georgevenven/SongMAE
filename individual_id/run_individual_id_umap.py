@@ -67,25 +67,15 @@ def _pool_embeddings(embeddings, window, mode, hop):
         return np.zeros((0, embeddings.shape[1]), dtype=np.float32)
     if window <= 1:
         return embeddings.astype(np.float32, copy=False)
+    assert mode == "mean"
 
     pooled = []
     for start in range(0, embeddings.shape[0] - window + 1, hop):
         chunk = embeddings[start : start + window]
-        if mode == "max":
-            pooled.append(chunk.max(axis=0))
-        elif mode == "sum":
-            pooled.append(chunk.sum(axis=0))
-        else:
-            pooled.append(chunk.mean(axis=0))
+        pooled.append(chunk.mean(axis=0))
 
     if not pooled:
-        chunk = embeddings
-        if mode == "max":
-            pooled.append(chunk.max(axis=0))
-        elif mode == "sum":
-            pooled.append(chunk.sum(axis=0))
-        else:
-            pooled.append(chunk.mean(axis=0))
+        pooled.append(embeddings.mean(axis=0))
 
     return np.asarray(pooled, dtype=np.float32)
 
@@ -588,7 +578,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pool_window", type=int, required=True)
     parser.add_argument("--pool_hop", type=int, required=True)
-    parser.add_argument("--pool_mode", default="mean", choices=["mean", "max", "sum"])
+    parser.add_argument("--pool_mode", default="mean", choices=["mean"])
     parser.add_argument("--per_bird_umaps", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
     parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)

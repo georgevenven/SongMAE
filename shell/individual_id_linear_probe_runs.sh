@@ -7,6 +7,8 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 SCRIPT_PATH="$ROOT/individual_id/individual_identification_linear_probe.py"
 RESULTS_DIR="$ROOT/results/individual_id_linear_probe"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/mplconfig}"
+PERCH_ENV_BIN="/home/george-vengrovski/anaconda3/envs/perch/bin/python"
+PERCH_CUDNN_DIR="/home/george-vengrovski/anaconda3/envs/perch/lib/python3.11/site-packages/nvidia/cudnn/lib"
 
 : "${IID_SPECIES:?Set IID_SPECIES before running this script.}"
 : "${IID_SPEC_DIR:?Set IID_SPEC_DIR before running this script.}"
@@ -32,15 +34,27 @@ IID_LINEAR_NORMALIZATION_PRESET="${IID_LINEAR_NORMALIZATION_PRESET:-zscore_resca
 IID_LINEAR_AUDIO_PARAMS_STATS_DIR="${IID_LINEAR_AUDIO_PARAMS_STATS_DIR:-$IID_SPEC_DIR}"
 IID_LINEAR_SONGMAE_EMBEDDING_VARIANT="${IID_LINEAR_SONGMAE_EMBEDDING_VARIANT:-before}"
 IID_LINEAR_WINDOW_MEAN_POOL="${IID_LINEAR_WINDOW_MEAN_POOL:-0}"
+IID_LINEAR_WINDOW_CONCAT="${IID_LINEAR_WINDOW_CONCAT:-0}"
+IID_LINEAR_WINDOW_TOKEN_PROBE="${IID_LINEAR_WINDOW_TOKEN_PROBE:-0}"
 IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT="${IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT:-0.0}"
 IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT="${IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT:-0.5}"
 IID_AVES_MODEL_PATH="${IID_AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
 IID_AVES_CONFIG_PATH="${IID_AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
+IID_PERCH_MODEL_NAME="${IID_PERCH_MODEL_NAME:-perch_v2}"
+IID_PERCH_AUDIO_SR="${IID_PERCH_AUDIO_SR:-32000}"
+IID_PERCH_WINDOW_SECONDS="${IID_PERCH_WINDOW_SECONDS:-5.0}"
 IID_WAV_ROOT="${IID_WAV_ROOT:-${IID_AVES_WAV_ROOT:-}}"
 IID_WAV_MANIFEST="${IID_WAV_MANIFEST:-${IID_AVES_WAV_MANIFEST:-}}"
 IID_WAV_EXTS="${IID_WAV_EXTS:-${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}}"
 IID_AVES_AUDIO_SR="${IID_AVES_AUDIO_SR:-16000}"
 IID_AUDIO_CONTEXT_SECONDS="${IID_AUDIO_CONTEXT_SECONDS:-2.0}"
+
+if [[ "$IID_ENCODER" == "Perch" ]]; then
+  if [[ "$PYTHON_BIN" == "python" ]]; then
+    PYTHON_BIN="$PERCH_ENV_BIN"
+  fi
+  export LD_LIBRARY_PATH="$PERCH_CUDNN_DIR:${LD_LIBRARY_PATH:-}"
+fi
 
 mkdir -p "$RESULTS_DIR"
 
@@ -98,6 +112,12 @@ fi
 if [[ "$IID_LINEAR_WINDOW_MEAN_POOL" == "1" ]]; then
   cmd+=(--window_mean_pool)
 fi
+if [[ "$IID_LINEAR_WINDOW_CONCAT" == "1" ]]; then
+  cmd+=(--window_concat_pool)
+fi
+if [[ "$IID_LINEAR_WINDOW_TOKEN_PROBE" == "1" ]]; then
+  cmd+=(--window_token_probe)
+fi
 if [[ "$IID_ENCODER" == "SongMAE" ]]; then
   cmd+=(--songmae_embedding_variant "$IID_LINEAR_SONGMAE_EMBEDDING_VARIANT")
 fi
@@ -105,6 +125,11 @@ if [[ "$IID_ENCODER" == "AVES" ]]; then
   cmd+=(--aves_model_path "$IID_AVES_MODEL_PATH")
   cmd+=(--aves_config_path "$IID_AVES_CONFIG_PATH")
   cmd+=(--aves_audio_sr "$IID_AVES_AUDIO_SR")
+fi
+if [[ "$IID_ENCODER" == "Perch" ]]; then
+  cmd+=(--perch_model_name "$IID_PERCH_MODEL_NAME")
+  cmd+=(--perch_audio_sr "$IID_PERCH_AUDIO_SR")
+  cmd+=(--perch_window_seconds "$IID_PERCH_WINDOW_SECONDS")
 fi
 
 "${cmd[@]}"

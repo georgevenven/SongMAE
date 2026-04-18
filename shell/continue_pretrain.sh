@@ -9,7 +9,7 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 usage() {
   cat <<'EOF'
 Usage:
-  shell/continue_pretrain.sh BASE_RUN DATASET_KEY NEW_RUN_NAME [EXTRA_STEPS] [INPUT_NORMALIZATION] [BATCH_SIZE]
+  shell/continue_pretrain.sh BASE_RUN DATASET_KEY NEW_RUN_NAME [EXTRA_STEPS] [INPUT_NORMALIZATION] [BATCH_SIZE] [NUM_WORKERS]
 
 Example:
   shell/continue_pretrain.sh \
@@ -18,12 +18,14 @@ Example:
     xcm_voronoi_mask_no_normalize_32h_10w_zf_continue10k \
     10000 \
     per_file_zscore \
-    48
+    48 \
+    8
 
 Dataset keys:
   zf
   bf
   canary
+  songmae_mid_train
 
 Notes:
   - Creates a lean clone in runs/NEW_RUN_NAME
@@ -32,6 +34,7 @@ Notes:
   - Continues training from the cloned run directory
   - INPUT_NORMALIZATION can be: audio_params, per_file_zscore
   - BATCH_SIZE defaults to 48
+  - NUM_WORKERS defaults to 8
 EOF
 }
 
@@ -46,6 +49,7 @@ NEW_RUN_NAME="$3"
 EXTRA_STEPS="${4:-10000}"
 INPUT_NORMALIZATION="${5:-audio_params}"
 BATCH_SIZE="${6:-48}"
+NUM_WORKERS="${7:-8}"
 
 if [[ "$INPUT_NORMALIZATION" != "audio_params" ]] && [[ "$INPUT_NORMALIZATION" != "per_file_zscore" ]]; then
   echo "Unknown input normalization: $INPUT_NORMALIZATION" 1>&2
@@ -95,6 +99,10 @@ case "$DATASET_KEY" in
   canary)
     TRAIN_DIR="/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz_train"
     VAL_DIR="/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz_val"
+    ;;
+  songmae_mid_train)
+    TRAIN_DIR="/media/george-vengrovski/disk2/data2vec_train_data/songmae_mid_train/train"
+    VAL_DIR="/media/george-vengrovski/disk2/data2vec_train_data/songmae_mid_train/eval"
     ;;
   *)
     echo "Unknown dataset key: $DATASET_KEY" 1>&2
@@ -159,7 +167,7 @@ if [[ -f "$BASE_RUN_DIR/audio_params.json" ]]; then
   cp "$BASE_RUN_DIR/audio_params.json" "$TARGET_RUN_DIR/audio_params.json"
 fi
 
-python - <<'PY' "$TARGET_RUN_DIR/config.json" "$TRAIN_DIR" "$VAL_DIR" "$NEW_RUN_NAME" "$EXTRA_STEPS" "$INPUT_NORMALIZATION" "$BATCH_SIZE"
+python - <<'PY' "$TARGET_RUN_DIR/config.json" "$TRAIN_DIR" "$VAL_DIR" "$NEW_RUN_NAME" "$EXTRA_STEPS" "$INPUT_NORMALIZATION" "$BATCH_SIZE" "$NUM_WORKERS"
 import json
 import sys
 from pathlib import Path
@@ -171,6 +179,7 @@ run_name = sys.argv[4]
 steps = int(sys.argv[5])
 input_normalization = sys.argv[6]
 batch_size = int(sys.argv[7])
+num_workers = int(sys.argv[8])
 
 config = json.loads(config_path.read_text(encoding="utf-8"))
 config["train_dir"] = train_dir
@@ -179,6 +188,7 @@ config["run_name"] = run_name
 config["steps"] = steps
 config["input_normalization"] = input_normalization
 config["batch_size"] = batch_size
+config["num_workers"] = num_workers
 config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 PY
 
@@ -192,6 +202,7 @@ echo "  val_dir:   $VAL_DIR"
 echo "Extra steps: $EXTRA_STEPS"
 echo "Normalization: $INPUT_NORMALIZATION"
 echo "Batch size: $BATCH_SIZE"
+echo "Num workers: $NUM_WORKERS"
 
 cd "$ROOT"
 "$PYTHON_BIN" src/pretrain.py --continue_from "$TARGET_RUN_DIR"

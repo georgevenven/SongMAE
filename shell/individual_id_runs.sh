@@ -30,10 +30,15 @@ IID_LINEAR_NORMALIZATION_PRESET="${IID_LINEAR_NORMALIZATION_PRESET:-zscore_resca
 IID_LINEAR_AUDIO_PARAMS_STATS_DIR="${IID_LINEAR_AUDIO_PARAMS_STATS_DIR:-}"
 IID_LINEAR_SONGMAE_EMBEDDING_VARIANT="${IID_LINEAR_SONGMAE_EMBEDDING_VARIANT:-before}"
 IID_LINEAR_WINDOW_MEAN_POOL="${IID_LINEAR_WINDOW_MEAN_POOL:-0}"
+IID_LINEAR_WINDOW_CONCAT="${IID_LINEAR_WINDOW_CONCAT:-0}"
+IID_LINEAR_WINDOW_TOKEN_PROBE="${IID_LINEAR_WINDOW_TOKEN_PROBE:-0}"
 IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT="${IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT:-0.0}"
 IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT="${IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT:-0.5}"
 IID_AVES_MODEL_PATH="${IID_AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
 IID_AVES_CONFIG_PATH="${IID_AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
+IID_PERCH_MODEL_NAME="${IID_PERCH_MODEL_NAME:-perch_v2}"
+IID_PERCH_AUDIO_SR="${IID_PERCH_AUDIO_SR:-32000}"
+IID_PERCH_WINDOW_SECONDS="${IID_PERCH_WINDOW_SECONDS:-5.0}"
 IID_WAV_ROOT="${IID_WAV_ROOT:-${IID_AVES_WAV_ROOT:-}}"
 IID_WAV_MANIFEST="${IID_WAV_MANIFEST:-${IID_AVES_WAV_MANIFEST:-}}"
 IID_WAV_EXTS="${IID_WAV_EXTS:-${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}}"
@@ -46,7 +51,7 @@ IID_CLUSTER_MIN_CLUSTER_HITS="${IID_CLUSTER_MIN_CLUSTER_HITS:-1}"
 IID_CLUSTER_OVERLAP_THRESHOLD="${IID_CLUSTER_OVERLAP_THRESHOLD:-0.3}"
 
 usage() {
-  echo "Usage: $0 <species_default|data2vec_40k|birdaves_base> [all|zf|bf|canary|chiffchaff|european_starling|tree_pipit|little_owl|orangutan|ovenbird ...]"
+  echo "Usage: $0 <species_default|data2vec_40k|birdaves_base|perch_2_0> [all|zf|bf|canary|chiffchaff|european_starling|tree_pipit|little_owl|orangutan|ovenbird ...]"
 }
 
 latest_checkpoint() {
@@ -197,6 +202,10 @@ set_model_config() {
       IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT}"
       IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-birdaves_base}"
       ;;
+    perch_2_0|perch_v2|perch)
+      IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT}"
+      IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-perch_v2}"
+      ;;
     *)
       echo "Unknown model preset: $model_preset" >&2
       usage
@@ -221,10 +230,22 @@ set_output_dirs() {
   if [[ "$IID_LINEAR_WINDOW_MEAN_POOL" == "1" ]]; then
     linear_aug_tag="${linear_aug_tag}_windowmean"
   fi
+  if [[ "$IID_LINEAR_WINDOW_CONCAT" == "1" ]]; then
+    linear_aug_tag="${linear_aug_tag}_windowconcat"
+  fi
+  if [[ "$IID_LINEAR_WINDOW_TOKEN_PROBE" == "1" ]]; then
+    linear_aug_tag="${linear_aug_tag}_windowtoken"
+  fi
   if [[ "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT" != "0.0" ]]; then
     linear_aug_tag="speed$(printf '%s' "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT" | tr '.' 'p')_trainonly"
     if [[ "$IID_LINEAR_WINDOW_MEAN_POOL" == "1" ]]; then
       linear_aug_tag="${linear_aug_tag}_windowmean"
+    fi
+    if [[ "$IID_LINEAR_WINDOW_CONCAT" == "1" ]]; then
+      linear_aug_tag="${linear_aug_tag}_windowconcat"
+    fi
+    if [[ "$IID_LINEAR_WINDOW_TOKEN_PROBE" == "1" ]]; then
+      linear_aug_tag="${linear_aug_tag}_windowtoken"
     fi
   fi
   IID_LINEAR_OUT_DIR="$ROOT/results/individual_id_linear_probe/${IID_BIRD_KEY}_${linear_encoder_tag}${linear_norm_tag}_${IID_MODEL_TAG}_${linear_aug_tag}_w${IID_POOL_WINDOW}_h${IID_LINEAR_POOL_HOP}"
@@ -246,22 +267,26 @@ run_suite() {
   export IID_BIRD_KEY IID_SPECIES IID_SPEC_DIR IID_ANNOTATION_JSON IID_RUN_DIR IID_CHECKPOINT IID_MODEL_TAG
   export IID_ENCODER IID_RECORDING_MODE IID_SONGS_PER_BIRD IID_MAX_BIRDS IID_SEED IID_POOL_WINDOW IID_POOL_HOP IID_POOL_MODE
   export IID_UMAP_OUT_DIR IID_UMAP_NORMALIZATION_PRESET IID_UMAP_AUDIO_PARAMS_STATS_DIR
-  export IID_LINEAR_OUT_DIR IID_LINEAR_VAL_FRACTION IID_LINEAR_C IID_LINEAR_MAX_ITER IID_LINEAR_POOL_HOP IID_LINEAR_NORMALIZATION_PRESET IID_LINEAR_SONGMAE_EMBEDDING_VARIANT IID_LINEAR_WINDOW_MEAN_POOL
+  export IID_LINEAR_OUT_DIR IID_LINEAR_VAL_FRACTION IID_LINEAR_C IID_LINEAR_MAX_ITER IID_LINEAR_POOL_HOP IID_LINEAR_NORMALIZATION_PRESET IID_LINEAR_SONGMAE_EMBEDDING_VARIANT IID_LINEAR_WINDOW_MEAN_POOL IID_LINEAR_WINDOW_CONCAT IID_LINEAR_WINDOW_TOKEN_PROBE
   export IID_LINEAR_AUDIO_PARAMS_STATS_DIR
   export IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT
-  export IID_AVES_MODEL_PATH IID_AVES_CONFIG_PATH IID_WAV_ROOT IID_WAV_MANIFEST IID_WAV_EXTS IID_AVES_AUDIO_SR IID_AUDIO_CONTEXT_SECONDS
+  export IID_AVES_MODEL_PATH IID_AVES_CONFIG_PATH IID_PERCH_MODEL_NAME IID_PERCH_AUDIO_SR IID_PERCH_WINDOW_SECONDS IID_WAV_ROOT IID_WAV_MANIFEST IID_WAV_EXTS IID_AVES_AUDIO_SR IID_AUDIO_CONTEXT_SECONDS
   export IID_CLUSTER_OUT_DIR IID_CLUSTER_EMBEDDING_VARIANT IID_CLUSTER_MIN_CLUSTER_SIZE IID_CLUSTER_MIN_CLUSTER_HITS IID_CLUSTER_OVERLAP_THRESHOLD
 
   echo "[individual_id] bird=$IID_BIRD_KEY model=$MODEL_PRESET run_dir=$IID_RUN_DIR"
   if [[ "$RUN_UMAP" == "1" ]]; then
-    bash "$UMAP_SCRIPT"
+    if [[ "$IID_ENCODER" == "Perch" ]]; then
+      echo "[individual_id] skipping umap for encoder=Perch"
+    else
+      bash "$UMAP_SCRIPT"
+    fi
   fi
   if [[ "$RUN_LINEAR_PROBE" == "1" ]]; then
     bash "$LINEAR_SCRIPT"
   fi
   if [[ "$RUN_CLUSTER" == "1" ]]; then
-    if [[ "$IID_ENCODER" == "AVES" ]]; then
-      echo "[individual_id] skipping cluster for encoder=AVES"
+    if [[ "$IID_ENCODER" == "AVES" ]] || [[ "$IID_ENCODER" == "Perch" ]]; then
+      echo "[individual_id] skipping cluster for encoder=$IID_ENCODER"
     else
       bash "$CLUSTER_SCRIPT"
     fi

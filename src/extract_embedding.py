@@ -442,7 +442,11 @@ def load_model_state(args):
 
 
 def get_native_input_normalization(model_state):
-    mode = model_state["config"].get("input_normalization", "audio_params")
+    config = model_state["config"]
+    mode = config.get("input_normalization")
+    if mode is None:
+        has_audio_params = (Path(model_state["run_dir"]) / "audio_params.json").is_file()
+        mode = "audio_params" if has_audio_params else "none"
     assert mode in {"none", "audio_params", "per_file_zscore"}
     if mode == "per_file_zscore":
         return "per_model_input_zscore", None

@@ -574,7 +574,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pool_window", type=int, default=30)
     parser.add_argument("--pool_hop", type=int, default=5)
-    parser.add_argument("--pool_mode", default="mean", choices=["mean", "max", "sum"])
+    parser.add_argument("--pool_mode", default="mean", choices=["mean"])
     parser.add_argument("--embedding_variant", default="before", choices=["before", "after"])
     parser.add_argument("--drop_silence", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)

@@ -6,8 +6,8 @@ ROOT="/home/george-vengrovski/Documents/projects/TinyBird"
 RUNS_DIR="$ROOT/runs"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
-TRAIN_DIR="${TRAIN_DIR:-/media/george-vengrovski/disk2/data2vec_train_data/train}"
-VAL_DIR="${VAL_DIR:-/media/george-vengrovski/disk2/data2vec_train_data/val}"
+TRAIN_DIR="${TRAIN_DIR:-/media/george-vengrovski/disk2/data2vec_train_data/songmae_mid_train/train}"
+VAL_DIR="${VAL_DIR:-/media/george-vengrovski/disk2/data2vec_train_data/songmae_mid_train/eval}"
 
 STEPS="${STEPS:-20000}"
 EVAL_EVERY="${EVAL_EVERY:-2000}"
@@ -16,10 +16,10 @@ NUM_WORKERS="${NUM_WORKERS:-8}"
 RUN_SUFFIX="${RUN_SUFFIX:-e2000}"
 
 DATA2VEC_INPUT_NORMALIZATION="${DATA2VEC_INPUT_NORMALIZATION:-audio_params}"
-SONGMAE_INPUT_NORMALIZATION="${SONGMAE_INPUT_NORMALIZATION:-per_file_zscore}"
+SONGMAE_INPUT_NORMALIZATION="${SONGMAE_INPUT_NORMALIZATION:-audio_params}"
 
-SONGMAE_BASE_RUN="${SONGMAE_BASE_RUN:-$ROOT/runs/xcl_voronoi_mask_no_normalize_32h_10w}"
-DATA2VEC_BASE_RUN="${DATA2VEC_BASE_RUN:-$ROOT/runs/xcl_data2vec_voronoi_32h_10w}"
+SUITE_PREFIX="${SUITE_PREFIX:-songmae_mid_train}"
+SONGMAE_BASE_RUN="${SONGMAE_BASE_RUN:-/media/george-vengrovski/Desk SSD/LambdaLabsIndividual_ID_RUNS/xcl_train_audio_params_no_patchnorm_bs256_small12m_ckpt50k_plus_last}"
 
 if [[ "$STEPS" =~ ^[0-9]+$ ]] && (( STEPS % 1000 == 0 )); then
   STEP_LABEL="$((STEPS / 1000))k"
@@ -43,12 +43,9 @@ Default dataset:
   VAL_DIR=$VAL_DIR
 
 Default run names:
-  data2vec_scratch_${STEP_LABEL}_${RUN_SUFFIX}
-  data2vec_from_xcl_${STEP_LABEL}_${RUN_SUFFIX}
-  data2vec_from_xcl_data2vec_${STEP_LABEL}_${RUN_SUFFIX}
-  songmae_scratch_${STEP_LABEL}_${RUN_SUFFIX}
-  songmae_from_xcl_${STEP_LABEL}_${RUN_SUFFIX}
-  songmae_from_xcl_data2vec_${STEP_LABEL}_${RUN_SUFFIX}
+  ${SUITE_PREFIX}_songmae_scratch_${STEP_LABEL}_${RUN_SUFFIX}
+  ${SUITE_PREFIX}_songmae_from_songmae_${STEP_LABEL}_${RUN_SUFFIX}
+  ${SUITE_PREFIX}_data2vec_from_songmae_${STEP_LABEL}_${RUN_SUFFIX}
 
 Key env overrides:
   STEPS=$STEPS
@@ -58,6 +55,7 @@ Key env overrides:
   DATA2VEC_INPUT_NORMALIZATION=$DATA2VEC_INPUT_NORMALIZATION
   SONGMAE_INPUT_NORMALIZATION=$SONGMAE_INPUT_NORMALIZATION
   RUN_SUFFIX=$RUN_SUFFIX
+  SUITE_PREFIX=$SUITE_PREFIX
   TRAIN_DIR=/path/to/train
   VAL_DIR=/path/to/val
 EOF
@@ -232,37 +230,8 @@ PY
   echo "  trainer: $(basename "$latest_trainer")"
 }
 
-run_data2vec_scratch() {
-  local run_name="data2vec_scratch_${STEP_LABEL}_${RUN_SUFFIX}"
-  echo "=== START $run_name ==="
-  PYTHONUNBUFFERED=1 "$PYTHON_BIN" "$ROOT/src/data2vec_train.py" \
-    --train_dir "$TRAIN_DIR" \
-    --val_dir "$VAL_DIR" \
-    --run_name "$run_name" \
-    --steps "$STEPS" \
-    --lr 1e-4 \
-    --batch_size "$BATCH_SIZE" \
-    --num_workers "$NUM_WORKERS" \
-    --patch_height 32 \
-    --patch_width 10 \
-    --num_timebins 1000 \
-    --dropout 0.1 \
-    --mask_p 0.75 \
-    --mask_c 0.1 \
-    --mask_type voronoi \
-    --eval_every "$EVAL_EVERY" \
-    --warmup_steps 1000 \
-    --min_lr 1e-5 \
-    --amp \
-    --weight_decay 0.1 \
-    --input_normalization "$DATA2VEC_INPUT_NORMALIZATION" \
-    --ema_decay 0.99 \
-    --teacher_target_feature ffn \
-    --loss_type mse
-}
-
 run_data2vec_from_songmae() {
-  local run_name="data2vec_from_xcl_${STEP_LABEL}_${RUN_SUFFIX}"
+  local run_name="${SUITE_PREFIX}_data2vec_from_songmae_${STEP_LABEL}_${RUN_SUFFIX}"
   echo "=== START $run_name ==="
   PYTHONUNBUFFERED=1 "$PYTHON_BIN" "$ROOT/src/data2vec_train.py" \
     --train_dir "$TRAIN_DIR" \
@@ -291,16 +260,8 @@ run_data2vec_from_songmae() {
     --init_from_pretrained_run "$SONGMAE_BASE_RUN"
 }
 
-run_data2vec_from_data2vec() {
-  local run_name="data2vec_from_xcl_data2vec_${STEP_LABEL}_${RUN_SUFFIX}"
-  local run_dir="$RUNS_DIR/$run_name"
-  clone_data2vec_seed "$DATA2VEC_BASE_RUN" "$run_dir"
-  echo "=== START $run_name ==="
-  PYTHONUNBUFFERED=1 "$PYTHON_BIN" "$ROOT/src/data2vec_train.py" --continue_from "$run_dir"
-}
-
 run_songmae_scratch() {
-  local run_name="songmae_scratch_${STEP_LABEL}_${RUN_SUFFIX}"
+  local run_name="${SUITE_PREFIX}_songmae_scratch_${STEP_LABEL}_${RUN_SUFFIX}"
   echo "=== START $run_name ==="
   PYTHONUNBUFFERED=1 "$PYTHON_BIN" "$ROOT/src/pretrain.py" \
     --train_dir "$TRAIN_DIR" \
@@ -327,17 +288,9 @@ run_songmae_scratch() {
 }
 
 run_songmae_from_songmae() {
-  local run_name="songmae_from_xcl_${STEP_LABEL}_${RUN_SUFFIX}"
+  local run_name="${SUITE_PREFIX}_songmae_from_songmae_${STEP_LABEL}_${RUN_SUFFIX}"
   local run_dir="$RUNS_DIR/$run_name"
   clone_songmae_seed "$SONGMAE_BASE_RUN" "$run_dir"
-  echo "=== START $run_name ==="
-  PYTHONUNBUFFERED=1 "$PYTHON_BIN" "$ROOT/src/pretrain.py" --continue_from "$run_dir"
-}
-
-run_songmae_from_data2vec() {
-  local run_name="songmae_from_xcl_data2vec_${STEP_LABEL}_${RUN_SUFFIX}"
-  local run_dir="$RUNS_DIR/$run_name"
-  clone_songmae_seed "$DATA2VEC_BASE_RUN" "$run_dir"
   echo "=== START $run_name ==="
   PYTHONUNBUFFERED=1 "$PYTHON_BIN" "$ROOT/src/pretrain.py" --continue_from "$run_dir"
 }
@@ -385,37 +338,27 @@ PY
 }
 
 status() {
-  print_run_status "data2vec_scratch_${STEP_LABEL}_${RUN_SUFFIX}"
-  print_run_status "data2vec_from_xcl_${STEP_LABEL}_${RUN_SUFFIX}"
-  print_run_status "data2vec_from_xcl_data2vec_${STEP_LABEL}_${RUN_SUFFIX}"
-  print_run_status "songmae_scratch_${STEP_LABEL}_${RUN_SUFFIX}"
-  print_run_status "songmae_from_xcl_${STEP_LABEL}_${RUN_SUFFIX}"
-  print_run_status "songmae_from_xcl_data2vec_${STEP_LABEL}_${RUN_SUFFIX}"
+  print_run_status "${SUITE_PREFIX}_songmae_scratch_${STEP_LABEL}_${RUN_SUFFIX}"
+  print_run_status "${SUITE_PREFIX}_songmae_from_songmae_${STEP_LABEL}_${RUN_SUFFIX}"
+  print_run_status "${SUITE_PREFIX}_data2vec_from_songmae_${STEP_LABEL}_${RUN_SUFFIX}"
 }
 
 require_dir "$TRAIN_DIR"
 require_dir "$VAL_DIR"
 require_dir "$SONGMAE_BASE_RUN"
-require_dir "$DATA2VEC_BASE_RUN"
 
 case "$ACTION" in
   all)
-    run_data2vec_scratch
-    run_data2vec_from_songmae
-    run_data2vec_from_data2vec
     run_songmae_scratch
     run_songmae_from_songmae
-    run_songmae_from_data2vec
+    run_data2vec_from_songmae
     ;;
   data2vec)
-    run_data2vec_scratch
     run_data2vec_from_songmae
-    run_data2vec_from_data2vec
     ;;
   songmae)
     run_songmae_scratch
     run_songmae_from_songmae
-    run_songmae_from_data2vec
     ;;
   status)
     status

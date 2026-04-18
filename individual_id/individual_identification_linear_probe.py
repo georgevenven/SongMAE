@@ -8,6 +8,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from sklearn.pipeline import make_pipeline
@@ -29,6 +30,10 @@ from run_individual_id_umap import (
     _resolve_run_dir,
 )
 import aves
+import perch
+
+# Perch uses a separate TensorFlow stack. Run this script with:
+# /home/george-vengrovski/anaconda3/envs/perch/bin/python
 
 
 def _split_recordings(recording_stems, val_fraction, seed, bird_id):
@@ -142,6 +147,90 @@ def _mean_pool_songmae_windows(features, tokens_per_window):
     return np.asarray(pooled, dtype=np.float32)
 
 
+def _concat_fixed_windows(features, tokens_per_window):
+    assert features.ndim == 2
+    assert tokens_per_window > 0
+    rows = []
+    feature_dim = int(features.shape[1])
+    for start in range(0, features.shape[0], tokens_per_window):
+        chunk = features[start : start + tokens_per_window]
+        if chunk.shape[0] == 0:
+            continue
+        if chunk.shape[0] < tokens_per_window:
+            pad = np.zeros((tokens_per_window - chunk.shape[0], feature_dim), dtype=np.float32)
+            chunk = np.vstack([chunk, pad])
+        else:
+            chunk = chunk[:tokens_per_window]
+        rows.append(chunk.reshape(1, -1))
+    if not rows:
+        return np.zeros((0, tokens_per_window * feature_dim), dtype=np.float32)
+    return np.vstack(rows).astype(np.float32, copy=False)
+
+
+def _token_windows(features, tokens_per_window, group_prefix):
+    assert features.ndim == 2
+    assert tokens_per_window > 0
+    x_parts = []
+    group_ids = []
+    window_count = 0
+    for start in range(0, features.shape[0], tokens_per_window):
+        chunk = features[start : start + tokens_per_window]
+        if chunk.shape[0] == 0:
+            continue
+        x_parts.append(chunk.astype(np.float32, copy=False))
+        group_ids.extend([f"{group_prefix}:{window_count}"] * int(chunk.shape[0]))
+        window_count += 1
+    if not x_parts:
+        return np.zeros((0, features.shape[1]), dtype=np.float32), np.asarray([], dtype=object), 0
+    return np.vstack(x_parts).astype(np.float32, copy=False), np.asarray(group_ids, dtype=object), window_count
+
+
+def _resolve_aves_concat_tokens(args, model_state):
+    cached = model_state.get("concat_tokens_per_window")
+    if cached is not None:
+        return int(cached)
+    context_seconds = float(args.audio_context_seconds)
+    assert context_seconds > 0.0
+    model = model_state["model"]
+    device = model_state["device"]
+    audio_sr = int(model_state["audio_sr"])
+    context_samples = max(1, int(round(context_seconds * audio_sr)))
+    wav = torch.zeros((1, context_samples), device=device, dtype=torch.float32)
+    lengths = torch.tensor([context_samples], device=device, dtype=torch.long)
+    with torch.no_grad():
+        _, out_lengths = model._extract_features(wav, lengths)
+    token_count = int(out_lengths[0].item())
+    token_count = max(1, token_count)
+    model_state["concat_tokens_per_window"] = token_count
+    return token_count
+
+
+def _aggregate_group_predictions(group_ids, y_true, pred_probs):
+    assert group_ids.shape[0] == y_true.shape[0] == pred_probs.shape[0]
+    order = {}
+    grouped_indices = []
+    for index, group_id in enumerate(group_ids.tolist()):
+        if group_id not in order:
+            order[group_id] = len(grouped_indices)
+            grouped_indices.append([])
+        grouped_indices[order[group_id]].append(index)
+
+    agg_true = []
+    agg_pred = []
+    for indices in grouped_indices:
+        indices = np.asarray(indices, dtype=np.int64)
+        labels = y_true[indices]
+        assert np.all(labels == labels[0])
+        agg_true.append(int(labels[0]))
+        scores = pred_probs[indices].mean(axis=0)
+        agg_pred.append(int(np.argmax(scores)))
+
+    return (
+        np.asarray(agg_true, dtype=np.int64),
+        np.asarray(agg_pred, dtype=np.int64),
+    )
+
+
 def _pool_recording(
     args,
     bird_id,
@@ -175,15 +264,26 @@ def _pool_recording(
             )
         except ValueError as exc:
             if str(exc) == "No valid patches extracted for the requested recording set.":
-                return np.zeros((0, 0), dtype=np.float32)
+                return np.zeros((0, 0), dtype=np.float32), np.asarray([], dtype=object), 0
             raise
         pooled_parts = []
+        group_parts = []
+        grouped_example_count = 0
         embedding_key = f"encoded_embeddings_{args.songmae_embedding_variant}_pos_removal"
         tokens_per_window = int(extracted["num_patches_time"])
-        for segment in extracted["segments"]:
+        for segment_index, segment in enumerate(extracted["segments"]):
             features = segment[embedding_key]
-            if args.window_mean_pool:
+            if args.window_token_probe:
+                pooled, group_ids, grouped_count = _token_windows(
+                    features,
+                    tokens_per_window,
+                    f"{recording_stem}:{segment_index}",
+                )
+                grouped_example_count += grouped_count
+            elif args.window_mean_pool:
                 pooled = _mean_pool_songmae_windows(features, tokens_per_window)
+            elif args.window_concat_pool:
+                pooled = _concat_fixed_windows(features, tokens_per_window)
             else:
                 pooled = _pool_embeddings(
                     features,
@@ -193,6 +293,8 @@ def _pool_recording(
                 )
             if pooled.shape[0] > 0:
                 pooled_parts.append(pooled)
+                if args.window_token_probe:
+                    group_parts.append(group_ids)
     elif args.encoder == "Spec":
         segments = _load_spec_segments(args, bird_id, recording_stem, patch_width)
         target_stats = None
@@ -220,9 +322,23 @@ def _pool_recording(
         aves_args.train_audio_speed_max_pct = audio_speed_args["train_audio_speed_max_pct"]
         segments = _load_aves_segments(aves_args, bird_id, recording_stem, model_state)
         pooled_parts = []
-        for segment in segments:
-            if args.window_mean_pool:
+        group_parts = []
+        grouped_example_count = 0
+        concat_tokens = None
+        if args.window_concat_pool:
+            concat_tokens = _resolve_aves_concat_tokens(args, model_state)
+        for segment_index, segment in enumerate(segments):
+            if args.window_token_probe:
+                pooled, group_ids, grouped_count = _token_windows(
+                    segment["features"],
+                    int(segment["features"].shape[0]),
+                    f"{recording_stem}:{segment_index}",
+                )
+                grouped_example_count += grouped_count
+            elif args.window_mean_pool:
                 pooled = _mean_pool_segment(segment["features"])
+            elif args.window_concat_pool:
+                pooled = _concat_fixed_windows(segment["features"], concat_tokens)
             else:
                 pooled = _pool_embeddings(
                     segment["features"],
@@ -232,12 +348,38 @@ def _pool_recording(
                 )
             if pooled.shape[0] > 0:
                 pooled_parts.append(pooled)
+                if args.window_token_probe:
+                    group_parts.append(group_ids)
+    elif args.encoder == "Perch":
+        perch_args = {
+            "json_path": args.annotation_json,
+            "bird": bird_id,
+            "recording_stem": recording_stem,
+            "recording_mode": args.recording_mode,
+            "train_audio_speed_min_pct": audio_speed_args["train_audio_speed_min_pct"],
+            "train_audio_speed_max_pct": audio_speed_args["train_audio_speed_max_pct"],
+            "seed": args.seed,
+        }
+        extracted = perch.extract_recording_embeddings_with_state(perch_args, model_state)
+        pooled_parts = []
+        for segment in extracted["segments"]:
+            features = segment["features"].astype(np.float32, copy=False)
+            if features.shape[0] > 0:
+                pooled_parts.append(features)
     else:
         raise SystemExit(f"Unsupported encoder: {args.encoder}")
 
     if not pooled_parts:
-        return np.zeros((0, 0), dtype=np.float32)
-    return np.vstack(pooled_parts).astype(np.float32, copy=False)
+        return np.zeros((0, 0), dtype=np.float32), np.asarray([], dtype=object), 0
+    if args.window_token_probe:
+        return (
+            np.vstack(pooled_parts).astype(np.float32, copy=False),
+            np.concatenate(group_parts, axis=0),
+            grouped_example_count,
+        )
+    pooled = np.vstack(pooled_parts).astype(np.float32, copy=False)
+    group_ids = np.asarray([f"{recording_stem}:{idx}" for idx in range(int(pooled.shape[0]))], dtype=object)
+    return pooled, group_ids, int(pooled.shape[0])
 
 
 def _build_split_matrix(
@@ -249,6 +391,7 @@ def _build_split_matrix(
 ):
     x_parts = []
     y_parts = []
+    group_parts = []
     recording_counts = {}
     example_counts = {}
 
@@ -257,7 +400,7 @@ def _build_split_matrix(
         recording_counts[bird_id] = len(bird_recordings)
         example_counts[bird_id] = 0
         for recording_stem in bird_recordings:
-            pooled = _pool_recording(
+            pooled, group_ids, grouped_count = _pool_recording(
                 args,
                 bird_id,
                 recording_stem,
@@ -269,12 +412,14 @@ def _build_split_matrix(
                 continue
             x_parts.append(pooled)
             y_parts.extend([bird_id] * pooled.shape[0])
-            example_counts[bird_id] += int(pooled.shape[0])
+            group_parts.append(group_ids)
+            example_counts[bird_id] += int(grouped_count)
 
     assert x_parts, "No pooled examples were extracted."
     return (
         np.vstack(x_parts),
         np.asarray(y_parts, dtype=object),
+        np.concatenate(group_parts, axis=0),
         recording_counts,
         example_counts,
     )
@@ -317,7 +462,7 @@ def _apply_spec_normalization_preset(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Train an individual-identification linear probe on pooled per-recording features.")
-    parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES"])
+    parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES", "Perch"])
     parser.add_argument("--species", required=True)
     parser.add_argument("--annotation_json", required=True)
     parser.add_argument("--spec_dir", required=True)
@@ -330,8 +475,10 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pool_window", type=int, required=True)
     parser.add_argument("--pool_hop", type=int, required=True)
-    parser.add_argument("--pool_mode", default="mean", choices=["mean", "max", "sum"])
+    parser.add_argument("--pool_mode", default="mean", choices=["mean"])
     parser.add_argument("--window_mean_pool", action="store_true")
+    parser.add_argument("--window_concat_pool", action="store_true")
+    parser.add_argument("--window_token_probe", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
     parser.add_argument("--val_fraction", type=float, default=0.2)
     parser.add_argument("--c", type=float, default=1.0)
@@ -351,9 +498,12 @@ def main():
     parser.add_argument("--wav_manifest", default=None)
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--aves_audio_sr", type=int, default=16000)
+    parser.add_argument("--perch_model_name", default="perch_v2")
+    parser.add_argument("--perch_audio_sr", type=int, default=32000)
+    parser.add_argument("--perch_window_seconds", type=float, default=5.0)
     parser.add_argument("--audio_context_seconds", type=float, default=2.0)
     parser.add_argument("--train_audio_speed_min_pct", type=float, default=0.0)
-    parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.0)
+    parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.5)
     args = parser.parse_args()
 
     annotation_json = Path(args.annotation_json).resolve()
@@ -379,6 +529,7 @@ def main():
     assert spec_dir.is_dir(), f"spec_dir not found: {spec_dir}"
     assert 0.0 < args.val_fraction < 1.0
     assert args.audio_context_seconds > 0.0
+    assert args.perch_window_seconds > 0.0
     assert 0.0 <= args.train_audio_speed_min_pct <= args.train_audio_speed_max_pct < 1.0
     assert args.pool_hop > 0
     if args.encoder == "SongMAE":
@@ -387,17 +538,29 @@ def main():
         assert args.pool_window >= 0
     if args.window_mean_pool:
         assert args.pool_mode == "mean"
+    if args.window_concat_pool:
+        assert args.pool_mode == "mean"
+    if args.window_token_probe:
+        assert args.pool_mode == "mean"
+    active_window_modes = int(args.window_mean_pool) + int(args.window_concat_pool) + int(args.window_token_probe)
+    assert active_window_modes <= 1, "Choose at most one window aggregation mode."
     if args.train_audio_speed_max_pct > 0.0:
-        assert args.encoder in {"SongMAE", "AVES", "Spec"}
+        assert args.encoder in {"SongMAE", "AVES", "Spec", "Perch"}
         assert args.wav_root is not None or args.wav_manifest is not None
 
     if args.encoder == "Spec":
         assert args.pool_mode == "mean", "Spec uses mean pooling only."
+        assert not args.window_concat_pool, "Spec concat pooling is not supported."
+        assert not args.window_token_probe, "Spec token probing is not supported."
+    if args.encoder == "Perch":
+        assert not args.window_mean_pool, "Perch emits one embedding per fixed window; no pooling needed."
+        assert not args.window_concat_pool, "Perch emits one embedding per fixed window; no concat pooling needed."
+        assert not args.window_token_probe, "Perch token probing is not supported."
 
     _apply_spec_normalization_preset(args)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    patch_width = 1 if args.encoder == "AVES" else _load_patch_width(run_dir)
+    patch_width = 1 if args.encoder in {"AVES", "Perch"} else _load_patch_width(run_dir)
     model_state = None
     args.songmae_input_normalization = None
     args.songmae_input_normalization_stats_dir = None
@@ -427,18 +590,30 @@ def main():
                 "aves_config_path": args.aves_config_path,
             }
         )
+    elif args.encoder == "Perch":
+        model_state = perch.load_model_state_for_inference(
+            {
+                "run_dir": str(run_dir),
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "perch_model_name": args.perch_model_name,
+                "perch_audio_sr": args.perch_audio_sr,
+                "perch_window_seconds": args.perch_window_seconds,
+            }
+        )
 
     stems_by_bird = _load_recording_stems_by_bird(annotation_json)
     train_recordings, val_recordings = _build_recording_splits(args, stems_by_bird)
 
-    x_train, y_train_raw, train_recording_counts, train_example_counts = _build_split_matrix(
+    x_train, y_train_raw, train_group_ids, train_recording_counts, train_example_counts = _build_split_matrix(
         args,
         train_recordings,
         patch_width,
         model_state,
         apply_audio_speed_augmentation=True,
     )
-    x_val, y_val_raw, val_recording_counts, val_example_counts = _build_split_matrix(
+    x_val, y_val_raw, val_group_ids, val_recording_counts, val_example_counts = _build_split_matrix(
         args,
         val_recordings,
         patch_width,
@@ -451,6 +626,7 @@ def main():
     keep_val = np.isin(y_val_raw, label_encoder.classes_)
     x_val = x_val[keep_val]
     y_val_raw = y_val_raw[keep_val]
+    val_group_ids = val_group_ids[keep_val]
     assert x_val.shape[0] > 0, "Validation split has no examples for the trained classes."
     y_val = label_encoder.transform(y_val_raw)
 
@@ -466,17 +642,36 @@ def main():
 
     train_pred = model.predict(x_train)
     val_pred = model.predict(x_val)
+    val_probs = model.predict_proba(x_val)
 
     train_accuracy = float(accuracy_score(y_train, train_pred))
-    val_accuracy = float(accuracy_score(y_val, val_pred))
-    val_macro_f1 = float(f1_score(y_val, val_pred, average="macro"))
-
-    print(
-        f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
-        f"train_acc={train_accuracy:.4f} val_acc={val_accuracy:.4f} val_macro_f1={val_macro_f1:.4f}"
-    )
-
-    _plot_confusion(y_val, val_pred, label_encoder.classes_.tolist(), out_dir / "val_confusion_matrix")
+    if args.window_token_probe:
+        y_val_mean_true, y_val_mean_pred = _aggregate_group_predictions(
+            val_group_ids,
+            y_val,
+            val_probs,
+        )
+        val_accuracy = float(accuracy_score(y_val_mean_true, y_val_mean_pred))
+        val_macro_f1 = float(f1_score(y_val_mean_true, y_val_mean_pred, average="macro"))
+        print(
+            f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
+            f"train_acc={train_accuracy:.4f} meanprob_acc={val_accuracy:.4f} "
+            f"meanprob_macro_f1={val_macro_f1:.4f}"
+        )
+        _plot_confusion(
+            y_val_mean_true,
+            y_val_mean_pred,
+            label_encoder.classes_.tolist(),
+            out_dir / "val_confusion_matrix",
+        )
+    else:
+        val_accuracy = float(accuracy_score(y_val, val_pred))
+        val_macro_f1 = float(f1_score(y_val, val_pred, average="macro"))
+        print(
+            f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
+            f"train_acc={train_accuracy:.4f} val_acc={val_accuracy:.4f} val_macro_f1={val_macro_f1:.4f}"
+        )
+        _plot_confusion(y_val, val_pred, label_encoder.classes_.tolist(), out_dir / "val_confusion_matrix")
 
     summary = {
         "model": {
@@ -497,6 +692,8 @@ def main():
             "pool_hop": int(args.pool_hop),
             "pool_mode": args.pool_mode,
             "window_mean_pool": bool(args.window_mean_pool),
+            "window_concat_pool": bool(args.window_concat_pool),
+            "window_token_probe": bool(args.window_token_probe),
             "encoder_layer_idx": args.encoder_layer_idx,
             "val_fraction": float(args.val_fraction),
             "c": float(args.c),
@@ -514,6 +711,9 @@ def main():
             "wav_manifest": args.wav_manifest,
             "wav_exts": args.wav_exts,
             "aves_audio_sr": int(args.aves_audio_sr),
+            "perch_model_name": args.perch_model_name,
+            "perch_audio_sr": int(args.perch_audio_sr),
+            "perch_window_seconds": float(args.perch_window_seconds),
             "audio_context_seconds": float(args.audio_context_seconds),
             "train_audio_speed_min_pct": float(args.train_audio_speed_min_pct),
             "train_audio_speed_max_pct": float(args.train_audio_speed_max_pct),
