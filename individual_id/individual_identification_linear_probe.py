@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
@@ -231,6 +231,55 @@ def _aggregate_group_predictions(group_ids, y_true, pred_probs):
     )
 
 
+def _aggregate_group_probabilities(group_ids, y_true, pred_probs):
+    assert group_ids.shape[0] == y_true.shape[0] == pred_probs.shape[0]
+    order = {}
+    grouped_indices = []
+    for index, group_id in enumerate(group_ids.tolist()):
+        if group_id not in order:
+            order[group_id] = len(grouped_indices)
+            grouped_indices.append([])
+        grouped_indices[order[group_id]].append(index)
+
+    agg_true = []
+    agg_probs = []
+    agg_group_ids = []
+    for group_id, indices in zip(order.keys(), grouped_indices):
+        indices = np.asarray(indices, dtype=np.int64)
+        labels = y_true[indices]
+        assert np.all(labels == labels[0])
+        agg_true.append(int(labels[0]))
+        agg_probs.append(pred_probs[indices].mean(axis=0))
+        agg_group_ids.append(group_id)
+
+    return (
+        np.asarray(agg_true, dtype=np.int64),
+        np.asarray(agg_probs, dtype=np.float32),
+        np.asarray(agg_group_ids, dtype=object),
+    )
+
+
+def _multiclass_ovr_auc_present_classes(y_true, pred_probs):
+    present = np.unique(y_true)
+    if present.size < 2:
+        return float("nan")
+
+    sliced = pred_probs[:, present].astype(np.float32, copy=False)
+    row_sums = sliced.sum(axis=1, keepdims=True)
+    row_sums = np.maximum(row_sums, 1e-12)
+    sliced = sliced / row_sums
+
+    remapped = np.searchsorted(present, y_true)
+    return float(
+        roc_auc_score(
+            remapped,
+            sliced,
+            multi_class="ovr",
+            average="macro",
+        )
+    )
+
+
 def _pool_recording(
     args,
     bird_id,
@@ -303,9 +352,23 @@ def _pool_recording(
             target_stats = _load_target_stats(stats_dir)
         segments = _normalize_spec_segments(segments, args.spec_normalization, target_stats=target_stats)
         pooled_parts = []
-        for segment in segments:
+        group_parts = []
+        grouped_example_count = 0
+        for segment_index, segment in enumerate(segments):
             if args.window_mean_pool:
                 pooled = _mean_pool_segment(segment["features"].T)
+            elif args.window_token_probe:
+                token_features = _mean_pool_spectrogram(
+                    segment["features"],
+                    patch_width,
+                    patch_width,
+                )
+                pooled, group_ids, grouped_count = _token_windows(
+                    token_features,
+                    int(token_features.shape[0]),
+                    f"{recording_stem}:{segment_index}",
+                )
+                grouped_example_count += grouped_count
             elif args.pool_window == 0:
                 pooled = segment["features"][:, :: args.pool_hop].T.astype(np.float32, copy=False)
             else:
@@ -316,6 +379,8 @@ def _pool_recording(
                 )
             if pooled.shape[0] > 0:
                 pooled_parts.append(pooled)
+                if args.window_token_probe:
+                    group_parts.append(group_ids)
     elif args.encoder == "AVES":
         aves_args = argparse.Namespace(**vars(args))
         aves_args.train_audio_speed_min_pct = audio_speed_args["train_audio_speed_min_pct"]
@@ -356,6 +421,10 @@ def _pool_recording(
             "bird": bird_id,
             "recording_stem": recording_stem,
             "recording_mode": args.recording_mode,
+            "wav_root": args.wav_root,
+            "wav_manifest": args.wav_manifest,
+            "wav_exts": args.wav_exts,
+            "perch_audio_sr": args.perch_audio_sr,
             "train_audio_speed_min_pct": audio_speed_args["train_audio_speed_min_pct"],
             "train_audio_speed_max_pct": audio_speed_args["train_audio_speed_max_pct"],
             "seed": args.seed,
@@ -503,7 +572,7 @@ def main():
     parser.add_argument("--perch_window_seconds", type=float, default=5.0)
     parser.add_argument("--audio_context_seconds", type=float, default=2.0)
     parser.add_argument("--train_audio_speed_min_pct", type=float, default=0.0)
-    parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.5)
+    parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.0)
     args = parser.parse_args()
 
     annotation_json = Path(args.annotation_json).resolve()
@@ -551,7 +620,6 @@ def main():
     if args.encoder == "Spec":
         assert args.pool_mode == "mean", "Spec uses mean pooling only."
         assert not args.window_concat_pool, "Spec concat pooling is not supported."
-        assert not args.window_token_probe, "Spec token probing is not supported."
     if args.encoder == "Perch":
         assert not args.window_mean_pool, "Perch emits one embedding per fixed window; no pooling needed."
         assert not args.window_concat_pool, "Perch emits one embedding per fixed window; no concat pooling needed."
@@ -646,6 +714,11 @@ def main():
 
     train_accuracy = float(accuracy_score(y_train, train_pred))
     if args.window_token_probe:
+        y_val_auc_true, val_auc_probs, val_auc_group_ids = _aggregate_group_probabilities(
+            val_group_ids,
+            y_val,
+            val_probs,
+        )
         y_val_mean_true, y_val_mean_pred = _aggregate_group_predictions(
             val_group_ids,
             y_val,
@@ -653,10 +726,14 @@ def main():
         )
         val_accuracy = float(accuracy_score(y_val_mean_true, y_val_mean_pred))
         val_macro_f1 = float(f1_score(y_val_mean_true, y_val_mean_pred, average="macro"))
+        val_roc_auc_ovr_macro = _multiclass_ovr_auc_present_classes(
+            y_val_auc_true,
+            val_auc_probs,
+        )
         print(
             f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
             f"train_acc={train_accuracy:.4f} meanprob_acc={val_accuracy:.4f} "
-            f"meanprob_macro_f1={val_macro_f1:.4f}"
+            f"meanprob_macro_f1={val_macro_f1:.4f} val_roc_auc_ovr_macro={val_roc_auc_ovr_macro:.4f}"
         )
         _plot_confusion(
             y_val_mean_true,
@@ -664,14 +741,27 @@ def main():
             label_encoder.classes_.tolist(),
             out_dir / "val_confusion_matrix",
         )
+        save_y_true = y_val_auc_true
+        save_y_pred = y_val_mean_pred
+        save_val_probs = val_auc_probs
+        save_group_ids = val_auc_group_ids
     else:
         val_accuracy = float(accuracy_score(y_val, val_pred))
         val_macro_f1 = float(f1_score(y_val, val_pred, average="macro"))
+        val_roc_auc_ovr_macro = _multiclass_ovr_auc_present_classes(
+            y_val,
+            val_probs,
+        )
         print(
             f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
-            f"train_acc={train_accuracy:.4f} val_acc={val_accuracy:.4f} val_macro_f1={val_macro_f1:.4f}"
+            f"train_acc={train_accuracy:.4f} val_acc={val_accuracy:.4f} "
+            f"val_macro_f1={val_macro_f1:.4f} val_roc_auc_ovr_macro={val_roc_auc_ovr_macro:.4f}"
         )
         _plot_confusion(y_val, val_pred, label_encoder.classes_.tolist(), out_dir / "val_confusion_matrix")
+        save_y_true = y_val
+        save_y_pred = val_pred
+        save_val_probs = val_probs.astype(np.float32, copy=False)
+        save_group_ids = val_group_ids
 
     summary = {
         "model": {
@@ -721,12 +811,14 @@ def main():
     }
     metrics = {
         "birds": label_encoder.classes_.tolist(),
+        "num_classes": int(len(label_encoder.classes_)),
         "train_examples": int(x_train.shape[0]),
         "val_examples": int(x_val.shape[0]),
         "feature_dim": int(x_train.shape[1]),
         "train_accuracy": train_accuracy,
         "val_accuracy": val_accuracy,
         "val_macro_f1": val_macro_f1,
+        "val_roc_auc_ovr_macro": val_roc_auc_ovr_macro,
         "train_recordings_per_bird": train_recording_counts,
         "val_recordings_per_bird": val_recording_counts,
         "train_examples_per_bird": train_example_counts,
@@ -735,6 +827,14 @@ def main():
 
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    np.savez(
+        out_dir / "val_predictions.npz",
+        y_true=save_y_true,
+        y_pred=save_y_pred,
+        probs=save_val_probs,
+        group_ids=save_group_ids,
+        class_names=np.asarray(label_encoder.classes_.tolist(), dtype=object),
+    )
 
 
 if __name__ == "__main__":

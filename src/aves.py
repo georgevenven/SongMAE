@@ -414,10 +414,10 @@ def extract_recording_embeddings_with_state(args, model_state):
     device = model_state["device"]
     raw = load_recording_audio_segments(
         {
-            "wav_root": model_state["wav_root"],
-            "wav_manifest": model_state["wav_manifest"],
-            "wav_exts": model_state["wav_exts"],
-            "audio_sr": model_state["audio_sr"],
+            "wav_root": args.get("wav_root") or model_state["wav_root"],
+            "wav_manifest": args.get("wav_manifest") or model_state["wav_manifest"],
+            "wav_exts": args.get("wav_exts") or model_state["wav_exts"],
+            "audio_sr": args.get("audio_sr") or model_state["audio_sr"],
             "json_path": args.get("json_path"),
             "bird": args.get("bird"),
             "recording_stem": args.get("recording_stem"),

@@ -360,6 +360,7 @@ def _extract_segment_arrays(
         )
 
     with torch.no_grad():
+        patch_pre_pos = model.patch_projection(batched_spec)
         encoded, patch = model.forward_encoder_inference(
             batched_spec,
             encoder_layer_idx=encoder_layer_idx,
@@ -376,9 +377,11 @@ def _extract_segment_arrays(
 
     encoded_grid = encoded.permute(0, 2, 1).reshape(batch_size, encoded.shape[2], num_patches_height, num_patches_time)
     patch_grid = patch.permute(0, 2, 1).reshape(batch_size, patch.shape[2], num_patches_height, num_patches_time)
+    patch_pre_pos_grid = patch_pre_pos.reshape(batch_size, patch_pre_pos.shape[1], num_patches_height, num_patches_time)
 
     encoded_flat = encoded_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height * encoded.shape[2])
     patch_flat = patch_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height * patch.shape[2])
+    patch_pre_pos_flat = patch_pre_pos_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height * patch_pre_pos.shape[1])
     spec_flat = batched_spec.squeeze(1).permute(0, 2, 1).reshape(-1, mel)
     pos_ids = torch.arange(0, num_patches_time, device=device).repeat(batch_size)
 
@@ -387,6 +390,7 @@ def _extract_segment_arrays(
         if pad_patches > 0:
             encoded_flat = encoded_flat[:-pad_patches]
             patch_flat = patch_flat[:-pad_patches]
+            patch_pre_pos_flat = patch_pre_pos_flat[:-pad_patches]
             pos_ids = pos_ids[:-pad_patches]
         spec_flat = spec_flat[:-pad_amount]
         labels_tensor = labels_tensor[:-pad_amount]
@@ -403,9 +407,9 @@ def _extract_segment_arrays(
         kernel_size=patch_width,
         stride=patch_width,
     ).view(-1).long()
-
     return {
         "encoded_before": encoded_flat.cpu().numpy().astype(np.float32, copy=False),
+        "patch_pre_pos": patch_pre_pos_flat.cpu().numpy().astype(np.float32, copy=False),
         "patch_before": patch_flat.cpu().numpy().astype(np.float32, copy=False),
         "labels_original": labels_tensor.cpu().numpy().astype(np.int64, copy=False),
         "labels_downsampled": pooled_labels.cpu().numpy().astype(np.int64, copy=False),
@@ -503,10 +507,11 @@ def extract_recording_embeddings_with_state(args, model_state):
 
     encoded_all = np.concatenate([segment["encoded_before"] for segment in segment_states], axis=0)
     patch_all = np.concatenate([segment["patch_before"] for segment in segment_states], axis=0)
+    patch_pre_pos_all = np.concatenate([segment["patch_pre_pos"] for segment in segment_states], axis=0)
     pos_ids_all = np.concatenate([segment["pos_ids"] for segment in segment_states], axis=0)
-
     assert encoded_all.shape[0] > 0
     assert patch_all.shape[0] > 0
+    assert patch_pre_pos_all.shape[0] > 0
     assert pos_ids_all.shape[0] > 0
 
     unique_pos = np.unique(pos_ids_all)
@@ -531,6 +536,7 @@ def extract_recording_embeddings_with_state(args, model_state):
                 "recording_stem": segment["recording_stem"],
                 "encoded_embeddings_before_pos_removal": segment["encoded_before"],
                 "encoded_embeddings_after_pos_removal": encoded_after_all[start:end],
+                "patch_embeddings_before_pos_encoding": segment["patch_pre_pos"],
                 "patch_embeddings_before_pos_removal": segment["patch_before"],
                 "patch_embeddings_after_pos_removal": patch_after_all[start:end],
                 "labels_original": segment["labels_original"],
@@ -584,6 +590,10 @@ def main(args):
         encoded_embeddings_after_pos_removal=_concatenate_segments(
             segments,
             "encoded_embeddings_after_pos_removal",
+        ),
+        patch_embeddings_before_pos_encoding=_concatenate_segments(
+            segments,
+            "patch_embeddings_before_pos_encoding",
         ),
         patch_embeddings_before_pos_removal=_concatenate_segments(
             segments,

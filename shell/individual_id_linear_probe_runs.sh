@@ -105,10 +105,8 @@ fi
 if [[ -n "$IID_AUDIO_CONTEXT_SECONDS" ]]; then
   cmd+=(--audio_context_seconds "$IID_AUDIO_CONTEXT_SECONDS")
 fi
-if [[ "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT" != "0.0" ]]; then
-  cmd+=(--train_audio_speed_min_pct "$IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT")
-  cmd+=(--train_audio_speed_max_pct "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT")
-fi
+cmd+=(--train_audio_speed_min_pct "$IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT")
+cmd+=(--train_audio_speed_max_pct "$IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT")
 if [[ "$IID_LINEAR_WINDOW_MEAN_POOL" == "1" ]]; then
   cmd+=(--window_mean_pool)
 fi

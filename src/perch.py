@@ -94,10 +94,12 @@ def _embed_window(model, waveform):
 
 
 def _load_recording_audio_segments(args, model_state):
+    wav_exts = args.get("wav_exts") or model_state["wav_exts"]
+    wav_exts = aves._parse_wav_exts(wav_exts)
     wav_index = aves.build_wav_index(
-        model_state["wav_root"],
-        exts=model_state["wav_exts"],
-        manifest_path=model_state["wav_manifest"],
+        args.get("wav_root") or model_state["wav_root"],
+        exts=wav_exts,
+        manifest_path=args.get("wav_manifest") or model_state["wav_manifest"],
     )
     event_map = {}
     json_path = args.get("json_path")
@@ -115,7 +117,7 @@ def _load_recording_audio_segments(args, model_state):
             stems = [stem for stem in stems if stem in allowed]
 
     segments = []
-    audio_sr = int(model_state["audio_sr"])
+    audio_sr = int(args.get("perch_audio_sr") or model_state["audio_sr"])
     for stem in stems:
         wav_path = wav_index[stem]
         wav_np, sr = sf.read(str(wav_path), always_2d=False)
