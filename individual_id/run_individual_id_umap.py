@@ -98,18 +98,57 @@ def _pool_starts(length, window, hop, layout, seed):
     return sampled.astype(np.int64, copy=False)
 
 
-def _concat_window_embeddings(embeddings, window, hop, layout="sliding", seed=0):
+def _window_starts_for_length(length, window, hop, layout, seed):
+    assert length >= 0
+    if length == 0:
+        return np.zeros((0,), dtype=np.int64), False
+    if length < window:
+        return np.zeros((1,), dtype=np.int64), True
+    starts = _pool_starts(length, window, hop, layout, seed)
+    assert starts.size > 0
+    return starts, False
+
+
+def _allocate_point_budget(candidates, max_points, seed):
+    if max_points <= 0:
+        return [None] * len(candidates)
+
+    total_points = sum(candidate["count"] for candidate in candidates)
+    if total_points <= max_points:
+        return [None] * len(candidates)
+
+    rng = np.random.default_rng(_stable_seed(seed, "max_points", max_points))
+    sampled = rng.choice(total_points, size=max_points, replace=False)
+    sampled.sort()
+
+    allocations = []
+    offset = 0
+    sample_start = 0
+    for candidate in candidates:
+        count = candidate["count"]
+        next_offset = offset + count
+        sample_end = int(np.searchsorted(sampled, next_offset, side="left"))
+        local = sampled[sample_start:sample_end] - offset
+        allocations.append(local.astype(np.int64, copy=False))
+        offset = next_offset
+        sample_start = sample_end
+    return allocations
+
+
+def _concat_window_embeddings(embeddings, window, hop, layout="sliding", seed=0, starts=None, short_segment=False):
     assert embeddings.ndim == 2
     feature_dim = int(embeddings.shape[1]) if embeddings.ndim == 2 else 0
     if embeddings.shape[0] == 0:
         return np.zeros((0, window * feature_dim), dtype=np.float32)
 
-    if embeddings.shape[0] < window:
+    if starts is None:
+        starts, short_segment = _window_starts_for_length(embeddings.shape[0], window, hop, layout, seed)
+
+    if short_segment:
         pad = np.zeros((window - embeddings.shape[0], feature_dim), dtype=np.float32)
         chunk = np.vstack([embeddings.astype(np.float32, copy=False), pad])
         return chunk.reshape(1, -1).astype(np.float32, copy=False)
 
-    starts = _pool_starts(embeddings.shape[0], window, hop, layout, seed)
     rows = []
     for start in starts.tolist():
         chunk = embeddings[start : start + window]
@@ -135,7 +174,29 @@ def _fit_pca(features, target_dim):
     return pca.fit_transform(features).astype(np.float32, copy=False)
 
 
-def _pool_embeddings(embeddings, window, mode, hop, layout="sliding", seed=0):
+def _apply_feature_postprocess(features, args):
+    if args.feature_postprocess == "none":
+        return features.astype(np.float32, copy=False), None
+    transformed, transform = extract_embedding.maybe_apply_feature_postprocess(
+        features,
+        mode=args.feature_postprocess,
+        dim=args.feature_postprocess_dim,
+        load_path=args.feature_postprocess_load,
+        save_path=args.feature_postprocess_save,
+    )
+    return transformed, transform
+
+
+def _feature_postprocess_kind(feature_postprocess):
+    if feature_postprocess is None:
+        return None
+    kind = feature_postprocess.get("kind")
+    if kind is None:
+        kind = feature_postprocess.get("mode")
+    return kind
+
+
+def _pool_embeddings(embeddings, window, mode, hop, layout="sliding", seed=0, starts=None, short_segment=False):
     assert embeddings.ndim == 2
     if embeddings.shape[0] == 0:
         return np.zeros((0, embeddings.shape[1]), dtype=np.float32)
@@ -143,7 +204,11 @@ def _pool_embeddings(embeddings, window, mode, hop, layout="sliding", seed=0):
         return embeddings.astype(np.float32, copy=False)
     assert mode == "mean"
 
-    starts = _pool_starts(embeddings.shape[0], window, hop, layout, seed)
+    if starts is None:
+        starts, short_segment = _window_starts_for_length(embeddings.shape[0], window, hop, layout, seed)
+    if short_segment:
+        return embeddings.mean(axis=0, keepdims=True).astype(np.float32, copy=False)
+
     pooled = []
     for start in starts.tolist():
         chunk = embeddings[start : start + window]
@@ -155,14 +220,19 @@ def _pool_embeddings(embeddings, window, mode, hop, layout="sliding", seed=0):
     return np.asarray(pooled, dtype=np.float32)
 
 
-def _pool_labels(labels, window, hop, layout="sliding", seed=0):
+def _pool_labels(labels, window, hop, layout="sliding", seed=0, starts=None, short_segment=False):
     assert labels.ndim == 1
     if labels.shape[0] == 0:
         return np.zeros((0,), dtype=np.int64)
     if window <= 1:
         return labels.astype(np.int64, copy=False)
 
-    starts = _pool_starts(labels.shape[0], window, hop, layout, seed)
+    if starts is None:
+        starts, short_segment = _window_starts_for_length(labels.shape[0], window, hop, layout, seed)
+    if short_segment:
+        values, counts = np.unique(labels, return_counts=True)
+        return np.asarray([int(values[np.argmax(counts)])], dtype=np.int64)
+
     pooled = []
     for start in starts.tolist():
         chunk = labels[start : start + window]
@@ -176,15 +246,31 @@ def _pool_labels(labels, window, hop, layout="sliding", seed=0):
     return np.asarray(pooled, dtype=np.int64)
 
 
-def _mean_pool_spectrogram(spec, window_bins, hop_bins, layout="sliding", seed=0):
+def _pad_feature_widths(arrays):
+    assert arrays
+    width = max(int(array.shape[1]) for array in arrays)
+    padded = []
+    for array in arrays:
+        if int(array.shape[1]) == width:
+            padded.append(array.astype(np.float32, copy=False))
+            continue
+        out = np.zeros((int(array.shape[0]), width), dtype=np.float32)
+        out[:, : int(array.shape[1])] = array
+        padded.append(out)
+    return padded
+
+
+def _mean_pool_spectrogram(spec, window_bins, hop_bins, layout="sliding", seed=0, starts=None, short_segment=False):
     assert spec.ndim == 2
     if spec.shape[1] == 0:
         return np.zeros((0, spec.shape[0]), dtype=np.float32)
 
-    if spec.shape[1] < window_bins:
+    if starts is None:
+        starts, short_segment = _window_starts_for_length(spec.shape[1], window_bins, hop_bins, layout, seed)
+
+    if short_segment:
         return np.asarray([spec.mean(axis=1)], dtype=np.float32)
 
-    starts = _pool_starts(spec.shape[1], window_bins, hop_bins, layout, seed)
     pooled = []
     for start in starts.tolist():
         chunk = spec[:, start : start + window_bins]
@@ -214,9 +300,25 @@ def _bird_palette(birds):
     return palette
 
 
+def _point_alpha(num_points):
+    low_points = 5000
+    high_points = 100000
+    low_alpha = 0.35
+    high_alpha = 0.1
+
+    if num_points <= low_points:
+        return low_alpha
+    if num_points >= high_points:
+        return high_alpha
+
+    t = (float(num_points) - float(low_points)) / float(high_points - low_points)
+    return low_alpha + t * (high_alpha - low_alpha)
+
+
 def _scatter_umap(xy, labels, title, out_base):
     birds = sorted(set(labels.tolist()))
     palette = _bird_palette(birds)
+    alpha = _point_alpha(int(xy.shape[0]))
 
     fig = plt.figure(figsize=(9.5, 7.5), dpi=300)
     ax = fig.add_subplot(1, 1, 1)
@@ -226,7 +328,7 @@ def _scatter_umap(xy, labels, title, out_base):
             xy[idx, 0],
             xy[idx, 1],
             s=10,
-            alpha=0.1,
+            alpha=alpha,
             color=palette[bird],
             label=bird,
             edgecolors="none",
@@ -253,6 +355,7 @@ def _scatter_umap(xy, labels, title, out_base):
 def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
     assert syllables.shape[0] == xy.shape[0]
     assert birds.shape[0] == xy.shape[0]
+    alpha = _point_alpha(int(xy.shape[0]))
 
     categories = []
     for bird, syllable in zip(birds.tolist(), syllables.tolist()):
@@ -279,7 +382,7 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
             xy[idx, 0],
             xy[idx, 1],
             s=10,
-            alpha=0.1,
+            alpha=alpha,
             color=palette[label],
             label=label,
             edgecolors="none",
@@ -306,13 +409,14 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
 
 
 def _scatter_single_umap(xy, title, out_base, color):
+    alpha = _point_alpha(int(xy.shape[0]))
     fig = plt.figure(figsize=(9.5, 7.5), dpi=300)
     ax = fig.add_subplot(1, 1, 1)
     ax.scatter(
         xy[:, 0],
         xy[:, 1],
         s=10,
-        alpha=0.1,
+        alpha=alpha,
         color=color,
         edgecolors="none",
     )
@@ -350,6 +454,7 @@ def _save_per_bird_umaps(
                 pool_layout=args.pool_layout,
                 seed=args.seed,
                 pca_dim=args.concat_pca_dim,
+                max_points=args.max_points,
             )
         else:
             features, _, _ = _build_spec_representation(
@@ -359,6 +464,7 @@ def _save_per_bird_umaps(
                 patch_width=patch_width,
                 pool_layout=args.pool_layout,
                 seed=args.seed,
+                max_points=args.max_points,
             )
 
         if features.shape[0] < 2:
@@ -388,7 +494,14 @@ def _save_per_bird_umaps(
     return saved
 
 
-def _load_songmae_segments(args, bird_id, recording_stem, model_state):
+def _load_songmae_segments_by_bird(args, sampled_recordings, model_state):
+    stem_to_bird = {}
+    recording_stems = []
+    for bird_id in sorted(sampled_recordings):
+        for recording_stem in sampled_recordings[bird_id]:
+            stem_to_bird[recording_stem] = bird_id
+            recording_stems.append(recording_stem)
+
     try:
         extracted = extract_embedding.extract_recording_embeddings_with_state(
             {
@@ -396,35 +509,41 @@ def _load_songmae_segments(args, bird_id, recording_stem, model_state):
                 "checkpoint": args.checkpoint,
                 "spec_dir": str(args.spec_dir),
                 "json_path": str(args.annotation_json),
-                "bird": bird_id,
-                "recording_stem": recording_stem,
+                "recording_stems": recording_stems,
                 "recording_mode": args.recording_mode,
                 "encoder_layer_idx": args.encoder_layer_idx,
                 "spec_normalization": args.songmae_input_normalization,
                 "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+                "minimal_output": True,
+                "embedding_postprocess": args.feature_postprocess,
+                "embedding_postprocess_dim": args.feature_postprocess_dim,
+                "embedding_postprocess_key": _songmae_feature_key(args.songmae_feature_source),
+                "embedding_postprocess_load": args.feature_postprocess_load,
+                "embedding_postprocess_save": args.feature_postprocess_save,
             },
             model_state,
         )
     except ValueError as exc:
         if str(exc) == "No valid patches extracted for the requested recording set.":
-            return []
+            return {}, None
         raise
 
     feature_key = _songmae_feature_key(args.songmae_feature_source)
-    segments = []
+    per_bird_segments = {}
     for segment in extracted["segments"]:
+        bird_id = stem_to_bird[segment["recording_stem"]]
         features = segment[feature_key]
         labels = segment["labels_downsampled"]
         count = min(features.shape[0], labels.shape[0])
         if count == 0:
             continue
-        segments.append(
+        per_bird_segments.setdefault(bird_id, []).append(
             {
                 "features": features[:count],
                 "labels": labels[:count],
             }
         )
-    return segments
+    return per_bird_segments, extracted.get("feature_postprocess")
 
 
 def _load_aves_segments(args, bird_id, recording_stem, model_state):
@@ -550,57 +669,87 @@ def _load_spec_segments(args, bird_id, recording_stem, patch_width):
     return segments
 
 
-def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, pool_mode, pool_layout, seed, pca_dim):
-    x_parts = []
-    y_parts = []
-    s_parts = []
-
+def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, pool_mode, pool_layout, seed, pca_dim, max_points=0):
+    candidates = []
     for bird_id in sorted(per_bird_segments):
-        pooled_parts = []
-        label_parts = []
         for segment_index, segment in enumerate(per_bird_segments[bird_id]):
+            length = min(int(segment["features"].shape[0]), int(segment["labels"].shape[0]))
+            if length == 0:
+                continue
             segment_seed = _stable_seed(seed, bird_id, segment_index)
-            if pool_mode == "concat_pca":
-                pooled = _concat_window_embeddings(
-                    segment["features"],
-                    pool_window,
-                    pool_hop,
-                    layout=pool_layout,
-                    seed=segment_seed,
-                )
-            else:
-                pooled = _pool_embeddings(
-                    segment["features"],
-                    pool_window,
-                    pool_mode,
-                    pool_hop,
-                    layout=pool_layout,
-                    seed=segment_seed,
-                )
-            pooled_labels = _pool_labels(
-                segment["labels"],
+            starts, short_segment = _window_starts_for_length(length, pool_window, pool_hop, pool_layout, segment_seed)
+            candidates.append(
+                {
+                    "bird_id": bird_id,
+                    "features": segment["features"][:length],
+                    "labels": segment["labels"][:length],
+                    "seed": segment_seed,
+                    "starts": starts,
+                    "short_segment": short_segment,
+                    "count": int(starts.shape[0]),
+                }
+            )
+
+    allocations = _allocate_point_budget(candidates, max_points, seed)
+    pooled_by_bird = {}
+    labels_by_bird = {}
+    for candidate, local_indices in zip(candidates, allocations):
+        starts = candidate["starts"]
+        short_segment = candidate["short_segment"]
+        if local_indices is not None:
+            if local_indices.size == 0:
+                continue
+            if not short_segment:
+                starts = starts[local_indices]
+        if pool_mode == "concat_pca":
+            pooled = _concat_window_embeddings(
+                candidate["features"],
                 pool_window,
                 pool_hop,
                 layout=pool_layout,
-                seed=segment_seed,
+                seed=candidate["seed"],
+                starts=starts,
+                short_segment=short_segment,
             )
-            count = min(pooled.shape[0], pooled_labels.shape[0])
-            if count == 0:
-                continue
-            pooled_parts.append(pooled[:count])
-            label_parts.append(pooled_labels[:count])
-
-        if not pooled_parts:
+        else:
+            pooled = _pool_embeddings(
+                candidate["features"],
+                pool_window,
+                pool_mode,
+                pool_hop,
+                layout=pool_layout,
+                seed=candidate["seed"],
+                starts=starts,
+                short_segment=short_segment,
+            )
+        pooled_labels = _pool_labels(
+            candidate["labels"],
+            pool_window,
+            pool_hop,
+            layout=pool_layout,
+            seed=candidate["seed"],
+            starts=starts,
+            short_segment=short_segment,
+        )
+        count = min(pooled.shape[0], pooled_labels.shape[0])
+        if count == 0:
             continue
+        bird_id = candidate["bird_id"]
+        pooled_by_bird.setdefault(bird_id, []).append(pooled[:count])
+        labels_by_bird.setdefault(bird_id, []).append(pooled_labels[:count])
 
-        bird_features = np.vstack(pooled_parts)
-        bird_labels = np.concatenate(label_parts, axis=0)
+    x_parts = []
+    y_parts = []
+    s_parts = []
+    for bird_id in sorted(pooled_by_bird):
+        bird_features = np.vstack(_pad_feature_widths(pooled_by_bird[bird_id]))
+        bird_labels = np.concatenate(labels_by_bird[bird_id], axis=0)
         x_parts.append(bird_features)
         y_parts.extend([bird_id] * bird_features.shape[0])
         s_parts.append(bird_labels)
 
     assert x_parts, "No valid embedding segments were pooled."
-    features = np.vstack(x_parts)
+    features = np.vstack(_pad_feature_widths(x_parts))
     if pool_mode == "concat_pca":
         features = _fit_pca(features, pca_dim)
     return (
@@ -610,43 +759,71 @@ def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, po
     )
 
 
-def _build_spec_representation(per_bird_segments, pool_window, pool_hop, patch_width, pool_layout, seed):
+def _build_spec_representation(per_bird_segments, pool_window, pool_hop, patch_width, pool_layout, seed, max_points=0):
     window_bins = pool_window * patch_width
     hop_bins = pool_hop * patch_width
+    candidates = []
+    for bird_id in sorted(per_bird_segments):
+        for segment_index, segment in enumerate(per_bird_segments[bird_id]):
+            length = min(int(segment["features"].shape[1]), int(segment["labels"].shape[0]))
+            if length == 0:
+                continue
+            segment_seed = _stable_seed(seed, bird_id, segment_index)
+            starts, short_segment = _window_starts_for_length(length, window_bins, hop_bins, pool_layout, segment_seed)
+            candidates.append(
+                {
+                    "bird_id": bird_id,
+                    "features": segment["features"][:, :length],
+                    "labels": segment["labels"][:length],
+                    "seed": segment_seed,
+                    "starts": starts,
+                    "short_segment": short_segment,
+                    "count": int(starts.shape[0]),
+                }
+            )
+
+    allocations = _allocate_point_budget(candidates, max_points, seed)
+    pooled_by_bird = {}
+    labels_by_bird = {}
+    for candidate, local_indices in zip(candidates, allocations):
+        starts = candidate["starts"]
+        short_segment = candidate["short_segment"]
+        if local_indices is not None:
+            if local_indices.size == 0:
+                continue
+            if not short_segment:
+                starts = starts[local_indices]
+        pooled = _mean_pool_spectrogram(
+            candidate["features"],
+            window_bins,
+            hop_bins,
+            layout=pool_layout,
+            seed=candidate["seed"],
+            starts=starts,
+            short_segment=short_segment,
+        )
+        pooled_labels = _pool_labels(
+            candidate["labels"],
+            window_bins,
+            hop_bins,
+            layout=pool_layout,
+            seed=candidate["seed"],
+            starts=starts,
+            short_segment=short_segment,
+        )
+        count = min(pooled.shape[0], pooled_labels.shape[0])
+        if count == 0:
+            continue
+        bird_id = candidate["bird_id"]
+        pooled_by_bird.setdefault(bird_id, []).append(pooled[:count])
+        labels_by_bird.setdefault(bird_id, []).append(pooled_labels[:count])
+
     x_parts = []
     y_parts = []
     s_parts = []
-
-    for bird_id in sorted(per_bird_segments):
-        pooled_parts = []
-        label_parts = []
-        for segment_index, segment in enumerate(per_bird_segments[bird_id]):
-            segment_seed = _stable_seed(seed, bird_id, segment_index)
-            pooled = _mean_pool_spectrogram(
-                segment["features"],
-                window_bins,
-                hop_bins,
-                layout=pool_layout,
-                seed=segment_seed,
-            )
-            pooled_labels = _pool_labels(
-                segment["labels"],
-                window_bins,
-                hop_bins,
-                layout=pool_layout,
-                seed=segment_seed,
-            )
-            count = min(pooled.shape[0], pooled_labels.shape[0])
-            if count == 0:
-                continue
-            pooled_parts.append(pooled[:count])
-            label_parts.append(pooled_labels[:count])
-
-        if not pooled_parts:
-            continue
-
-        bird_features = np.vstack(pooled_parts)
-        bird_labels = np.concatenate(label_parts, axis=0)
+    for bird_id in sorted(pooled_by_bird):
+        bird_features = np.vstack(pooled_by_bird[bird_id])
+        bird_labels = np.concatenate(labels_by_bird[bird_id], axis=0)
         x_parts.append(bird_features)
         y_parts.extend([bird_id] * bird_features.shape[0])
         s_parts.append(bird_labels)
@@ -697,11 +874,16 @@ def main():
     parser.add_argument("--songs_per_bird", type=int, required=True)
     parser.add_argument("--max_birds", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--pool_window", type=int, required=True)
-    parser.add_argument("--pool_hop", type=int, required=True)
+    parser.add_argument("--pool_window", type=int, default=50)
+    parser.add_argument("--pool_hop", type=int, default=10)
     parser.add_argument("--pool_mode", default="mean", choices=["mean", "concat_pca"])
     parser.add_argument("--concat_pca_dim", type=int, default=256)
     parser.add_argument("--pool_layout", default="sliding", choices=["sliding", "shotgun"])
+    parser.add_argument("--max_points", type=int, default=0)
+    parser.add_argument("--feature_postprocess", default="whiten_l2", choices=["none", "pca_whiten_l2", "whiten_l2"])
+    parser.add_argument("--feature_postprocess_dim", type=int, default=256)
+    parser.add_argument("--feature_postprocess_load", default=None)
+    parser.add_argument("--feature_postprocess_save", default=None)
     parser.add_argument(
         "--songmae_feature_source",
         default="encoded_before",
@@ -748,6 +930,12 @@ def main():
         args.wav_root = str(Path(args.wav_root).resolve())
     if args.wav_manifest is not None:
         args.wav_manifest = str(Path(args.wav_manifest).resolve())
+    if args.feature_postprocess_load is not None:
+        args.feature_postprocess_load = str(Path(args.feature_postprocess_load).resolve())
+    if args.feature_postprocess_save is not None:
+        save_path = Path(args.feature_postprocess_save).resolve()
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        args.feature_postprocess_save = str(save_path)
 
     assert annotation_json.exists(), f"annotation_json not found: {annotation_json}"
     assert spec_dir.is_dir(), f"spec_dir not found: {spec_dir}"
@@ -807,19 +995,25 @@ def main():
 
     assert sampled_recordings, "No birds have enough recordings after filtering."
 
+    feature_postprocess = None
     per_bird_segments = {}
-    for bird_id in sorted(sampled_recordings):
-        bird_segments = []
-        for recording_stem in sampled_recordings[bird_id]:
-            if args.encoder == "SongMAE":
-                loaded_segments = _load_songmae_segments(args, bird_id, recording_stem, model_state)
-            elif args.encoder == "AVES":
-                loaded_segments = _load_aves_segments(args, bird_id, recording_stem, model_state)
-            else:
-                loaded_segments = _load_spec_segments(args, bird_id, recording_stem, patch_width)
-            bird_segments.extend(loaded_segments)
-        if bird_segments:
-            per_bird_segments[bird_id] = bird_segments
+    if args.encoder == "SongMAE":
+        per_bird_segments, feature_postprocess = _load_songmae_segments_by_bird(
+            args,
+            sampled_recordings,
+            model_state,
+        )
+    else:
+        for bird_id in sorted(sampled_recordings):
+            bird_segments = []
+            for recording_stem in sampled_recordings[bird_id]:
+                if args.encoder == "AVES":
+                    loaded_segments = _load_aves_segments(args, bird_id, recording_stem, model_state)
+                else:
+                    loaded_segments = _load_spec_segments(args, bird_id, recording_stem, patch_width)
+                bird_segments.extend(loaded_segments)
+            if bird_segments:
+                per_bird_segments[bird_id] = bird_segments
 
     assert per_bird_segments, "No valid segments were extracted."
 
@@ -832,6 +1026,7 @@ def main():
             pool_layout=args.pool_layout,
             seed=args.seed,
             pca_dim=args.concat_pca_dim,
+            max_points=args.max_points,
         )
         prefix = "songmae" if args.encoder == "SongMAE" else "aves"
         source_suffix = ""
@@ -846,8 +1041,17 @@ def main():
             patch_width=patch_width,
             pool_layout=args.pool_layout,
             seed=args.seed,
+            max_points=args.max_points,
         )
         rep_name = f"spec_pool_mean_{args.pool_layout}_w{args.pool_window}_h{args.pool_hop}"
+
+    if args.max_points > 0:
+        rep_name = f"{rep_name}_maxpts{args.max_points}"
+
+    if args.encoder != "SongMAE":
+        features, feature_postprocess = _apply_feature_postprocess(features, args)
+    if feature_postprocess is not None:
+        rep_name = f"{rep_name}_{_feature_postprocess_kind(feature_postprocess)}{feature_postprocess['dim']}"
 
     assert features.shape[0] >= 2, "Not enough points for UMAP."
     print(f"[umap] {rep_name}: points={features.shape[0]} dim={features.shape[1]}")
@@ -902,7 +1106,12 @@ def main():
             "pool_hop": int(args.pool_hop),
             "pool_mode": args.pool_mode,
             "pool_layout": args.pool_layout,
+            "max_points": int(args.max_points),
             "concat_pca_dim": int(args.concat_pca_dim),
+            "feature_postprocess": _feature_postprocess_kind(feature_postprocess) or "none",
+            "feature_postprocess_dim": int(feature_postprocess["dim"]) if feature_postprocess is not None else 0,
+            "feature_postprocess_load": args.feature_postprocess_load,
+            "feature_postprocess_save": args.feature_postprocess_save,
             "per_bird_umaps": bool(args.per_bird_umaps),
             "normalization_preset": args.normalization_preset,
             "audio_params_stats_dir": args.audio_params_stats_dir,

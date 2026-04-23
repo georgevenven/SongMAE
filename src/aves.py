@@ -210,8 +210,14 @@ def load_recording_audio_segments(args):
         )
 
     recording_mode = _resolve_recording_mode(args)
+    recording_stems = args.get("recording_stems")
     recording_stem = args.get("recording_stem")
-    if recording_stem is not None:
+    if recording_stems is not None:
+        stems = list(recording_stems)
+        for stem in stems:
+            if stem not in wav_index:
+                raise FileNotFoundError(f"Wav not found for stem: {stem}")
+    elif recording_stem is not None:
         if recording_stem not in wav_index:
             raise FileNotFoundError(f"Wav not found for stem: {recording_stem}")
         stems = [recording_stem]

@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from sklearn.decomposition import PCA
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -16,6 +17,146 @@ from audio2spec import compute_spectrogram
 import aves
 from individual_id.audio_augmentations import augment_audio_segment
 from utils import load_audio_params, load_model_from_checkpoint
+
+
+def fit_feature_postprocess(features, mode="none", dim=256):
+    assert features.ndim == 2
+    if mode == "none":
+        return None
+
+    assert mode in {"pca_whiten_l2", "whiten_l2"}
+    if mode == "whiten_l2":
+        assert features.shape[0] > 0
+        std = features.std(axis=0)
+        std = np.maximum(std, 1e-12)
+        return {
+            "kind": mode,
+            "dim": int(features.shape[1]),
+            "mean": features.mean(axis=0).astype(np.float32, copy=False),
+            "std": std.astype(np.float32, copy=False),
+        }
+
+    assert features.shape[0] > 0
+    n_components = min(int(dim), int(features.shape[0]), int(features.shape[1]))
+    assert n_components > 0
+    pca = PCA(n_components=n_components, whiten=True, svd_solver="randomized", random_state=0)
+    pca.fit(features)
+    return {
+        "kind": mode,
+        "dim": int(n_components),
+        "mean": pca.mean_.astype(np.float32, copy=False),
+        "components": pca.components_.astype(np.float32, copy=False),
+        "explained_variance": pca.explained_variance_.astype(np.float32, copy=False),
+    }
+
+
+def save_feature_postprocess(path, transform):
+    payload = {
+        "kind": np.array(transform["kind"]),
+        "dim": np.array(transform["dim"]),
+        "mean": transform["mean"],
+    }
+    if transform["kind"] == "pca_whiten_l2":
+        payload["components"] = transform["components"]
+        payload["explained_variance"] = transform["explained_variance"]
+    else:
+        assert transform["kind"] == "whiten_l2"
+        payload["std"] = transform["std"]
+    np.savez(path, **payload)
+
+
+def load_feature_postprocess(path):
+    loaded = np.load(path)
+    kind = str(loaded["kind"].item())
+    assert kind in {"pca_whiten_l2", "whiten_l2"}
+    transform = {
+        "kind": kind,
+        "dim": int(loaded["dim"].item()),
+        "mean": loaded["mean"].astype(np.float32, copy=False),
+    }
+    if kind == "pca_whiten_l2":
+        transform["components"] = loaded["components"].astype(np.float32, copy=False)
+        transform["explained_variance"] = loaded["explained_variance"].astype(np.float32, copy=False)
+    else:
+        transform["std"] = loaded["std"].astype(np.float32, copy=False)
+    return transform
+
+
+def apply_feature_postprocess_transform(features, transform):
+    if transform is None:
+        return features.astype(np.float32, copy=False)
+
+    centered = features.astype(np.float32, copy=False) - transform["mean"]
+    if transform["kind"] == "pca_whiten_l2":
+        projected = centered @ transform["components"].T
+        scale = np.sqrt(np.maximum(transform["explained_variance"], 1e-12))
+        whitened = (projected / scale).astype(np.float32, copy=False)
+    else:
+        assert transform["kind"] == "whiten_l2"
+        whitened = (centered / np.maximum(transform["std"], 1e-12)).astype(np.float32, copy=False)
+    norms = np.linalg.norm(whitened, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-12)
+    return (whitened / norms).astype(np.float32, copy=False)
+
+
+def maybe_apply_feature_postprocess(
+    features,
+    mode="none",
+    dim=256,
+    load_path=None,
+    save_path=None,
+):
+    if mode == "none":
+        return features.astype(np.float32, copy=False), None
+
+    assert mode in {"pca_whiten_l2", "whiten_l2"}
+    if load_path is not None:
+        transform = load_feature_postprocess(load_path)
+    else:
+        transform = fit_feature_postprocess(features, mode=mode, dim=dim)
+        if save_path is not None:
+            save_feature_postprocess(save_path, transform)
+    return apply_feature_postprocess_transform(features, transform), transform
+
+
+def maybe_postprocess_segments(
+    segments,
+    args,
+    default_feature_key,
+):
+    mode = args.get("embedding_postprocess", "none")
+    if mode == "none":
+        return None
+
+    feature_key = args.get("embedding_postprocess_key") or default_feature_key
+    arrays = [segment[feature_key] for segment in segments if segment[feature_key].shape[0] > 0]
+    if not arrays:
+        return None
+
+    stacked = np.concatenate(arrays, axis=0)
+    transformed, transform = maybe_apply_feature_postprocess(
+        stacked,
+        mode=mode,
+        dim=args.get("embedding_postprocess_dim", 256),
+        load_path=args.get("embedding_postprocess_load"),
+        save_path=args.get("embedding_postprocess_save"),
+    )
+
+    start = 0
+    for segment in segments:
+        length = int(segment[feature_key].shape[0])
+        if length == 0:
+            continue
+        segment[feature_key] = transformed[start : start + length]
+        start += length
+
+    return {
+        "mode": mode,
+        "dim": int(transform["dim"]),
+        "feature_key": feature_key,
+        "load_path": args.get("embedding_postprocess_load"),
+        "save_path": args.get("embedding_postprocess_save"),
+    }
 
 
 def ms_to_timebins(ms_value, audio_params):
@@ -79,23 +220,29 @@ def _resolve_recording_mode(args):
     return mode
 
 
-def _resolve_spec_paths(spec_dir, recording_stem):
+def _resolve_single_spec_path(spec_dir, recording_stem):
     spec_dir = Path(spec_dir)
+    path = spec_dir / f"{recording_stem}.npy"
+    if path.exists():
+        return path
+
+    paths = sorted(spec_dir.rglob(f"{recording_stem}.npy"))
+    assert paths, f"Recording not found: {recording_stem}"
+    assert len(paths) == 1, f"Multiple recordings found: {recording_stem}"
+    return paths[0]
+
+
+def _resolve_spec_paths(spec_dir, recording_stem, recording_stems=None):
+    spec_dir = Path(spec_dir)
+    if recording_stems is not None:
+        return [_resolve_single_spec_path(spec_dir, stem) for stem in recording_stems]
     if recording_stem is None:
         paths = sorted(spec_dir.glob("*.npy"))
         if not paths:
             paths = sorted(spec_dir.rglob("*.npy"))
         assert paths
         return paths
-
-    path = spec_dir / f"{recording_stem}.npy"
-    if path.exists():
-        return [path]
-
-    paths = sorted(spec_dir.rglob(f"{recording_stem}.npy"))
-    assert paths, f"Recording not found: {recording_stem}"
-    assert len(paths) == 1, f"Multiple recordings found: {recording_stem}"
-    return paths
+    return [_resolve_single_spec_path(spec_dir, recording_stem)]
 
 
 def _build_segment_from_audio(raw_segment, audio_params, patch_width):
@@ -153,6 +300,7 @@ def load_recording_segments_from_audio(args, patch_width):
             "json_path": args.get("json_path"),
             "bird": args.get("bird"),
             "recording_stem": args.get("recording_stem"),
+            "recording_stems": args.get("recording_stems"),
             "recording_mode": args.get("recording_mode"),
         }
     )
@@ -191,6 +339,7 @@ def load_recording_segments(args, patch_width):
 
     recording_mode = _resolve_recording_mode(args)
     recording_stem = args.get("recording_stem")
+    recording_stems = args.get("recording_stems")
     max_timebins = args.get("num_timebins")
     if max_timebins is not None:
         max_timebins = int(max_timebins)
@@ -199,7 +348,10 @@ def load_recording_segments(args, patch_width):
     segments = []
     collected_timebins = 0
 
-    paths = _resolve_spec_paths(spec_dir, recording_stem)
+    paths = _resolve_spec_paths(spec_dir, recording_stem, recording_stems=recording_stems)
+    if recording_stems is not None:
+        allowed_stems = set(recording_stems)
+        paths = [path for path in paths if path.stem in allowed_stems]
     if recording_stem is None and event_map:
         allowed_stems = set(event_map)
         paths = [path for path in paths if path.stem in allowed_stems]
@@ -338,6 +490,7 @@ def _extract_segment_arrays(
     num_patches_time,
     encoder_layer_idx,
     input_normalization_mode="none",
+    minimal_output=False,
 ):
     spec_tensor = torch.from_numpy(spec_segment).unsqueeze(0).to(device)
     labels_tensor = torch.from_numpy(labels_segment).to(device)
@@ -407,15 +560,18 @@ def _extract_segment_arrays(
         kernel_size=patch_width,
         stride=patch_width,
     ).view(-1).long()
-    return {
+    out = {
         "encoded_before": encoded_flat.cpu().numpy().astype(np.float32, copy=False),
-        "patch_pre_pos": patch_pre_pos_flat.cpu().numpy().astype(np.float32, copy=False),
-        "patch_before": patch_flat.cpu().numpy().astype(np.float32, copy=False),
-        "labels_original": labels_tensor.cpu().numpy().astype(np.int64, copy=False),
         "labels_downsampled": pooled_labels.cpu().numpy().astype(np.int64, copy=False),
-        "spectrograms": spec_flat.cpu().numpy().astype(np.float32, copy=False),
-        "pos_ids": pos_ids.cpu().numpy().astype(np.int64, copy=False),
     }
+    if minimal_output:
+        return out
+    out["patch_pre_pos"] = patch_pre_pos_flat.cpu().numpy().astype(np.float32, copy=False)
+    out["patch_before"] = patch_flat.cpu().numpy().astype(np.float32, copy=False)
+    out["labels_original"] = labels_tensor.cpu().numpy().astype(np.int64, copy=False)
+    out["spectrograms"] = spec_flat.cpu().numpy().astype(np.float32, copy=False)
+    out["pos_ids"] = pos_ids.cpu().numpy().astype(np.int64, copy=False)
+    return out
 
 
 def load_model_state(args):
@@ -482,6 +638,7 @@ def extract_recording_embeddings_with_state(args, model_state):
         normalization_mode,
         target_stats=target_stats,
     )
+    minimal_output = bool(args.get("minimal_output", False))
     segment_states = []
 
     for raw_segment in raw_segments:
@@ -496,6 +653,7 @@ def extract_recording_embeddings_with_state(args, model_state):
             num_patches_time=num_patches_time,
             encoder_layer_idx=args.get("encoder_layer_idx"),
             input_normalization_mode=normalization_mode,
+            minimal_output=minimal_output,
         )
         if state is None:
             continue
@@ -505,47 +663,90 @@ def extract_recording_embeddings_with_state(args, model_state):
     if not segment_states:
         raise ValueError("No valid patches extracted for the requested recording set.")
 
-    encoded_all = np.concatenate([segment["encoded_before"] for segment in segment_states], axis=0)
-    patch_all = np.concatenate([segment["patch_before"] for segment in segment_states], axis=0)
-    patch_pre_pos_all = np.concatenate([segment["patch_pre_pos"] for segment in segment_states], axis=0)
-    pos_ids_all = np.concatenate([segment["pos_ids"] for segment in segment_states], axis=0)
-    assert encoded_all.shape[0] > 0
-    assert patch_all.shape[0] > 0
-    assert patch_pre_pos_all.shape[0] > 0
-    assert pos_ids_all.shape[0] > 0
+    if minimal_output:
+        segments = []
+        for segment in segment_states:
+            segments.append(
+                {
+                    "recording_stem": segment["recording_stem"],
+                    "encoded_embeddings_before_pos_removal": segment["encoded_before"],
+                    "labels_downsampled": segment["labels_downsampled"],
+                }
+            )
+        feature_postprocess = maybe_postprocess_segments(
+            segments,
+            args,
+            default_feature_key="encoded_embeddings_before_pos_removal",
+        )
+        return {
+            "segments": segments,
+            "audio_params": raw["audio_params"],
+            "patch_height": patch_height,
+            "patch_width": patch_width,
+            "num_patches_time": num_patches_time,
+            "num_patches_height": num_patches_height,
+            "model_num_timebins": model_num_timebins,
+            "mels": int(config["mels"]),
+            "checkpoint": args.get("checkpoint") or "",
+            "feature_postprocess": feature_postprocess,
+        }
 
-    unique_pos = np.unique(pos_ids_all)
-    assert unique_pos.size > 0
+    max_pos = -1
+    for segment in segment_states:
+        if segment["pos_ids"].size == 0:
+            continue
+        max_pos = max(max_pos, int(segment["pos_ids"].max()))
+    assert max_pos >= 0
 
-    encoded_means = np.zeros((int(unique_pos.max()) + 1, encoded_all.shape[1]), dtype=np.float32)
-    patch_means = np.zeros((int(unique_pos.max()) + 1, patch_all.shape[1]), dtype=np.float32)
-    for pos in unique_pos:
-        encoded_means[pos] = encoded_all[pos_ids_all == pos].mean(axis=0)
-        patch_means[pos] = patch_all[pos_ids_all == pos].mean(axis=0)
+    encoded_sums = np.zeros((max_pos + 1, segment_states[0]["encoded_before"].shape[1]), dtype=np.float64)
+    patch_sums = np.zeros((max_pos + 1, segment_states[0]["patch_before"].shape[1]), dtype=np.float64)
+    pos_counts = np.zeros((max_pos + 1,), dtype=np.int64)
 
-    encoded_after_all = encoded_all - encoded_means[pos_ids_all]
-    patch_after_all = patch_all - patch_means[pos_ids_all]
+    for segment in segment_states:
+        pos_ids = segment["pos_ids"]
+        encoded_before = segment["encoded_before"]
+        patch_before = segment["patch_before"]
+        unique_pos = np.unique(pos_ids)
+        for pos in unique_pos:
+            mask = pos_ids == pos
+            encoded_sums[pos] += encoded_before[mask].sum(axis=0, dtype=np.float64)
+            patch_sums[pos] += patch_before[mask].sum(axis=0, dtype=np.float64)
+            pos_counts[pos] += int(mask.sum())
 
-    start = 0
+    valid_pos = pos_counts > 0
+    assert np.any(valid_pos)
+    encoded_means = np.zeros_like(encoded_sums, dtype=np.float32)
+    patch_means = np.zeros_like(patch_sums, dtype=np.float32)
+    encoded_means[valid_pos] = (encoded_sums[valid_pos] / pos_counts[valid_pos, None]).astype(np.float32, copy=False)
+    patch_means[valid_pos] = (patch_sums[valid_pos] / pos_counts[valid_pos, None]).astype(np.float32, copy=False)
+
     segments = []
     for segment in segment_states:
-        length = segment["encoded_before"].shape[0]
-        end = start + length
+        pos_ids = segment["pos_ids"]
         segments.append(
             {
                 "recording_stem": segment["recording_stem"],
                 "encoded_embeddings_before_pos_removal": segment["encoded_before"],
-                "encoded_embeddings_after_pos_removal": encoded_after_all[start:end],
+                "encoded_embeddings_after_pos_removal": (
+                    segment["encoded_before"] - encoded_means[pos_ids]
+                ).astype(np.float32, copy=False),
                 "patch_embeddings_before_pos_encoding": segment["patch_pre_pos"],
                 "patch_embeddings_before_pos_removal": segment["patch_before"],
-                "patch_embeddings_after_pos_removal": patch_after_all[start:end],
+                "patch_embeddings_after_pos_removal": (
+                    segment["patch_before"] - patch_means[pos_ids]
+                ).astype(np.float32, copy=False),
                 "labels_original": segment["labels_original"],
                 "labels_downsampled": segment["labels_downsampled"],
                 "spectrograms": segment["spectrograms"],
-                "pos_ids": segment["pos_ids"],
+                "pos_ids": pos_ids,
             }
         )
-        start = end
+
+    feature_postprocess = maybe_postprocess_segments(
+        segments,
+        args,
+        default_feature_key="encoded_embeddings_before_pos_removal",
+    )
 
     return {
         "segments": segments,
@@ -557,6 +758,7 @@ def extract_recording_embeddings_with_state(args, model_state):
         "model_num_timebins": model_num_timebins,
         "mels": int(config["mels"]),
         "checkpoint": args.get("checkpoint") or "",
+        "feature_postprocess": feature_postprocess,
     }
 
 
@@ -615,6 +817,15 @@ def main(args):
         checkpoint=np.array(extracted["checkpoint"]),
         model_num_timebins=np.array(extracted["model_num_timebins"]),
         mels=np.array(extracted["mels"]),
+        feature_postprocess_kind=np.array(
+            (extracted.get("feature_postprocess") or {}).get("mode", "none")
+        ),
+        feature_postprocess_dim=np.array(
+            int((extracted.get("feature_postprocess") or {}).get("dim", 0))
+        ),
+        feature_postprocess_key=np.array(
+            (extracted.get("feature_postprocess") or {}).get("feature_key", "")
+        ),
     )
     print(f"NPZ saved to {npz_path}")
     return extracted
@@ -630,6 +841,11 @@ if __name__ == "__main__":
     parser.add_argument("--json_path", type=str, default=None)
     parser.add_argument("--bird", type=str, default=None)
     parser.add_argument("--recording_stem", type=str, default=None)
+    parser.add_argument("--embedding_postprocess", type=str, default="none", choices=["none", "pca_whiten_l2", "whiten_l2"])
+    parser.add_argument("--embedding_postprocess_dim", type=int, default=256)
+    parser.add_argument("--embedding_postprocess_key", type=str, default=None)
+    parser.add_argument("--embedding_postprocess_load", type=str, default=None)
+    parser.add_argument("--embedding_postprocess_save", type=str, default=None)
     parser.add_argument(
         "--recording_mode",
         type=str,

@@ -529,6 +529,26 @@ def _apply_spec_normalization_preset(args):
     args.spec_normalization_stats_dir = stats_dir
 
 
+def _apply_train_feature_postprocess(x_train, x_val, args):
+    if args.feature_postprocess == "none":
+        return (
+            x_train.astype(np.float32, copy=False),
+            x_val.astype(np.float32, copy=False),
+            None,
+        )
+
+    transform = extract_embedding.fit_feature_postprocess(
+        x_train,
+        mode=args.feature_postprocess,
+        dim=args.feature_postprocess_dim,
+    )
+    return (
+        extract_embedding.apply_feature_postprocess_transform(x_train, transform),
+        extract_embedding.apply_feature_postprocess_transform(x_val, transform),
+        transform,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train an individual-identification linear probe on pooled per-recording features.")
     parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES", "Perch"])
@@ -552,6 +572,8 @@ def main():
     parser.add_argument("--val_fraction", type=float, default=0.2)
     parser.add_argument("--c", type=float, default=1.0)
     parser.add_argument("--max_iter", type=int, default=2000)
+    parser.add_argument("--feature_postprocess", default="none", choices=["none", "pca_whiten_l2", "whiten_l2"])
+    parser.add_argument("--feature_postprocess_dim", type=int, default=256)
     parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)
     parser.add_argument("--audio_params_stats_dir", default=None)
     parser.add_argument(
@@ -697,7 +719,7 @@ def main():
     val_group_ids = val_group_ids[keep_val]
     assert x_val.shape[0] > 0, "Validation split has no examples for the trained classes."
     y_val = label_encoder.transform(y_val_raw)
-
+    x_train, x_val, feature_postprocess = _apply_train_feature_postprocess(x_train, x_val, args)
     model = make_pipeline(
         StandardScaler(),
         LogisticRegression(
@@ -763,6 +785,12 @@ def main():
         save_val_probs = val_probs.astype(np.float32, copy=False)
         save_group_ids = val_group_ids
 
+    if feature_postprocess is not None:
+        extract_embedding.save_feature_postprocess(
+            out_dir / "feature_postprocess.npz",
+            feature_postprocess,
+        )
+
     summary = {
         "model": {
             "encoder": args.encoder,
@@ -788,6 +816,8 @@ def main():
             "val_fraction": float(args.val_fraction),
             "c": float(args.c),
             "max_iter": int(args.max_iter),
+            "feature_postprocess": args.feature_postprocess,
+            "feature_postprocess_dim": int(args.feature_postprocess_dim),
             "normalization_preset": args.normalization_preset,
             "audio_params_stats_dir": args.audio_params_stats_dir,
             "spec_normalization": args.spec_normalization,
