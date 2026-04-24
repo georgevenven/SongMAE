@@ -133,12 +133,27 @@ def maybe_postprocess_segments(
     if not arrays:
         return None
 
+    load_path = args.get("embedding_postprocess_load")
+    if load_path is not None:
+        transform = load_feature_postprocess(load_path)
+        assert transform["kind"] == mode
+        for segment in segments:
+            if segment[feature_key].shape[0] > 0:
+                segment[feature_key] = apply_feature_postprocess_transform(segment[feature_key], transform)
+        return {
+            "mode": mode,
+            "dim": int(transform["dim"]),
+            "feature_key": feature_key,
+            "load_path": load_path,
+            "save_path": args.get("embedding_postprocess_save"),
+        }
+
     stacked = np.concatenate(arrays, axis=0)
     transformed, transform = maybe_apply_feature_postprocess(
         stacked,
         mode=mode,
         dim=args.get("embedding_postprocess_dim", 256),
-        load_path=args.get("embedding_postprocess_load"),
+        load_path=None,
         save_path=args.get("embedding_postprocess_save"),
     )
 

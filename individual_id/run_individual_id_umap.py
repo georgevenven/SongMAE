@@ -9,6 +9,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
+from matplotlib import cm
 from sklearn.decomposition import PCA
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,122 @@ sys.path.append(str(ROOT / "src"))
 
 import aves  # noqa: E402
 import extract_embedding  # noqa: E402
+
+
+SPECIES_CONFIGS = {
+    "zf": {
+        "aliases": ("zebra_finch",),
+        "display_name": "Zebra Finch",
+        "pool_window": 30,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 30,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "bf": {
+        "aliases": ("bengalese_finch",),
+        "display_name": "Bengalese Finch",
+        "pool_window": 30,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 30,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "canary": {
+        "aliases": (),
+        "display_name": "Canary",
+        "pool_window": 100,
+        "pool_hop": 10,
+        "recording_mode": "events",
+        "songs_per_bird": 30,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "chiffchaff": {
+        "aliases": (),
+        "display_name": "Chiffchaff",
+        "pool_window": 300,
+        "pool_hop": 50,
+        "recording_mode": "events",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "european_starling": {
+        "aliases": ("starling",),
+        "display_name": "European Starling",
+        "pool_window": 100,
+        "pool_hop": 10,
+        "recording_mode": "events",
+        "songs_per_bird": 30,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "tree_pipit": {
+        "aliases": (),
+        "display_name": "Tree Pipit",
+        "pool_window": 100,
+        "pool_hop": 10,
+        "recording_mode": "events",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "little_owl": {
+        "aliases": (),
+        "display_name": "Little Owl",
+        "pool_window": 30,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "orangutan": {
+        "aliases": (),
+        "display_name": "Orangutan",
+        "pool_window": 250,
+        "pool_hop": 50,
+        "recording_mode": "full_recordings",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+    "ovenbird": {
+        "aliases": ("lapp_ovenbird",),
+        "display_name": "Ovenbird",
+        "pool_window": 100,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    },
+}
+
+
+def _species_key(species):
+    return str(species).strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _species_config(species):
+    key = _species_key(species)
+    for species_key, config in SPECIES_CONFIGS.items():
+        if key == species_key or key in config["aliases"]:
+            return species_key, config
+
+    return key, {
+        "aliases": (),
+        "display_name": str(species).strip().replace("_", " ").title(),
+        "pool_window": 30,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 30,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+    }
 
 
 def _resolve_run_dir(run_arg):
@@ -63,6 +180,9 @@ def _pick_recordings(stems, songs_per_bird, seed, bird_id):
 
 
 def _songmae_feature_key(feature_source):
+
+
+    # encoded_before should be default it gives the best features 
     mapping = {
         "encoded_before": "encoded_embeddings_before_pos_removal",
         "encoded_after": "encoded_embeddings_after_pos_removal",
@@ -293,34 +413,36 @@ def _fit_umap(features, neighbors, min_dist, metric):
 
 def _bird_palette(birds):
     birds = sorted(set(birds))
-    cmap = plt.get_cmap("tab20", max(1, len(birds)))
+    colors = cm.tab20(np.linspace(0, 1, max(1, len(birds))))
     palette = {}
-    for index, bird in enumerate(birds):
-        palette[bird] = np.asarray(cmap(index), dtype=np.float32)[:3]
+    for bird, color in zip(birds, colors):
+        palette[bird] = np.asarray(color, dtype=np.float32)[:3]
     return palette
 
 
-def _point_alpha(num_points):
-    low_points = 5000
-    high_points = 100000
-    low_alpha = 0.35
-    high_alpha = 0.1
+def _format_extract_embedding_umap(ax):
+    ax.set_xlabel("UMAP 1", fontsize=20, fontweight="bold")
+    ax.set_ylabel("UMAP 2", fontsize=20, fontweight="bold")
+    ax.set_xticks([])
+    ax.set_yticks([])
 
-    if num_points <= low_points:
-        return low_alpha
-    if num_points >= high_points:
-        return high_alpha
 
-    t = (float(num_points) - float(low_points)) / float(high_points - low_points)
-    return low_alpha + t * (high_alpha - low_alpha)
+def _format_umap_title(ax, title):
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=12)
+
+
+def _plot_title(display_name, suffix=None):
+    title = display_name
+    if suffix is None:
+        return title
+    return f"{title} | {suffix}"
 
 
 def _scatter_umap(xy, labels, title, out_base):
     birds = sorted(set(labels.tolist()))
     palette = _bird_palette(birds)
-    alpha = _point_alpha(int(xy.shape[0]))
 
-    fig = plt.figure(figsize=(9.5, 7.5), dpi=300)
+    fig = plt.figure(figsize=(5.5, 5.5), dpi=300)
     ax = fig.add_subplot(1, 1, 1)
     for bird in birds:
         idx = labels == bird
@@ -328,24 +450,14 @@ def _scatter_umap(xy, labels, title, out_base):
             xy[idx, 0],
             xy[idx, 1],
             s=10,
-            alpha=alpha,
+            alpha=0.15,
             color=palette[bird],
             label=bird,
             edgecolors="none",
         )
 
-    ax.set_xlabel("UMAP 1")
-    ax.set_ylabel("UMAP 2")
-    ax.set_title(title)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.legend(
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        frameon=False,
-        fontsize=8,
-        markerscale=1.6,
-    )
+    _format_extract_embedding_umap(ax)
+    _format_umap_title(ax, title)
     fig.tight_layout()
     fig.savefig(out_base.with_suffix(".png"), bbox_inches="tight", dpi=300)
     fig.savefig(out_base.with_suffix(".pdf"), bbox_inches="tight", dpi=300, format="pdf")
@@ -355,7 +467,6 @@ def _scatter_umap(xy, labels, title, out_base):
 def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
     assert syllables.shape[0] == xy.shape[0]
     assert birds.shape[0] == xy.shape[0]
-    alpha = _point_alpha(int(xy.shape[0]))
 
     categories = []
     for bird, syllable in zip(birds.tolist(), syllables.tolist()):
@@ -373,35 +484,34 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
     if "silence" in unique:
         palette["silence"] = np.asarray([0.55, 0.55, 0.55], dtype=np.float32)
 
-    fig = plt.figure(figsize=(9.5, 7.5), dpi=300)
+    fig = plt.figure(figsize=(5.5, 5.5), dpi=300)
     ax = fig.add_subplot(1, 1, 1)
     categories_arr = np.asarray(categories, dtype=object)
-    for label in unique:
-        idx = categories_arr == label
+    if "silence" in unique:
+        idx = categories_arr == "silence"
         ax.scatter(
             xy[idx, 0],
             xy[idx, 1],
             s=10,
-            alpha=alpha,
-            color=palette[label],
-            label=label,
+            alpha=0.1,
+            color="#404040",
             edgecolors="none",
         )
+    for label in non_silence:
+        idx = categories_arr == label
+        if idx.any():
+            ax.scatter(
+                xy[idx, 0],
+                xy[idx, 1],
+                s=10,
+                alpha=0.15,
+                color=palette[label],
+                label=label,
+                edgecolors="none",
+            )
 
-    ax.set_xlabel("UMAP 1")
-    ax.set_ylabel("UMAP 2")
-    ax.set_title(title)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.legend(
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        frameon=False,
-        fontsize=7,
-        markerscale=1.6,
-        ncol=1 if len(unique) <= 30 else 2,
-        title="Syllable",
-    )
+    _format_extract_embedding_umap(ax)
+    _format_umap_title(ax, title)
     fig.tight_layout()
     fig.savefig(out_base.with_suffix(".png"), bbox_inches="tight", dpi=300)
     fig.savefig(out_base.with_suffix(".pdf"), bbox_inches="tight", dpi=300, format="pdf")
@@ -409,22 +519,18 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
 
 
 def _scatter_single_umap(xy, title, out_base, color):
-    alpha = _point_alpha(int(xy.shape[0]))
-    fig = plt.figure(figsize=(9.5, 7.5), dpi=300)
+    fig = plt.figure(figsize=(5.5, 5.5), dpi=300)
     ax = fig.add_subplot(1, 1, 1)
     ax.scatter(
         xy[:, 0],
         xy[:, 1],
         s=10,
-        alpha=alpha,
+        alpha=0.15,
         color=color,
         edgecolors="none",
     )
-    ax.set_xlabel("UMAP 1")
-    ax.set_ylabel("UMAP 2")
-    ax.set_title(title)
-    ax.set_xticks([])
-    ax.set_yticks([])
+    _format_extract_embedding_umap(ax)
+    _format_umap_title(ax, title)
     fig.tight_layout()
     fig.savefig(out_base.with_suffix(".png"), bbox_inches="tight", dpi=300)
     fig.savefig(out_base.with_suffix(".pdf"), bbox_inches="tight", dpi=300, format="pdf")
@@ -479,7 +585,7 @@ def _save_per_bird_umaps(
         out_base = per_bird_dir / f"{bird_id}"
         _scatter_single_umap(
             xy=xy,
-            title=f"{args.species} | {bird_id}",
+            title=_plot_title(args.species_display_name, bird_id),
             out_base=out_base,
             color=palette[bird_id],
         )
@@ -861,6 +967,13 @@ def _apply_spec_normalization_preset(args):
     args.spec_normalization_stats_dir = stats_dir
 
 
+def _songmae_input_normalization(model_state, args):
+    mode, stats_dir = extract_embedding.get_native_input_normalization(model_state)
+    if mode == "audio_params" and args.audio_params_stats_dir is not None:
+        stats_dir = args.audio_params_stats_dir
+    return mode, stats_dir
+
+
 def main():
     parser = argparse.ArgumentParser(description="Individual-ID UMAPs with explicit encoder mode and record-wise pooling.")
     parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES"])
@@ -870,18 +983,18 @@ def main():
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--run_dir", required=True)
     parser.add_argument("--checkpoint", default=None)
-    parser.add_argument("--recording_mode", required=True, choices=["events", "full_recordings"])
-    parser.add_argument("--songs_per_bird", type=int, required=True)
+    parser.add_argument("--recording_mode", default=None, choices=["events", "full_recordings"])
+    parser.add_argument("--songs_per_bird", type=int, default=None)
     parser.add_argument("--max_birds", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--pool_window", type=int, default=50)
-    parser.add_argument("--pool_hop", type=int, default=10)
+    parser.add_argument("--pool_window", type=int, default=None)
+    parser.add_argument("--pool_hop", type=int, default=None)
     parser.add_argument("--pool_mode", default="mean", choices=["mean", "concat_pca"])
     parser.add_argument("--concat_pca_dim", type=int, default=256)
     parser.add_argument("--pool_layout", default="sliding", choices=["sliding", "shotgun"])
     parser.add_argument("--max_points", type=int, default=0)
-    parser.add_argument("--feature_postprocess", default="whiten_l2", choices=["none", "pca_whiten_l2", "whiten_l2"])
-    parser.add_argument("--feature_postprocess_dim", type=int, default=256)
+    parser.add_argument("--feature_postprocess", default=None, choices=["none", "pca_whiten_l2", "whiten_l2"])
+    parser.add_argument("--feature_postprocess_dim", type=int, default=None)
     parser.add_argument("--feature_postprocess_load", default=None)
     parser.add_argument("--feature_postprocess_save", default=None)
     parser.add_argument(
@@ -905,10 +1018,26 @@ def main():
     parser.add_argument("--wav_manifest", default=None)
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--aves_audio_sr", type=int, default=16000)
-    parser.add_argument("--umap_neighbors", type=int, default=100)
+    parser.add_argument("--umap_neighbors", type=int, default=200)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
     args = parser.parse_args()
+
+    species_key, species_config = _species_config(args.species)
+    if args.recording_mode is None:
+        args.recording_mode = species_config["recording_mode"]
+    if args.songs_per_bird is None:
+        args.songs_per_bird = species_config["songs_per_bird"]
+    if args.pool_window is None:
+        args.pool_window = species_config["pool_window"]
+    if args.pool_hop is None:
+        args.pool_hop = species_config["pool_hop"]
+    if args.feature_postprocess is None:
+        args.feature_postprocess = species_config["feature_postprocess"]
+    if args.feature_postprocess_dim is None:
+        args.feature_postprocess_dim = species_config["feature_postprocess_dim"]
+    args.species_key = species_key
+    args.species_display_name = species_config["display_name"]
 
     annotation_json = Path(args.annotation_json).resolve()
     spec_dir = Path(args.spec_dir).resolve()
@@ -961,7 +1090,7 @@ def main():
         (
             args.songmae_input_normalization,
             args.songmae_input_normalization_stats_dir,
-        ) = extract_embedding.get_native_input_normalization(model_state)
+        ) = _songmae_input_normalization(model_state, args)
     elif args.encoder == "AVES":
         model_state = aves.load_model_state_for_inference(
             {
@@ -1067,14 +1196,14 @@ def main():
     _scatter_umap(
         xy=xy,
         labels=bird_labels,
-        title=f"{args.species} | {rep_name}",
+        title=_plot_title(args.species_display_name),
         out_base=out_base,
     )
     _scatter_umap_syllables(
         xy=xy,
         syllables=syllable_labels,
         birds=bird_labels,
-        title=f"{args.species} | {rep_name} | syllable",
+        title=_plot_title(args.species_display_name, "syllables"),
         out_base=out_dir / f"{rep_name}_syllable",
     )
 
@@ -1095,6 +1224,16 @@ def main():
             "patch_width": patch_width,
         },
         "species": args.species,
+        "species_key": args.species_key,
+        "species_display_name": args.species_display_name,
+        "species_defaults": {
+            "pool_window": int(species_config["pool_window"]),
+            "pool_hop": int(species_config["pool_hop"]),
+            "recording_mode": species_config["recording_mode"],
+            "songs_per_bird": int(species_config["songs_per_bird"]),
+            "feature_postprocess": species_config["feature_postprocess"],
+            "feature_postprocess_dim": int(species_config["feature_postprocess_dim"]),
+        },
         "args": {
             "annotation_json": str(annotation_json),
             "spec_dir": str(spec_dir),

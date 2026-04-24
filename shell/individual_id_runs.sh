@@ -13,8 +13,10 @@ RUN_CLUSTER="${RUN_CLUSTER:-1}"
 
 IID_ENCODER="${IID_ENCODER:-SongMAE}"
 IID_RECORDING_MODE="${IID_RECORDING_MODE:-events}"
-IID_POOL_WINDOW="${IID_POOL_WINDOW:-50}"
-IID_POOL_HOP="${IID_POOL_HOP:-10}"
+IID_POOL_WINDOW_OVERRIDE="${IID_POOL_WINDOW:-}"
+IID_POOL_HOP_OVERRIDE="${IID_POOL_HOP:-}"
+IID_POOL_WINDOW="${IID_POOL_WINDOW:-30}"
+IID_POOL_HOP="${IID_POOL_HOP:-5}"
 IID_POOL_MODE="${IID_POOL_MODE:-mean}"
 IID_POOL_LAYOUT="${IID_POOL_LAYOUT:-sliding}"
 IID_UMAP_MAX_POINTS="${IID_UMAP_MAX_POINTS:-0}"
@@ -28,8 +30,8 @@ IID_LINEAR_MAX_ITER="${IID_LINEAR_MAX_ITER:-2000}"
 IID_LINEAR_FEATURE_POSTPROCESS="${IID_LINEAR_FEATURE_POSTPROCESS:-none}"
 IID_LINEAR_FEATURE_POSTPROCESS_DIM="${IID_LINEAR_FEATURE_POSTPROCESS_DIM:-256}"
 IID_LINEAR_POOL_HOP="${IID_LINEAR_POOL_HOP:-$IID_POOL_WINDOW}"
-IID_UMAP_FEATURE_POSTPROCESS="${IID_UMAP_FEATURE_POSTPROCESS:-whiten_l2}"
-IID_UMAP_FEATURE_POSTPROCESS_DIM="${IID_UMAP_FEATURE_POSTPROCESS_DIM:-256}"
+IID_UMAP_FEATURE_POSTPROCESS="${IID_UMAP_FEATURE_POSTPROCESS:-pca_whiten_l2}"
+IID_UMAP_FEATURE_POSTPROCESS_DIM="${IID_UMAP_FEATURE_POSTPROCESS_DIM:-1024}"
 IID_UMAP_FEATURE_POSTPROCESS_LOAD="${IID_UMAP_FEATURE_POSTPROCESS_LOAD:-}"
 IID_UMAP_FEATURE_POSTPROCESS_SAVE="${IID_UMAP_FEATURE_POSTPROCESS_SAVE:-}"
 IID_UMAP_NORMALIZATION_PRESET="${IID_UMAP_NORMALIZATION_PRESET:-zscore_rescaled}"
@@ -55,7 +57,6 @@ IID_AUDIO_CONTEXT_SECONDS="${IID_AUDIO_CONTEXT_SECONDS:-2.0}"
 
 IID_CLUSTER_EMBEDDING_VARIANT="${IID_CLUSTER_EMBEDDING_VARIANT:-before}"
 IID_CLUSTER_MIN_CLUSTER_SIZE="${IID_CLUSTER_MIN_CLUSTER_SIZE:-100}"
-IID_CLUSTER_MIN_CLUSTER_HITS="${IID_CLUSTER_MIN_CLUSTER_HITS:-1}"
 IID_CLUSTER_OVERLAP_THRESHOLD="${IID_CLUSTER_OVERLAP_THRESHOLD:-0.3}"
 
 usage() {
@@ -86,6 +87,8 @@ set_bird_config() {
       IID_ANNOTATION_JSON="$ROOT/files/zf_annotations.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
       IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-30}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-5}"
       ;;
     bf)
       IID_BIRD_KEY="bf"
@@ -94,6 +97,8 @@ set_bird_config() {
       IID_ANNOTATION_JSON="$ROOT/files/bf_annotations.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
       IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-30}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-5}"
       ;;
     canary)
       IID_BIRD_KEY="canary"
@@ -102,6 +107,8 @@ set_bird_config() {
       IID_ANNOTATION_JSON="$ROOT/files/canary_annotations_for_individual_id.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/canary/individual_identification"
       IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-100}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-10}"
       ;;
     chiffchaff)
       IID_BIRD_KEY="chiffchaff"
@@ -109,7 +116,9 @@ set_bird_config() {
       IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz"
       IID_ANNOTATION_JSON="$ROOT/files/chiffchaff_annotations.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/chiffchaff"
-      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-0}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-300}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-50}"
       ;;
     european_starling|starling)
       IID_BIRD_KEY="european_starling"
@@ -118,6 +127,8 @@ set_bird_config() {
       IID_ANNOTATION_JSON="$ROOT/files/european_starling_annotations_unprefixed.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/european_starling"
       IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-100}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-10}"
       ;;
     tree_pipit)
       IID_BIRD_KEY="tree_pipit"
@@ -125,7 +136,9 @@ set_bird_config() {
       IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz"
       IID_ANNOTATION_JSON="$ROOT/files/tree_pipit_annotations.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/tree_pipit"
-      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-0}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-100}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-10}"
       ;;
     little_owl)
       IID_BIRD_KEY="little_owl"
@@ -133,7 +146,9 @@ set_bird_config() {
       IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz"
       IID_ANNOTATION_JSON="$ROOT/files/little_owl_annotations.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/little_owl"
-      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-0}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-30}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-5}"
       ;;
     orangutan)
       IID_BIRD_KEY="orangutan"
@@ -141,7 +156,10 @@ set_bird_config() {
       IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/orangutan_64hop_32khz"
       IID_ANNOTATION_JSON="$ROOT/files/orangutan_annotations.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/orangutan"
-      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_RECORDING_MODE="full_recordings"
+      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-0}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-250}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-50}"
       ;;
     ovenbird|lapp_ovenbird)
       IID_BIRD_KEY="ovenbird"
@@ -149,7 +167,10 @@ set_bird_config() {
       IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz"
       IID_ANNOTATION_JSON="$ROOT/files/lapp_ovenbird.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/ovenbird_lapp_sample"
-      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
+      IID_RECORDING_MODE="events"
+      IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-0}"
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-30}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-5}"
       ;;
     *)
       echo "Unknown bird target: $bird" >&2
@@ -174,26 +195,8 @@ set_model_config() {
   IID_CHECKPOINT="${IID_CHECKPOINT_OVERRIDE:-}"
   case "$model_preset" in
     species_default)
-      IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-species_continue10k_32h10w}"
-      if [[ -n "${IID_RUN_DIR_OVERRIDE:-}" ]]; then
-        IID_RUN_DIR="$IID_RUN_DIR_OVERRIDE"
-        return
-      fi
-      case "$IID_BIRD_KEY" in
-        zf)
-          IID_RUN_DIR="$ROOT/runs/xcm_voronoi_mask_no_normalize_32h_10w_zf_continue10k_bs24_20260302_133416"
-          ;;
-        bf)
-          IID_RUN_DIR="$ROOT/runs/xcm_voronoi_mask_no_normalize_32h_10w_bf_continue10k_bs24_20260311_131742"
-          ;;
-        canary)
-          IID_RUN_DIR="$ROOT/runs/xcm_voronoi_mask_no_normalize_32h_10w_canary_continue10k_bs24_20260312_141845"
-          ;;
-        *)
-          echo "No default species run configured for '$IID_BIRD_KEY'. Set IID_RUN_DIR_OVERRIDE." >&2
-          exit 1
-          ;;
-      esac
+      IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-/media/george-vengrovski/Desk SSD/LAMBDA_TRAIN_RUNS/runs/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8}"
+      IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8_ckpt499999}"
       ;;
     data2vec_40k)
       IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT/runs/merged_data2vec_from_xcm_40k}"
@@ -296,7 +299,7 @@ run_suite() {
   export IID_LINEAR_AUDIO_PARAMS_STATS_DIR
   export IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT
   export IID_AVES_MODEL_PATH IID_AVES_CONFIG_PATH IID_PERCH_MODEL_NAME IID_PERCH_AUDIO_SR IID_PERCH_WINDOW_SECONDS IID_WAV_ROOT IID_WAV_MANIFEST IID_WAV_EXTS IID_AVES_AUDIO_SR IID_AUDIO_CONTEXT_SECONDS
-  export IID_CLUSTER_OUT_DIR IID_CLUSTER_EMBEDDING_VARIANT IID_CLUSTER_MIN_CLUSTER_SIZE IID_CLUSTER_MIN_CLUSTER_HITS IID_CLUSTER_OVERLAP_THRESHOLD
+  export IID_CLUSTER_OUT_DIR IID_CLUSTER_EMBEDDING_VARIANT IID_CLUSTER_MIN_CLUSTER_SIZE IID_CLUSTER_OVERLAP_THRESHOLD
 
   echo "[individual_id] bird=$IID_BIRD_KEY model=$MODEL_PRESET run_dir=$IID_RUN_DIR"
   if [[ "$RUN_UMAP" == "1" ]]; then
