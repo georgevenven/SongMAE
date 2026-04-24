@@ -281,6 +281,263 @@ def _recording_random_window_mean_cosine(args, rows):
     return similarity.detach().cpu().numpy().astype(np.float32, copy=False), extras
 
 
+def _sample_row_features(args, row):
+    features = row["features"]
+    if args.max_points_per_recording <= 0 or features.shape[0] <= args.max_points_per_recording:
+        return features.astype(np.float32, copy=False)
+
+    key = f"{args.seed}|{row['bird_id']}|{row['recording_stem']}|gaussian"
+    row_seed = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16)
+    rng = np.random.default_rng(row_seed)
+    indices = rng.choice(features.shape[0], size=args.max_points_per_recording, replace=False)
+    indices.sort()
+    return features[indices].astype(np.float32, copy=False)
+
+
+def _mmd_split_features(args, rows):
+    rows_by_bird = {}
+    for row in rows:
+        rows_by_bird.setdefault(row["bird_id"], []).append(row)
+
+    split_rows = []
+    feature_sets = []
+    for bird_id in sorted(rows_by_bird):
+        bird_rows = rows_by_bird[bird_id]
+        if len(bird_rows) < 2:
+            continue
+        bird_hash = int(hashlib.sha1(bird_id.encode("utf-8")).hexdigest()[:8], 16)
+        rng = np.random.default_rng(args.seed + bird_hash)
+        order = rng.permutation(len(bird_rows))
+        splits = [order[: len(order) // 2], order[len(order) // 2 :]]
+        for split_index, split in enumerate(splits):
+            sampled = [_sample_row_features(args, bird_rows[index]) for index in split]
+            features = np.vstack(sampled).astype(np.float32, copy=False)
+            if features.shape[0] > args.mmd_points_per_split:
+                indices = rng.choice(features.shape[0], size=args.mmd_points_per_split, replace=False)
+                indices.sort()
+                features = features[indices]
+            split_rows.append(
+                {
+                    "bird_id": bird_id,
+                    "recording_stem": f"{bird_id}_split{split_index}",
+                    "point_count": int(sum(bird_rows[index]["point_count"] for index in split)),
+                    "sampled_point_count": int(features.shape[0]),
+                }
+            )
+            feature_sets.append(features.astype(np.float32, copy=False))
+
+    assert split_rows, "Need at least one individual with two recordings."
+    return split_rows, feature_sets
+
+
+def _mmd_bandwidth(args, feature_sets, device):
+    pooled = np.vstack(feature_sets).astype(np.float32, copy=False)
+    if pooled.shape[0] > args.mmd_bandwidth_points:
+        rng = np.random.default_rng(args.seed)
+        indices = rng.choice(pooled.shape[0], size=args.mmd_bandwidth_points, replace=False)
+        pooled = pooled[indices]
+    x = torch.from_numpy(pooled).to(device=device, dtype=torch.float32)
+    distances = torch.pdist(x)
+    median = torch.median(distances[distances > 0])
+    assert torch.isfinite(median)
+    return float(median.item())
+
+
+def _rbf_mean(x, y, denominator):
+    distances = torch.cdist(x, y).square()
+    return torch.exp(-distances / denominator).mean()
+
+
+def _individual_mmd_distances(args, rows):
+    split_rows, feature_sets = _mmd_split_features(args, rows)
+
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    sigma = _mmd_bandwidth(args, feature_sets, device) * float(args.mmd_sigma_scale)
+    denominator = 2.0 * sigma * sigma
+    tensors = [torch.from_numpy(features).to(device=device, dtype=torch.float32) for features in feature_sets]
+    self_means = [_rbf_mean(x, x, denominator) for x in tensors]
+
+    n = len(tensors)
+    mmd = np.zeros((n, n), dtype=np.float32)
+    for i in range(n):
+        for j in range(i + 1, n):
+            value = self_means[i] + self_means[j] - 2.0 * _rbf_mean(tensors[i], tensors[j], denominator)
+            mmd[i, j] = mmd[j, i] = float(torch.clamp(value, min=0.0).item())
+
+    extras = {
+        "arrays": {},
+        "summary": {
+            "mmd_kernel": "rbf",
+            "mmd_sigma": sigma,
+            "mmd_points_per_split": int(args.mmd_points_per_split),
+            "mmd_bandwidth_points": int(args.mmd_bandwidth_points),
+            "mmd_feature_dim": int(feature_sets[0].shape[1]),
+            "device": str(device),
+        },
+    }
+    return split_rows, mmd, extras
+
+
+def _sample_mmd_recording_features(args, row):
+    features = row["features"]
+    key = f"{args.seed}|{row['bird_id']}|{row['recording_stem']}|recording_mmd"
+    row_seed = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16)
+    rng = np.random.default_rng(row_seed)
+    replace = features.shape[0] < args.mmd_points_per_recording
+    indices = rng.choice(features.shape[0], size=args.mmd_points_per_recording, replace=replace)
+    indices.sort()
+    return features[indices].astype(np.float32, copy=False)
+
+
+def _recording_kernel_matrices(args, rows):
+    feature_sets = []
+    for row in rows:
+        features = _sample_mmd_recording_features(args, row)
+        row["sampled_point_count"] = int(features.shape[0])
+        row.pop("features")
+        feature_sets.append(features)
+
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    sigma = _mmd_bandwidth(args, feature_sets, device) * float(args.mmd_sigma_scale)
+    denominator = 2.0 * sigma * sigma
+    x = torch.from_numpy(np.stack(feature_sets)).to(device=device, dtype=torch.float32)
+
+    self_means = []
+    for start in range(0, x.shape[0], int(args.mmd_pair_batch_size)):
+        batch = x[start : start + int(args.mmd_pair_batch_size)]
+        kernels = torch.exp(-torch.cdist(batch, batch).square() / denominator)
+        self_means.append(kernels.mean(dim=(1, 2)))
+    self_means = torch.cat(self_means)
+
+    pair_i, pair_j = np.triu_indices(x.shape[0], k=1)
+    cross = np.eye(x.shape[0], dtype=np.float32)
+    mmd = np.zeros((x.shape[0], x.shape[0]), dtype=np.float32)
+    for start in range(0, pair_i.size, int(args.mmd_pair_batch_size)):
+        end = min(start + int(args.mmd_pair_batch_size), pair_i.size)
+        i = torch.from_numpy(pair_i[start:end]).to(device=device, dtype=torch.long)
+        j = torch.from_numpy(pair_j[start:end]).to(device=device, dtype=torch.long)
+        cross_values = torch.exp(-torch.cdist(x[i], x[j]).square() / denominator).mean(dim=(1, 2))
+        mmd_values = torch.clamp(self_means[i] + self_means[j] - 2.0 * cross_values, min=0.0)
+        cross_values = cross_values.detach().cpu().numpy().astype(np.float32, copy=False)
+        mmd_values = mmd_values.detach().cpu().numpy().astype(np.float32, copy=False)
+        cross[pair_i[start:end], pair_j[start:end]] = cross_values
+        cross[pair_j[start:end], pair_i[start:end]] = cross_values
+        mmd[pair_i[start:end], pair_j[start:end]] = mmd_values
+        mmd[pair_j[start:end], pair_i[start:end]] = mmd_values
+
+    extras = {
+        "arrays": {
+            "recording_kernel_cross_mean": cross,
+            "recording_mmd_rbf": mmd,
+        },
+        "summary": {
+            "mmd_kernel": "rbf",
+            "mmd_sigma": sigma,
+            "mmd_sigma_scale": float(args.mmd_sigma_scale),
+            "mmd_points_per_recording": int(args.mmd_points_per_recording),
+            "mmd_bandwidth_points": int(args.mmd_bandwidth_points),
+            "mmd_pair_batch_size": int(args.mmd_pair_batch_size),
+            "mmd_feature_dim": int(x.shape[2]),
+            "device": str(device),
+        },
+    }
+    self = self_means.detach().cpu().numpy().astype(np.float32, copy=False)
+    return cross, self, mmd, extras
+
+
+def _recording_mmd_distances(args, rows):
+    _, _, mmd, extras = _recording_kernel_matrices(args, rows)
+    return mmd, extras
+
+
+def _recording_kernel_overlap(args, rows):
+    cross, self, mmd, extras = _recording_kernel_matrices(args, rows)
+    normalization = np.sqrt(np.maximum(self[:, None] * self[None, :], 1e-12))
+    overlap = np.clip(cross / normalization, 0.0, 1.0).astype(np.float32, copy=False)
+    np.fill_diagonal(overlap, 1.0)
+    extras["arrays"]["recording_mmd_rbf"] = mmd
+    extras["summary"]["kernel_overlap_normalization"] = "cosine"
+    return overlap, extras
+
+
+def _fit_gaussian(features, regularization):
+    x = features.astype(np.float64, copy=False)
+    mean = x.mean(axis=0)
+    centered = x - mean
+    covariance = centered.T @ centered / max(x.shape[0] - 1, 1)
+    covariance.flat[:: covariance.shape[0] + 1] += regularization
+    sign, logdet = np.linalg.slogdet(covariance)
+    assert sign > 0
+    return mean, covariance, float(logdet)
+
+
+def _individual_gaussian_distances(args, rows):
+    rows_by_bird = {}
+    for row in rows:
+        rows_by_bird.setdefault(row["bird_id"], []).append(row)
+
+    split_rows = []
+    gaussians = []
+    for bird_id in sorted(rows_by_bird):
+        bird_rows = rows_by_bird[bird_id]
+        if len(bird_rows) < 2:
+            continue
+        bird_hash = int(hashlib.sha1(bird_id.encode("utf-8")).hexdigest()[:8], 16)
+        rng = np.random.default_rng(args.seed + bird_hash)
+        order = rng.permutation(len(bird_rows))
+        splits = [order[: len(order) // 2], order[len(order) // 2 :]]
+        for split_index, split in enumerate(splits):
+            sampled = [_sample_row_features(args, bird_rows[index]) for index in split]
+            features = np.vstack(sampled).astype(np.float32, copy=False)
+            split_rows.append(
+                {
+                    "bird_id": bird_id,
+                    "recording_stem": f"{bird_id}_split{split_index}",
+                    "point_count": int(sum(bird_rows[index]["point_count"] for index in split)),
+                    "sampled_point_count": int(features.shape[0]),
+                }
+            )
+            gaussians.append(_fit_gaussian(features, args.gaussian_regularization))
+
+    assert split_rows, "Need at least one individual with two recordings."
+    n = len(split_rows)
+    bhattacharyya = np.zeros((n, n), dtype=np.float32)
+    symmetric_kl = np.zeros((n, n), dtype=np.float32)
+    dim = int(gaussians[0][0].shape[0])
+
+    for i in range(n):
+        mean_i, cov_i, logdet_i = gaussians[i]
+        for j in range(i + 1, n):
+            mean_j, cov_j, logdet_j = gaussians[j]
+            diff = mean_j - mean_i
+            avg_cov = (cov_i + cov_j) * 0.5
+            sign, avg_logdet = np.linalg.slogdet(avg_cov)
+            assert sign > 0
+
+            bhatta = 0.125 * diff.dot(np.linalg.solve(avg_cov, diff))
+            bhatta += 0.5 * (avg_logdet - 0.5 * (logdet_i + logdet_j))
+
+            solve_ij = np.linalg.solve(cov_j, cov_i)
+            solve_ji = np.linalg.solve(cov_i, cov_j)
+            kl_ij = np.trace(solve_ij) + diff.dot(np.linalg.solve(cov_j, diff)) - dim + logdet_j - logdet_i
+            kl_ji = np.trace(solve_ji) + diff.dot(np.linalg.solve(cov_i, diff)) - dim + logdet_i - logdet_j
+
+            bhattacharyya[i, j] = bhattacharyya[j, i] = float(bhatta)
+            symmetric_kl[i, j] = symmetric_kl[j, i] = float(0.25 * (kl_ij + kl_ji))
+
+    extras = {
+        "arrays": {
+            "gaussian_symmetric_kl": symmetric_kl,
+        },
+        "summary": {
+            "gaussian_covariance": "full",
+            "gaussian_regularization": float(args.gaussian_regularization),
+            "gaussian_feature_dim": dim,
+        },
+    }
+    return split_rows, bhattacharyya, extras
+
+
 def _recording_knn_similarity(args, rows):
     transformed, recording_indices = _sample_recording_features(args, rows)
 
@@ -494,6 +751,14 @@ def _similarity_label(args):
         return "Whole-recording mean cosine similarity"
     if args.similarity_mode == "random_window_mean_cosine":
         return "Mean random-window cosine similarity"
+    if args.similarity_mode == "individual_gaussian_bhattacharyya":
+        return "Individual split Gaussian Bhattacharyya distance"
+    if args.similarity_mode == "individual_mmd_rbf":
+        return "Individual split RBF MMD^2"
+    if args.similarity_mode == "recording_mmd_rbf":
+        return "Recording RBF MMD^2"
+    if args.similarity_mode == "recording_kernel_overlap":
+        return "Recording normalized RBF kernel overlap"
     if args.similarity_mode == "knn_overlap":
         return "Local kNN overlap"
     if args.similarity_mode == "neighbor_enrichment":
@@ -599,7 +864,13 @@ def _write_outputs(args, rows, similarity, within, between, feature_postprocess,
     upper = similarity[np.triu_indices(similarity.shape[0], k=1)]
     plot_min = 0.0
     plot_max = 1.0
-    if args.similarity_mode in {"recording_mean_cosine", "random_window_mean_cosine"}:
+    if args.similarity_mode in {
+        "recording_mean_cosine",
+        "random_window_mean_cosine",
+        "individual_gaussian_bhattacharyya",
+        "individual_mmd_rbf",
+        "recording_mmd_rbf",
+    }:
         plot_min = float(np.percentile(upper, 0.5))
         plot_max = float(np.percentile(upper, 99.5))
     if args.similarity_mode in {"knn_overlap", "neighbor_enrichment"}:
@@ -693,6 +964,10 @@ def main():
             "pca_histogram_bhattacharyya",
             "recording_mean_cosine",
             "random_window_mean_cosine",
+            "individual_gaussian_bhattacharyya",
+            "individual_mmd_rbf",
+            "recording_mmd_rbf",
+            "recording_kernel_overlap",
             "knn_overlap",
             "neighbor_enrichment",
             "two_afc",
@@ -707,6 +982,12 @@ def main():
     parser.add_argument("--knn_chunk_size", type=int, default=512)
     parser.add_argument("--afc_trials_per_query", type=int, default=20)
     parser.add_argument("--afc_chunk_size", type=int, default=262144)
+    parser.add_argument("--gaussian_regularization", type=float, default=1e-3)
+    parser.add_argument("--mmd_points_per_split", type=int, default=512)
+    parser.add_argument("--mmd_points_per_recording", type=int, default=128)
+    parser.add_argument("--mmd_bandwidth_points", type=int, default=4096)
+    parser.add_argument("--mmd_pair_batch_size", type=int, default=512)
+    parser.add_argument("--mmd_sigma_scale", type=float, default=1.0)
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--embedding_variant", default="before", choices=["before", "after"])
     parser.add_argument("--feature_postprocess", default="pca_whiten_l2", choices=["none", "pca_whiten_l2", "whiten_l2"])
@@ -737,6 +1018,11 @@ def main():
     assert args.window_mean_size > 0
     assert args.windows_per_recording > 0
     assert args.cosine_chunk_size > 0
+    assert args.mmd_points_per_split > 0
+    assert args.mmd_points_per_recording > 0
+    assert args.mmd_bandwidth_points > 0
+    assert args.mmd_pair_batch_size > 0
+    assert args.mmd_sigma_scale > 0.0
     if args.feature_postprocess_load is not None:
         args.feature_postprocess_load = str(Path(args.feature_postprocess_load).resolve())
     if args.feature_postprocess_save is not None:
@@ -785,6 +1071,14 @@ def main():
                 "device": window_summary["device"],
             },
         }
+    elif args.similarity_mode == "individual_gaussian_bhattacharyya":
+        rows, similarity, extras = _individual_gaussian_distances(args, rows)
+    elif args.similarity_mode == "individual_mmd_rbf":
+        rows, similarity, extras = _individual_mmd_distances(args, rows)
+    elif args.similarity_mode == "recording_mmd_rbf":
+        similarity, extras = _recording_mmd_distances(args, rows)
+    elif args.similarity_mode == "recording_kernel_overlap":
+        similarity, extras = _recording_kernel_overlap(args, rows)
     elif args.similarity_mode == "knn_overlap":
         similarity, knn_summary = _recording_knn_similarity(args, rows)
         extras = {
