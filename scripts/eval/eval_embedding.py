@@ -137,6 +137,11 @@ def main():
     parser.add_argument("--umap_neighbors", type=int, default=200, help="Number of neighbors for UMAP")
     parser.add_argument("--max_spectrograms", type=int, default=5, help="Maximum number of event spectrograms to save")
     parser.add_argument("--deterministic", action="store_true", help="Use deterministic UMAP with random_state")
+    parser.add_argument("--embedding_postprocess", type=str, default="none", choices=["none", "pca_whiten_l2", "whiten_l2"])
+    parser.add_argument("--embedding_postprocess_dim", type=int, default=256)
+    parser.add_argument("--embedding_postprocess_key", type=str, default="encoded_embeddings_before_pos_removal")
+    parser.add_argument("--embedding_postprocess_load", type=str, default=None)
+    parser.add_argument("--embedding_postprocess_save", type=str, default=None)
     args = parser.parse_args()
 
     out_dir = Path(args.results_dir)
@@ -155,6 +160,11 @@ def main():
         "encoder_layer_idx": args.encoder_layer_idx,
         "spec_normalization": args.songmae_input_normalization,
         "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+        "embedding_postprocess": args.embedding_postprocess,
+        "embedding_postprocess_dim": args.embedding_postprocess_dim,
+        "embedding_postprocess_key": args.embedding_postprocess_key,
+        "embedding_postprocess_load": args.embedding_postprocess_load,
+        "embedding_postprocess_save": args.embedding_postprocess_save,
     }
     extract_embedding.main(extract_args)
 
@@ -195,6 +205,11 @@ def main():
         "spectrograms": spectrograms,
         "songmae_input_normalization": args.songmae_input_normalization,
         "songmae_input_normalization_stats_dir": args.songmae_input_normalization_stats_dir,
+        "embedding_postprocess": args.embedding_postprocess,
+        "embedding_postprocess_dim": args.embedding_postprocess_dim,
+        "embedding_postprocess_key": args.embedding_postprocess_key,
+        "embedding_postprocess_load": args.embedding_postprocess_load,
+        "embedding_postprocess_save": args.embedding_postprocess_save,
     }
     if args.encoder_layer_idx is not None:
         metrics["encoder_layer_idx"] = int(args.encoder_layer_idx)

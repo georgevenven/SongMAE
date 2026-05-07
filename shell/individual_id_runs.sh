@@ -49,6 +49,10 @@ IID_AVES_CONFIG_PATH="${IID_AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaud
 IID_PERCH_MODEL_NAME="${IID_PERCH_MODEL_NAME:-perch_v2}"
 IID_PERCH_AUDIO_SR="${IID_PERCH_AUDIO_SR:-32000}"
 IID_PERCH_WINDOW_SECONDS="${IID_PERCH_WINDOW_SECONDS:-5.0}"
+IID_HUBERT_MODEL_NAME="${IID_HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
+IID_HUBERT_AUDIO_SR="${IID_HUBERT_AUDIO_SR:-16000}"
+IID_BIRD_MAE_MODEL_NAME="${IID_BIRD_MAE_MODEL_NAME:-DBD-research-group/Bird-MAE-Base}"
+IID_BIRD_MAE_AUDIO_SR="${IID_BIRD_MAE_AUDIO_SR:-32000}"
 IID_WAV_ROOT="${IID_WAV_ROOT:-${IID_AVES_WAV_ROOT:-}}"
 IID_WAV_MANIFEST="${IID_WAV_MANIFEST:-${IID_AVES_WAV_MANIFEST:-}}"
 IID_WAV_EXTS="${IID_WAV_EXTS:-${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}}"
@@ -59,8 +63,21 @@ IID_CLUSTER_EMBEDDING_VARIANT="${IID_CLUSTER_EMBEDDING_VARIANT:-before}"
 IID_CLUSTER_MIN_CLUSTER_SIZE="${IID_CLUSTER_MIN_CLUSTER_SIZE:-100}"
 IID_CLUSTER_OVERLAP_THRESHOLD="${IID_CLUSTER_OVERLAP_THRESHOLD:-0.3}"
 
+apply_encoder_pool_config() {
+  case "$IID_ENCODER" in
+    BirdMAE)
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-4}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-1}"
+      ;;
+    Perch)
+      IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-1}"
+      IID_POOL_HOP="${IID_POOL_HOP_OVERRIDE:-1}"
+      ;;
+  esac
+}
+
 usage() {
-  echo "Usage: $0 <species_default|data2vec_40k|birdaves_base|perch_2_0> [all|zf|bf|canary|chiffchaff|european_starling|tree_pipit|little_owl|orangutan|ovenbird ...]"
+  echo "Usage: $0 <species_default|data2vec_40k|birdaves_base|perch_2_0|hubert_base|bird_mae_base> [all|zf|bf|canary|chiffchaff|european_starling|tree_pipit|little_owl|orangutan|ovenbird ...]"
 }
 
 latest_checkpoint() {
@@ -123,8 +140,8 @@ set_bird_config() {
     european_starling|starling)
       IID_BIRD_KEY="european_starling"
       IID_SPECIES="european_starling"
-      IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz"
-      IID_ANNOTATION_JSON="$ROOT/files/european_starling_annotations_unprefixed.json"
+      IID_SPEC_DIR="/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed"
+      IID_ANNOTATION_JSON="$ROOT/files/european_starling_annotations_fixed.json"
       IID_WAV_ROOT="/media/george-vengrovski/disk2/raw_data/european_starling"
       IID_SONGS_PER_BIRD="${IID_SONGS_PER_BIRD_OVERRIDE:-30}"
       IID_POOL_WINDOW="${IID_POOL_WINDOW_OVERRIDE:-100}"
@@ -210,12 +227,24 @@ set_model_config() {
       IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-data2vec_$(checkpoint_suffix "$IID_CHECKPOINT")}"
       ;;
     birdaves_base|aves_base|birdaves)
+      IID_ENCODER="AVES"
       IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT}"
       IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-birdaves_base}"
       ;;
     perch_2_0|perch_v2|perch)
+      IID_ENCODER="Perch"
       IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT}"
       IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-perch_v2}"
+      ;;
+    hubert_base|hubert)
+      IID_ENCODER="HuBERT"
+      IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT}"
+      IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-hubert_base_ls960}"
+      ;;
+    bird_mae_base|birdmae_base|birdmae)
+      IID_ENCODER="BirdMAE"
+      IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT}"
+      IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-bird_mae_base}"
       ;;
     *)
       echo "Unknown model preset: $model_preset" >&2
@@ -287,6 +316,7 @@ run_suite() {
 
   set_bird_config "$bird"
   set_model_config "$MODEL_PRESET"
+  apply_encoder_pool_config
   set_output_dirs
   IID_AVES_WAV_ROOT="$IID_WAV_ROOT"
   IID_AVES_WAV_MANIFEST="$IID_WAV_MANIFEST"
@@ -298,22 +328,18 @@ run_suite() {
   export IID_LINEAR_OUT_DIR IID_LINEAR_VAL_FRACTION IID_LINEAR_C IID_LINEAR_MAX_ITER IID_LINEAR_FEATURE_POSTPROCESS IID_LINEAR_FEATURE_POSTPROCESS_DIM IID_LINEAR_POOL_HOP IID_LINEAR_NORMALIZATION_PRESET IID_LINEAR_SONGMAE_EMBEDDING_VARIANT IID_LINEAR_WINDOW_MEAN_POOL IID_LINEAR_WINDOW_CONCAT IID_LINEAR_WINDOW_TOKEN_PROBE
   export IID_LINEAR_AUDIO_PARAMS_STATS_DIR
   export IID_LINEAR_TRAIN_AUDIO_SPEED_MIN_PCT IID_LINEAR_TRAIN_AUDIO_SPEED_MAX_PCT
-  export IID_AVES_MODEL_PATH IID_AVES_CONFIG_PATH IID_PERCH_MODEL_NAME IID_PERCH_AUDIO_SR IID_PERCH_WINDOW_SECONDS IID_WAV_ROOT IID_WAV_MANIFEST IID_WAV_EXTS IID_AVES_AUDIO_SR IID_AUDIO_CONTEXT_SECONDS
+  export IID_AVES_MODEL_PATH IID_AVES_CONFIG_PATH IID_PERCH_MODEL_NAME IID_PERCH_AUDIO_SR IID_PERCH_WINDOW_SECONDS IID_HUBERT_MODEL_NAME IID_HUBERT_AUDIO_SR IID_BIRD_MAE_MODEL_NAME IID_BIRD_MAE_AUDIO_SR IID_WAV_ROOT IID_WAV_MANIFEST IID_WAV_EXTS IID_AVES_AUDIO_SR IID_AUDIO_CONTEXT_SECONDS
   export IID_CLUSTER_OUT_DIR IID_CLUSTER_EMBEDDING_VARIANT IID_CLUSTER_MIN_CLUSTER_SIZE IID_CLUSTER_OVERLAP_THRESHOLD
 
   echo "[individual_id] bird=$IID_BIRD_KEY model=$MODEL_PRESET run_dir=$IID_RUN_DIR"
   if [[ "$RUN_UMAP" == "1" ]]; then
-    if [[ "$IID_ENCODER" == "Perch" ]]; then
-      echo "[individual_id] skipping umap for encoder=Perch"
-    else
-      bash "$UMAP_SCRIPT"
-    fi
+    bash "$UMAP_SCRIPT"
   fi
   if [[ "$RUN_LINEAR_PROBE" == "1" ]]; then
     bash "$LINEAR_SCRIPT"
   fi
   if [[ "$RUN_CLUSTER" == "1" ]]; then
-    if [[ "$IID_ENCODER" == "AVES" ]] || [[ "$IID_ENCODER" == "Perch" ]]; then
+    if [[ "$IID_ENCODER" == "AVES" ]] || [[ "$IID_ENCODER" == "Perch" ]] || [[ "$IID_ENCODER" == "HuBERT" ]] || [[ "$IID_ENCODER" == "BirdMAE" ]]; then
       echo "[individual_id] skipping cluster for encoder=$IID_ENCODER"
     else
       bash "$CLUSTER_SCRIPT"

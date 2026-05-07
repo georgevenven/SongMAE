@@ -4,7 +4,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -13,14 +12,22 @@ import numpy as np
 import torch
 from matplotlib.colors import LinearSegmentedColormap, PowerNorm
 from scipy.sparse import coo_matrix
-from scipy.sparse import csgraph
-from scipy.sparse.linalg import eigsh
 from scipy.sparse.linalg import svds
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 sys.path.append(str(ROOT / "src"))
 
 import extract_embedding  # noqa: E402
+import aves  # noqa: E402
+import bird_mae  # noqa: E402
+import hubert  # noqa: E402
+import perch  # noqa: E402
+from individual_identification_linear_probe import (  # noqa: E402
+    _apply_spec_normalization_preset,
+    _pool_recording,
+)
+from run_individual_id_umap import _load_patch_width  # noqa: E402
 
 NAME_ALIASES = {
     "zf": "Zebra finch",
@@ -35,6 +42,16 @@ NAME_ALIASES = {
 
 KNN_CMAP = LinearSegmentedColormap.from_list("knn_overlap", ["#fffdf7", "#ffe66d", "#d7301f"])
 KNN_NORM_GAMMA = 0.45
+PURITY_COLORS = [
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#CC79A7",
+    "#E69F00",
+    "#56B4E9",
+    "#332288",
+    "#882255",
+]
 
 SPECIES = {
     "zf": ("Zebra_Finch", "files/zf_annotations.json", "/media/george-vengrovski/disk2/specs/zf_64hop_32khz", "full_recordings"),
@@ -42,7 +59,7 @@ SPECIES = {
     "canary": ("canary", "files/canary_annotations_for_individual_id.json", "/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz", "full_recordings"),
     "ovenbird": ("ovenbird", "files/lapp_ovenbird.json", "/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz", "events"),
     "chiffchaff": ("chiffchaff", "files/chiffchaff_annotations.json", "/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz", "full_recordings"),
-    "european_starling": ("european_starling", "files/european_starling_annotations_unprefixed.json", "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz", "full_recordings"),
+    "european_starling": ("european_starling", "files/european_starling_annotations_fixed.json", "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed", "full_recordings"),
     "tree_pipit": ("tree_pipit", "files/tree_pipit_annotations.json", "/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz", "full_recordings"),
     "little_owl": ("little_owl", "files/little_owl_annotations.json", "/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz", "full_recordings"),
 }
@@ -94,9 +111,9 @@ def _pick(stems, limit, seed, bird_id):
 def _selected_recordings(args):
     species, annotation_json, spec_dir, recording_mode = SPECIES[args.species_key]
     args.species = species
-    args.annotation_json = str(ROOT / annotation_json)
-    args.spec_dir = spec_dir
-    args.recording_mode = recording_mode
+    args.annotation_json = str(Path(args.annotation_json_override).resolve()) if args.annotation_json_override else str(ROOT / annotation_json)
+    args.spec_dir = str(Path(args.spec_dir_override).resolve()) if args.spec_dir_override else spec_dir
+    args.recording_mode = args.recording_mode_override or recording_mode
     args.run_dir = str(_resolve_run_dir(args.run_dir))
 
     rows = []
@@ -116,7 +133,7 @@ def _feature_key(args):
     return "encoded_embeddings_after_pos_removal"
 
 
-def _extract(args, selected):
+def _extract_songmae_tokens(args, selected):
     model_state = extract_embedding.load_model_state({"run_dir": args.run_dir, "checkpoint": args.checkpoint})
     if args.spec_normalization == "auto":
         args.spec_normalization, args.normalization_stats_dir = extract_embedding.get_native_input_normalization(model_state)
@@ -132,8 +149,8 @@ def _extract(args, selected):
         "spec_normalization": args.spec_normalization,
         "normalization_stats_dir": args.normalization_stats_dir,
         "minimal_output": args.embedding_variant == "before",
-        "embedding_postprocess": "pca_whiten_l2",
-        "embedding_postprocess_dim": 1024,
+        "embedding_postprocess": "none",
+        "embedding_postprocess_dim": args.feature_postprocess_dim,
         "embedding_postprocess_key": key,
         "embedding_postprocess_load": None,
         "embedding_postprocess_save": None,
@@ -154,6 +171,92 @@ def _extract(args, selected):
     return rows
 
 
+def _load_encoder_state(args):
+    if args.encoder == "SongMAE":
+        model_state = extract_embedding.load_model_state({"run_dir": args.run_dir, "checkpoint": args.checkpoint})
+        args.songmae_input_normalization, args.songmae_input_normalization_stats_dir = extract_embedding.get_native_input_normalization(
+            model_state
+        )
+        return model_state
+    if args.encoder == "AVES":
+        return aves.load_model_state_for_inference(
+            {
+                "run_dir": args.run_dir,
+                "checkpoint": args.checkpoint,
+                "encoder_layer_idx": args.encoder_layer_idx,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "audio_sr": args.aves_audio_sr,
+                "audio_context_seconds": args.audio_context_seconds,
+                "aves_model_path": args.aves_model_path,
+                "aves_config_path": args.aves_config_path,
+            }
+        )
+    if args.encoder == "Perch":
+        return perch.load_model_state_for_inference(
+            {
+                "run_dir": args.run_dir,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "perch_model_name": args.perch_model_name,
+                "perch_audio_sr": args.perch_audio_sr,
+                "perch_window_seconds": args.perch_window_seconds,
+            }
+        )
+    if args.encoder == "HuBERT":
+        return hubert.load_model_state_for_inference(
+            {
+                "run_dir": args.run_dir,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "hubert_model_name": args.hubert_model_name,
+                "hubert_audio_sr": args.hubert_audio_sr,
+            }
+        )
+    if args.encoder == "BirdMAE":
+        return bird_mae.load_model_state_for_inference(
+            {
+                "run_dir": args.run_dir,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "bird_mae_model_name": args.bird_mae_model_name,
+                "bird_mae_audio_sr": args.bird_mae_audio_sr,
+            }
+        )
+    assert args.encoder == "Spec"
+    return None
+
+
+def _extract_linear_encoder(args, selected):
+    _apply_spec_normalization_preset(args)
+    model_state = _load_encoder_state(args)
+    patch_width = 1 if args.encoder in {"AVES", "Perch", "HuBERT", "BirdMAE"} else _load_patch_width(Path(args.run_dir))
+    rows = []
+    for row in selected:
+        features, _, _ = _pool_recording(
+            args,
+            row["bird_id"],
+            row["recording_stem"],
+            patch_width,
+            model_state,
+            apply_audio_speed_augmentation=False,
+        )
+        if features.shape[0] > 0:
+            rows.append({**row, "features": features.astype(np.float32, copy=False)})
+    assert rows
+    return rows
+
+
+def _extract(args, selected):
+    if args.encoder == "SongMAE" and args.songmae_affinity_features == "tokens":
+        return _extract_songmae_tokens(args, selected)
+    return _extract_linear_encoder(args, selected)
+
+
 def _sample(args, rows):
     bird_ids = sorted({row["bird_id"] for row in rows})
     bird_to_code = {bird_id: index for index, bird_id in enumerate(bird_ids)}
@@ -163,12 +266,16 @@ def _sample(args, rows):
     recording_birds = []
     recording_stems = []
     counts = []
+    per_recording_cap = args.max_points_per_recording
+    if args.max_total_points > 0:
+        total_cap = max(1, args.max_total_points // len(rows))
+        per_recording_cap = total_cap if per_recording_cap <= 0 else min(per_recording_cap, total_cap)
     for recording_index, row in enumerate(rows):
         x = row["features"]
-        if args.max_points_per_recording > 0 and x.shape[0] > args.max_points_per_recording:
+        if per_recording_cap > 0 and x.shape[0] > per_recording_cap:
             key = f"{args.seed}|{row['bird_id']}|{row['recording_stem']}|bird-matrix"
             rng = np.random.default_rng(int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16))
-            indices = np.sort(rng.choice(x.shape[0], size=args.max_points_per_recording, replace=False))
+            indices = np.sort(rng.choice(x.shape[0], size=per_recording_cap, replace=False))
             x = x[indices]
         bird = bird_to_code[row["bird_id"]]
         features.append(x)
@@ -185,7 +292,20 @@ def _sample(args, rows):
         "recording_stems": np.asarray(recording_stems, dtype=object),
         "bird_ids": np.asarray(bird_ids, dtype=object),
         "sampled_counts": np.asarray(counts, dtype=np.int64),
+        "point_cap_per_recording": int(per_recording_cap),
     }
+
+
+def _postprocess_sampled_features(args, sampled):
+    if args.feature_postprocess == "none":
+        return None
+    transform = extract_embedding.fit_feature_postprocess(
+        sampled["features"],
+        mode=args.feature_postprocess,
+        dim=args.feature_postprocess_dim,
+    )
+    sampled["features"] = extract_embedding.apply_feature_postprocess_transform(sampled["features"], transform)
+    return transform
 
 
 def _knn(args, sampled, k):
@@ -254,53 +374,6 @@ def _recording_matrix(sampled, neighbors, k):
     return matrix
 
 
-def _laplacian_summary(matrix, num_eigenvalues):
-    adjacency = (matrix + matrix.T) * 0.5
-    np.fill_diagonal(adjacency, 0.0)
-    laplacian = csgraph.laplacian(adjacency, normed=True)
-    n_eigs = max(2, min(num_eigenvalues, adjacency.shape[0] - 1))
-    if adjacency.shape[0] <= 2:
-        values = np.linalg.eigvalsh(laplacian)
-    else:
-        values = np.sort(eigsh(laplacian, k=n_eigs, which="SM", return_eigenvectors=False))
-    gaps = np.diff(values)
-    estimate = int(np.argmax(gaps) + 1) if gaps.size else 1
-    return {
-        "eigengap_estimate": estimate,
-        "eigenvalues": [float(x) for x in values],
-        "gaps": [float(x) for x in gaps],
-    }
-
-
-def _top_k_graph(matrix, top_k):
-    rows = []
-    cols = []
-    vals = []
-    for row_index in range(matrix.shape[0]):
-        row = matrix[row_index]
-        keep = np.flatnonzero(row > 0)
-        if keep.size == 0:
-            continue
-        if keep.size > top_k:
-            keep = keep[np.argpartition(row[keep], -top_k)[-top_k:]]
-        rows.extend([row_index] * keep.size)
-        cols.extend(keep.tolist())
-        vals.extend(row[keep].tolist())
-    graph = coo_matrix((vals, (rows, cols)), shape=matrix.shape).tocsr()
-    graph = graph.maximum(graph.T).tocsr()
-    graph.setdiag(0)
-    graph.eliminate_zeros()
-    return graph
-
-
-def _graph_eigengap(graph, num_eigenvalues):
-    laplacian = csgraph.laplacian(graph, normed=True)
-    n_eigs = max(2, min(num_eigenvalues, graph.shape[0] - 1))
-    values = np.sort(eigsh(laplacian, k=n_eigs, which="SM", return_eigenvectors=False, tol=1e-3))
-    gaps = np.diff(values)
-    return int(np.argmax(gaps) + 1), values, gaps
-
-
 def _stable_rank(matrix):
     graph = coo_matrix(matrix).tocsr()
     graph = (graph + graph.T) * 0.5
@@ -347,7 +420,7 @@ def _subset_experiment(args, out_dir):
     path = out_dir / "knn_attribution_matrices.npz"
     assert path.exists(), f"run matrix build first: {path}"
     data = np.load(path, allow_pickle=True)
-    full_matrix = data["recording_matrix"].astype(np.float32, copy=False)
+    matrix = data["recording_matrix"].astype(np.float32, copy=False)
     recording_birds = data["recording_birds"].astype(np.int64, copy=False)
     bird_ids = data["bird_ids"]
     counts = _subset_counts(args.subset_counts, bird_ids.size)
@@ -379,49 +452,36 @@ def _subset_experiment(args, out_dir):
                         bird_recordings = np.sort(rng.choice(bird_recordings, size=per_bird, replace=False))
                     indices.append(bird_recordings)
                 indices = np.sort(np.concatenate(indices))
-                subset = full_matrix[np.ix_(indices, indices)]
-                graph = _top_k_graph(subset, args.graph_top_k)
-                estimate, values, gaps = _graph_eigengap(graph, args.num_eigenvalues)
-                stable_rank = _stable_rank(subset)
+                subset = matrix[np.ix_(indices, indices)]
                 rows.append(
                     {
                         "true_count": int(true_count),
                         "recordings_per_bird": int(per_bird),
                         "repeat": int(repeat),
                         "recordings": int(indices.size),
-                        "components": int(csgraph.connected_components(graph, directed=False, return_labels=False)),
-                        "eigengap_estimate": int(estimate),
-                        "stable_rank": stable_rank,
-                        "abs_error": int(abs(estimate - true_count)),
-                        "top_gap": float(gaps.max()) if gaps.size else 0.0,
+                        "stable_rank": _stable_rank(subset),
+                        "row_normalized_stable_rank": _row_normalized_stable_rank(subset),
                     }
                 )
 
     csv_path = out_dir / "subset_recording_count_sweep.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-
+    _write_rows_csv(csv_path, rows)
     by_recording_count = {}
     for per_bird in recordings_per_bird:
         group = [row for row in rows if row["recordings_per_bird"] == per_bird]
         by_recording_count[str(per_bird)] = {
-            "linear_fit_r2": _linear_fit_r2(group, "eigengap_estimate"),
             "stable_rank_r2": _linear_fit_r2(group, "stable_rank"),
-            "mae": float(np.mean([row["abs_error"] for row in group])),
+            "row_normalized_stable_rank_r2": _linear_fit_r2(group, "row_normalized_stable_rank"),
             "rows": len(group),
         }
     summary = {
-        "method": "recording_matrix_top_k_laplacian_subset_count_sweep",
+        "method": "recording_matrix_stable_rank_subset_count_sweep",
         "source": str(path),
-        "top_k": int(args.graph_top_k),
         "subset_counts": counts,
         "subset_recordings_per_bird": recordings_per_bird,
         "subset_repeats": int(args.subset_repeats),
-        "overall_linear_fit_r2": _linear_fit_r2(rows, "eigengap_estimate"),
         "overall_stable_rank_r2": _linear_fit_r2(rows, "stable_rank"),
-        "overall_mae": float(np.mean([row["abs_error"] for row in rows])),
+        "overall_row_normalized_stable_rank_r2": _linear_fit_r2(rows, "row_normalized_stable_rank"),
         "by_recordings_per_bird": by_recording_count,
     }
     (out_dir / "subset_recording_count_sweep_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -438,17 +498,12 @@ def _read_subset_rows(path):
                     "recordings_per_bird": int(row["recordings_per_bird"]),
                     "repeat": int(row["repeat"]),
                     "recordings": int(row["recordings"]),
-                    "eigengap_estimate": int(row["eigengap_estimate"]),
-                    "stable_rank": float(row.get("stable_rank", 0.0)),
+                    "stable_rank": float(row["stable_rank"]),
+                    "row_normalized_stable_rank": float(row.get("row_normalized_stable_rank", row["stable_rank"])),
                 }
             )
     assert rows
     return rows
-
-
-def _linear_fit(rows):
-    x = np.asarray([row["eigengap_estimate"] for row in rows], dtype=np.float64)
-    return _linear_fit_xy(rows, x)
 
 
 def _linear_fit_xy(rows, x):
@@ -467,27 +522,17 @@ def _plot_subset_experiment(args, out_dir):
 
     fig, ax = plt.subplots(figsize=(6.2, 4.8), dpi=300)
     ax.scatter(x, y, s=34, alpha=0.78, color="#2f6fbb", edgecolor="white", linewidth=0.45)
-
-    x_line = np.linspace(max(0.0, float(x.min()) - 1.0), float(x.max()) + 1.0, 200)
+    x_line = np.linspace(float(x.min()), float(x.max()), 200)
     ax.plot(x_line, slope * x_line + intercept, color="black", linestyle="--", linewidth=1.0)
-    ax.text(
-        0.04,
-        0.96,
-        f"$R^2$ = {r2:.3f}",
-        transform=ax.transAxes,
-        va="top",
-        ha="left",
-        fontsize=10,
-        bbox={"facecolor": "white", "edgecolor": "0.82", "boxstyle": "round,pad=0.28", "alpha": 0.92},
-    )
+    ax.text(0.04, 0.96, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=10)
     ax.set_xlabel(args.plot_x_label)
     ax.set_ylabel("Known number of singers")
-    ax.set_title(args.plot_title or f"{args.species_key} recording count proxy")
+    ax.set_title(args.plot_title or f"{args.species_key} stable-rank count proxy")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
 
-    out_base = Path(args.plot_out) if args.plot_out else out_dir / f"{csv_path.stem}_regression"
+    out_base = Path(args.plot_out) if args.plot_out else out_dir / f"{csv_path.stem}_{args.plot_prediction_key}_regression"
     out_base.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(out_base) + ".png", bbox_inches="tight", dpi=300)
     fig.savefig(str(out_base) + ".pdf", bbox_inches="tight", dpi=300)
@@ -541,7 +586,7 @@ def _save_all_species_scatter(root, prediction_key, x_label, filename):
         x_values = np.asarray([row[prediction_key] for row in rows], dtype=np.float64)
         x, y, slope, intercept, r2 = _linear_fit_xy(rows, x_values)
         ax.scatter(x, y, s=14, alpha=0.72, color="#2f6fbb", edgecolor="white", linewidth=0.25)
-        x_line = np.linspace(max(0.0, float(x.min()) - 1.0), float(x.max()) + 1.0, 200)
+        x_line = np.linspace(float(x.min()), float(x.max()), 200)
         ax.plot(x_line, slope * x_line + intercept, color="black", linestyle="--", linewidth=0.8)
         ax.text(0.05, 0.94, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=9)
         ax.set_title(NAME_ALIASES[species_key], fontsize=15)
@@ -564,7 +609,7 @@ def _variable_recording_rows(root, species_key, min_fraction, repeats, seed):
     n_birds = len(data["bird_ids"])
     by_bird = [np.flatnonzero(recording_birds == bird) for bird in range(n_birds)]
     max_recordings = min(len(x) for x in by_bird)
-    min_recordings = max(1, math.ceil(min_fraction * max_recordings))
+    min_recordings = max(1, int(np.ceil(min_fraction * max_recordings)))
     rng = np.random.default_rng(seed)
     rows = []
     for true_count in range(1, n_birds + 1):
@@ -575,14 +620,15 @@ def _variable_recording_rows(root, species_key, min_fraction, repeats, seed):
                 for bird in birds:
                     indices.append(rng.choice(by_bird[bird], size=recordings_per_bird, replace=False))
                 indices = np.sort(np.concatenate(indices))
+                subset = matrix[np.ix_(indices, indices)]
                 rows.append(
                     {
                         "true_count": int(true_count),
                         "recordings_per_bird": int(recordings_per_bird),
                         "repeat": int(repeat),
                         "recordings": int(indices.size),
-                        "stable_rank": _stable_rank(matrix[np.ix_(indices, indices)]),
-                        "row_normalized_stable_rank": _row_normalized_stable_rank(matrix[np.ix_(indices, indices)]),
+                        "stable_rank": _stable_rank(subset),
+                        "row_normalized_stable_rank": _row_normalized_stable_rank(subset),
                     }
                 )
     return rows, min_recordings, max_recordings
@@ -595,8 +641,8 @@ def _write_rows_csv(path, rows):
         writer.writerows(rows)
 
 
-def _plot_stable_rank_rows(rows, title, out_base):
-    x_values = np.asarray([row["stable_rank"] for row in rows], dtype=np.float64)
+def _plot_stable_rank_rows(rows, key, title, out_base):
+    x_values = np.asarray([row[key] for row in rows], dtype=np.float64)
     x, y, slope, intercept, r2 = _linear_fit_xy(rows, x_values)
     fig, ax = plt.subplots(figsize=(6.2, 4.8), dpi=300)
     ax.scatter(x, y, s=18, alpha=0.38, color="#2f6fbb", edgecolor="none")
@@ -619,8 +665,7 @@ def _plot_variable_collage(root, species_keys, key, csv_stem, filename):
     fig, panels = _panel_grid(species_keys, (12, 6.2))
     for ax, species_key in panels:
         path = root / species_key / f"{csv_stem}.csv"
-        with path.open(newline="", encoding="utf-8") as f:
-            rows = [{"true_count": int(row["true_count"]), key: float(row[key])} for row in csv.DictReader(f)]
+        rows = _read_subset_rows(path)
         x_values = np.asarray([row[key] for row in rows], dtype=np.float64)
         x, y, slope, intercept, r2 = _linear_fit_xy(rows, x_values)
         ax.scatter(x, y, s=10, alpha=0.31, color="#2f6fbb", edgecolor="none")
@@ -647,9 +692,10 @@ def _save_variable_recording_stable_rank(root, min_fraction, repeats, seed):
     for species_key in species_keys:
         rows, min_recordings, max_recordings = _variable_recording_rows(root, species_key, min_fraction, repeats, seed)
         _write_rows_csv(root / species_key / f"{stem}.csv", rows)
-        raw_r2 = _plot_stable_rank_rows(rows, NAME_ALIASES[species_key], root / species_key / stem)
+        raw_r2 = _plot_stable_rank_rows(rows, "stable_rank", NAME_ALIASES[species_key], root / species_key / stem)
         norm_r2 = _plot_stable_rank_rows(
-            [{**row, "stable_rank": row["row_normalized_stable_rank"]} for row in rows],
+            rows,
+            "row_normalized_stable_rank",
             NAME_ALIASES[species_key],
             root / species_key / f"row_normalized_{stem}",
         )
@@ -664,28 +710,37 @@ def _save_variable_recording_stable_rank(root, min_fraction, repeats, seed):
             }
         )
 
-    filename = f"all_species_{stem}"
-    _plot_variable_collage(root, species_keys, "stable_rank", stem, filename)
+    _plot_variable_collage(root, species_keys, "stable_rank", stem, f"all_species_{stem}")
     _plot_variable_collage(root, species_keys, "row_normalized_stable_rank", stem, f"all_species_row_normalized_{stem}")
-    _write_rows_csv(root / f"stable_rank_variable_recordings_per_bird_min{int(min_fraction * 100)}pct_summary.csv", summary)
+    _write_rows_csv(root / f"{stem}_summary.csv", summary)
 
 
 def _save_all_species_purity(root):
-    fig, ax = plt.subplots(figsize=(7.2, 4.8), dpi=300)
-    for species_key in NAME_ALIASES:
+    fig, ax = plt.subplots(figsize=(7.4, 5.4), dpi=300)
+    for index, species_key in enumerate(NAME_ALIASES):
         path = root / species_key / "knn_purity.csv"
         with path.open(newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         x = np.asarray([int(row["k"]) for row in rows], dtype=np.int64)
         y = np.asarray([float(row["purity"]) for row in rows], dtype=np.float64)
-        ax.plot(x, y, marker="o", markersize=3.2, linewidth=1.15, label=NAME_ALIASES[species_key])
+        ax.plot(
+            x,
+            y,
+            color=PURITY_COLORS[index % len(PURITY_COLORS)],
+            marker="o",
+            markersize=5.0,
+            linewidth=1.8,
+            label=NAME_ALIASES[species_key],
+        )
     ax.set_xscale("log", base=2)
     ax.set_xticks(x)
     ax.set_xticklabels([str(k) for k in x])
     ax.set_ylim(0, 1)
-    ax.set_xlabel("k nearest neighbors", fontsize=14)
-    ax.set_ylabel("Same-singer fraction", fontsize=14)
-    ax.legend(frameon=False, fontsize=8.5, ncol=2)
+    ax.set_xlabel("k nearest neighbors", fontsize=16)
+    ax.set_ylabel("Same-singer fraction", fontsize=16)
+    ax.tick_params(axis="both", labelsize=13)
+    ax.set_box_aspect(1)
+    ax.legend(frameon=False, fontsize=10.5, loc="center left", bbox_to_anchor=(1.03, 0.5))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
@@ -698,20 +753,18 @@ def _save_all_species_summary_csv(root):
     rows = []
     for species_key in NAME_ALIASES:
         summary = json.loads((root / species_key / "summary.json").read_text(encoding="utf-8"))
-        subset = json.loads(
-            (root / species_key / "subset_recording_count_sweep_all_recordings_all_counts_summary.json").read_text(
-                encoding="utf-8"
-            )
-        )
+        subset = json.loads((root / species_key / "subset_recording_count_sweep_all_recordings_all_counts_summary.json").read_text(encoding="utf-8"))
         rows.append(
             {
                 "species": species_key,
                 "recordings": summary["recordings"],
                 "points": summary["points"],
-                "full_recording_eigengap": summary["recording_laplacian"]["eigengap_estimate"],
-                "subset_r2": subset["overall_linear_fit_r2"],
+                "bird_diag_mean": summary["bird_diag_mean"],
+                "bird_off_diag_mean": summary["bird_off_diag_mean"],
+                "recording_diag_mean": summary["recording_diag_mean"],
+                "recording_off_diag_mean": summary["recording_off_diag_mean"],
                 "stable_rank_r2": subset["overall_stable_rank_r2"],
-                "subset_mae": subset["overall_mae"],
+                "row_normalized_stable_rank_r2": subset["overall_row_normalized_stable_rank_r2"],
             }
         )
     with (root / "all_species_summary.csv").open("w", newline="", encoding="utf-8") as f:
@@ -724,17 +777,12 @@ def _plot_all_species_summary(args):
     root = Path(args.out_dir)
     _save_all_species_heatmaps(root, "bird_matrix", "all_species_bird_knn_heatmaps")
     _save_all_species_heatmaps(root, "recording_matrix", "all_species_recording_knn_heatmaps")
+    _save_all_species_scatter(root, "stable_rank", "Stable rank", "all_species_stable_rank_proxy")
     _save_all_species_scatter(
         root,
-        "eigengap_estimate",
-        "Eigengap estimate",
-        "all_species_recording_count_proxy",
-    )
-    _save_all_species_scatter(
-        root,
-        "stable_rank",
-        "Stable rank",
-        "all_species_stable_rank_proxy",
+        "row_normalized_stable_rank",
+        "Row-normalized stable rank",
+        "all_species_row_normalized_stable_rank_proxy",
     )
     _save_variable_recording_stable_rank(root, 0.30, args.variable_recording_repeats, args.seed)
     _save_all_species_purity(root)
@@ -746,8 +794,8 @@ def _plot_all_species_summary(args):
                 "figures": [
                     "all_species_bird_knn_heatmaps.png",
                     "all_species_recording_knn_heatmaps.png",
-                    "all_species_recording_count_proxy.png",
                     "all_species_stable_rank_proxy.png",
+                    "all_species_row_normalized_stable_rank_proxy.png",
                     "all_species_stable_rank_variable_recordings_per_bird_min30pct.png",
                     "all_species_row_normalized_stable_rank_variable_recordings_per_bird_min30pct.png",
                     "all_species_knn_purity.png",
@@ -762,16 +810,26 @@ def _plot_all_species_summary(args):
 def _save_purity_plot(args, out_dir, k_values, purity, chance):
     x = np.asarray(k_values, dtype=np.int64)
     y = np.asarray([purity[k] for k in k_values], dtype=np.float64)
-    fig, ax = plt.subplots(figsize=(5.8, 4.4), dpi=300)
-    ax.plot(x, y, color="#2f6fbb", marker="o", markersize=4.5, linewidth=1.4)
-    ax.axhline(chance, color="black", linestyle="--", linewidth=1.0)
+    species_index = list(NAME_ALIASES).index(args.species_key)
+    fig, ax = plt.subplots(figsize=(5.6, 5.6), dpi=300)
+    ax.plot(
+        x,
+        y,
+        color=PURITY_COLORS[species_index % len(PURITY_COLORS)],
+        marker="o",
+        markersize=5.8,
+        linewidth=2.0,
+    )
+    ax.axhline(chance, color="#4D4D4D", linestyle="--", linewidth=1.2)
     ax.set_xscale("log", base=2)
     ax.set_xticks(x)
     ax.set_xticklabels([str(k) for k in x])
     ax.set_ylim(0.0, min(1.0, max(0.2, float(y.max()) + 0.08)))
-    ax.set_xlabel("k nearest neighbors", fontsize=14)
-    ax.set_ylabel("Same-singer fraction", fontsize=14)
-    ax.set_title(NAME_ALIASES[args.species_key], fontsize=16)
+    ax.set_xlabel("k nearest neighbors", fontsize=16)
+    ax.set_ylabel("Same-singer fraction", fontsize=16)
+    ax.set_title(NAME_ALIASES[args.species_key], fontsize=18)
+    ax.tick_params(axis="both", labelsize=13)
+    ax.set_box_aspect(1)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
@@ -819,7 +877,6 @@ def _write_outputs(args, sampled, neighbors, device, actual_k, out_dir):
     chance = _chance(sampled)
     bird_matrix = _bird_matrix(sampled, neighbors, matrix_k)
     recording_matrix = _recording_matrix(sampled, neighbors, matrix_k)
-    recording_laplacian = _laplacian_summary(recording_matrix, args.num_eigenvalues)
     out_dir.mkdir(parents=True, exist_ok=True)
     _save_purity_plot(args, out_dir, k_values, purity, chance)
     _save_bird_heatmap(args, out_dir, bird_matrix, sampled["bird_ids"])
@@ -834,8 +891,6 @@ def _write_outputs(args, sampled, neighbors, device, actual_k, out_dir):
         bird_ids=sampled["bird_ids"],
         recording_birds=sampled["recording_birds"],
         recording_stems=sampled["recording_stems"],
-        recording_eigenvalues=np.asarray(recording_laplacian["eigenvalues"], dtype=np.float32),
-        recording_gaps=np.asarray(recording_laplacian["gaps"], dtype=np.float32),
     )
     with (out_dir / "knn_purity.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["k", "purity", "chance"])
@@ -844,12 +899,20 @@ def _write_outputs(args, sampled, neighbors, device, actual_k, out_dir):
             writer.writerow({"k": k, "purity": purity[k], "chance": chance})
     summary = {
         "species_key": args.species_key,
-        "pca_dim": 1024,
+        "encoder": args.encoder,
+        "songmae_affinity_features": args.songmae_affinity_features,
+        "feature_postprocess": args.feature_postprocess,
+        "feature_postprocess_dim": int(args.feature_postprocess_dim),
         "device": device,
         "recordings": int(sampled["sampled_counts"].size),
         "points": int(sampled["features"].shape[0]),
         "max_points_per_recording": int(args.max_points_per_recording),
+        "max_total_points": int(args.max_total_points),
+        "point_cap_per_recording": int(sampled["point_cap_per_recording"]),
         "songs_per_bird": int(args.songs_per_bird),
+        "pool_window": int(args.pool_window),
+        "pool_hop": int(args.pool_hop),
+        "pool_mode": args.pool_mode,
         "matrix_k": int(matrix_k),
         "chance": chance,
         "purity": {str(k): purity[k] for k in k_values},
@@ -857,24 +920,24 @@ def _write_outputs(args, sampled, neighbors, device, actual_k, out_dir):
         "bird_off_diag_mean": float(bird_matrix[~np.eye(bird_matrix.shape[0], dtype=bool)].mean()),
         "recording_diag_mean": float(np.diag(recording_matrix).mean()),
         "recording_off_diag_mean": float(recording_matrix[~np.eye(recording_matrix.shape[0], dtype=bool)].mean()),
-        "recording_laplacian": recording_laplacian,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build bird/recording kNN attribution matrices and run Laplacian eigengaps.")
+    parser = argparse.ArgumentParser(description="Build bird/recording kNN attribution matrices.")
     parser.add_argument("species_key", choices=sorted(SPECIES))
+    parser.add_argument("--encoder", default="SongMAE", choices=["SongMAE", "Spec", "AVES", "Perch", "HuBERT", "BirdMAE"])
     parser.add_argument("--run_dir", default="/media/george-vengrovski/Desk SSD/LAMBDA_TRAIN_RUNS/runs/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8")
     parser.add_argument("--checkpoint", default="model_step_499999.pth")
-    parser.add_argument("--out_dir", default=str(ROOT / "results" / "individual_id_knn_graph_metrics" / "bird_knn_matrix_laplacian"))
+    parser.add_argument("--out_dir", default=str(ROOT / "results" / "individual_id_knn_graph_metrics" / "bird_knn_matrix"))
     parser.add_argument("--songs_per_bird", type=int, default=0)
     parser.add_argument("--min_songs_per_bird", type=int, default=0)
     parser.add_argument("--max_points_per_recording", type=int, default=400)
+    parser.add_argument("--max_total_points", type=int, default=50000)
     parser.add_argument("--k_values", default="1,2,5,10,20,50,100")
     parser.add_argument("--matrix_k", type=int, default=50)
-    parser.add_argument("--num_eigenvalues", type=int, default=80)
     parser.add_argument("--knn_chunk_size", type=int, default=512)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--subset_experiment", action="store_true")
@@ -884,22 +947,70 @@ def main():
     parser.add_argument("--balanced_max_recordings_per_bird", action="store_true")
     parser.add_argument("--random_fraction_recordings_per_bird", action="store_true")
     parser.add_argument("--min_recording_fraction_per_bird", type=float, default=0.10)
-    parser.add_argument("--graph_top_k", type=int, default=20)
     parser.add_argument("--plot_subset_experiment", action="store_true")
     parser.add_argument("--plot_subset_csv", default=None)
     parser.add_argument("--plot_out", default=None)
     parser.add_argument("--plot_title", default=None)
-    parser.add_argument("--plot_prediction_key", default="eigengap_estimate", choices=["eigengap_estimate", "stable_rank"])
-    parser.add_argument("--plot_x_label", default="Laplacian eigengap component estimate")
+    parser.add_argument("--plot_prediction_key", default="stable_rank", choices=["stable_rank", "row_normalized_stable_rank"])
+    parser.add_argument("--plot_x_label", default="Stable rank")
     parser.add_argument("--plot_all_species_summary", action="store_true")
     parser.add_argument("--variable_recording_repeats", type=int, default=5)
     parser.add_argument("--exclude_same_recording", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--embedding_variant", default="before", choices=["before", "after"])
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
+    parser.add_argument("--songmae_affinity_features", default="tokens", choices=["tokens", "linear_probe"])
+    parser.add_argument("--pool_window", type=int, default=30)
+    parser.add_argument("--pool_hop", type=int, default=30)
+    parser.add_argument("--pool_mode", default="mean", choices=["mean"])
+    parser.add_argument("--window_mean_pool", action="store_true")
+    parser.add_argument("--window_concat_pool", action="store_true")
+    parser.add_argument("--window_token_probe", action="store_true")
+    parser.add_argument("--feature_postprocess", default="pca_whiten_l2", choices=["none", "pca_whiten_l2", "whiten_l2"])
+    parser.add_argument("--feature_postprocess_dim", type=int, default=1024)
     parser.add_argument("--spec_normalization", default="auto")
+    parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)
+    parser.add_argument("--audio_params_stats_dir", default=None)
     parser.add_argument("--normalization_stats_dir", default=None)
+    parser.add_argument("--spec_normalization_stats_dir", default=None)
+    parser.add_argument("--annotation_json_override", default=None)
+    parser.add_argument("--spec_dir_override", default=None)
+    parser.add_argument("--recording_mode_override", default=None, choices=["events", "full_recordings"])
+    parser.add_argument("--songmae_embedding_variant", choices=["before", "after"], default="before")
+    parser.add_argument("--aves_model_path", default=None)
+    parser.add_argument("--aves_config_path", default=None)
+    parser.add_argument("--wav_root", default=None)
+    parser.add_argument("--wav_manifest", default=None)
+    parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
+    parser.add_argument("--aves_audio_sr", type=int, default=16000)
+    parser.add_argument("--perch_model_name", default="perch_v2")
+    parser.add_argument("--perch_audio_sr", type=int, default=32000)
+    parser.add_argument("--perch_window_seconds", type=float, default=5.0)
+    parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
+    parser.add_argument("--hubert_audio_sr", type=int, default=16000)
+    parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
+    parser.add_argument("--bird_mae_audio_sr", type=int, default=32000)
+    parser.add_argument("--audio_context_seconds", type=float, default=2.0)
+    parser.add_argument("--train_audio_speed_min_pct", type=float, default=0.0)
+    parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.0)
     args = parser.parse_args()
+
+    if args.encoder != "SongMAE" and args.spec_normalization == "auto":
+        args.spec_normalization = "none"
+    if args.audio_params_stats_dir is not None:
+        args.audio_params_stats_dir = str(Path(args.audio_params_stats_dir).resolve())
+    if args.spec_normalization_stats_dir is not None:
+        args.spec_normalization_stats_dir = str(Path(args.spec_normalization_stats_dir).resolve())
+    if args.aves_model_path is not None:
+        args.aves_model_path = str(Path(args.aves_model_path).resolve())
+    if args.aves_config_path is not None:
+        args.aves_config_path = str(Path(args.aves_config_path).resolve())
+    if args.wav_root is not None:
+        args.wav_root = str(Path(args.wav_root).resolve())
+    if args.wav_manifest is not None:
+        args.wav_manifest = str(Path(args.wav_manifest).resolve())
+    args.songmae_input_normalization = None
+    args.songmae_input_normalization_stats_dir = None
 
     out_dir = Path(args.out_dir) / args.species_key
     if args.subset_experiment:
@@ -915,6 +1026,7 @@ def main():
     selected = _selected_recordings(args)
     rows = _extract(args, selected)
     sampled = _sample(args, rows)
+    _postprocess_sampled_features(args, sampled)
     neighbors, device, actual_k = _knn(args, sampled, max(max(_parse_ints(args.k_values)), args.matrix_k))
     _write_outputs(args, sampled, neighbors, device, actual_k, out_dir)
 

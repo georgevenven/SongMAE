@@ -45,6 +45,10 @@ IID_AVES_CONFIG_PATH="${IID_AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaud
 IID_PERCH_MODEL_NAME="${IID_PERCH_MODEL_NAME:-perch_v2}"
 IID_PERCH_AUDIO_SR="${IID_PERCH_AUDIO_SR:-32000}"
 IID_PERCH_WINDOW_SECONDS="${IID_PERCH_WINDOW_SECONDS:-5.0}"
+IID_HUBERT_MODEL_NAME="${IID_HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
+IID_HUBERT_AUDIO_SR="${IID_HUBERT_AUDIO_SR:-16000}"
+IID_BIRD_MAE_MODEL_NAME="${IID_BIRD_MAE_MODEL_NAME:-DBD-research-group/Bird-MAE-Base}"
+IID_BIRD_MAE_AUDIO_SR="${IID_BIRD_MAE_AUDIO_SR:-32000}"
 IID_WAV_ROOT="${IID_WAV_ROOT:-${IID_AVES_WAV_ROOT:-}}"
 IID_WAV_MANIFEST="${IID_WAV_MANIFEST:-${IID_AVES_WAV_MANIFEST:-}}"
 IID_WAV_EXTS="${IID_WAV_EXTS:-${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}}"
@@ -132,6 +136,14 @@ if [[ "$IID_ENCODER" == "Perch" ]]; then
   cmd+=(--perch_model_name "$IID_PERCH_MODEL_NAME")
   cmd+=(--perch_audio_sr "$IID_PERCH_AUDIO_SR")
   cmd+=(--perch_window_seconds "$IID_PERCH_WINDOW_SECONDS")
+fi
+if [[ "$IID_ENCODER" == "HuBERT" ]]; then
+  cmd+=(--hubert_model_name "$IID_HUBERT_MODEL_NAME")
+  cmd+=(--hubert_audio_sr "$IID_HUBERT_AUDIO_SR")
+fi
+if [[ "$IID_ENCODER" == "BirdMAE" ]]; then
+  cmd+=(--bird_mae_model_name "$IID_BIRD_MAE_MODEL_NAME")
+  cmd+=(--bird_mae_audio_sr "$IID_BIRD_MAE_AUDIO_SR")
 fi
 
 "${cmd[@]}"

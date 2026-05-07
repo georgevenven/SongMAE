@@ -21,6 +21,8 @@ sys.path.append(str(ROOT / "src"))
 import extract_embedding
 from run_individual_id_umap import (
     _load_aves_segments,
+    _load_bird_mae_segments,
+    _load_hubert_segments,
     _load_patch_width,
     _load_recording_stems_by_bird,
     _load_spec_segments,
@@ -30,6 +32,8 @@ from run_individual_id_umap import (
     _resolve_run_dir,
 )
 import aves
+import bird_mae
+import hubert
 import perch
 
 # Perch uses a separate TensorFlow stack. Run this script with:
@@ -381,11 +385,16 @@ def _pool_recording(
                 pooled_parts.append(pooled)
                 if args.window_token_probe:
                     group_parts.append(group_ids)
-    elif args.encoder == "AVES":
+    elif args.encoder in {"AVES", "HuBERT", "BirdMAE"}:
         aves_args = argparse.Namespace(**vars(args))
         aves_args.train_audio_speed_min_pct = audio_speed_args["train_audio_speed_min_pct"]
         aves_args.train_audio_speed_max_pct = audio_speed_args["train_audio_speed_max_pct"]
-        segments = _load_aves_segments(aves_args, bird_id, recording_stem, model_state)
+        if args.encoder == "AVES":
+            segments = _load_aves_segments(aves_args, bird_id, recording_stem, model_state)
+        elif args.encoder == "HuBERT":
+            segments = _load_hubert_segments(aves_args, bird_id, recording_stem, model_state)
+        else:
+            segments = _load_bird_mae_segments(aves_args, bird_id, recording_stem, model_state)
         pooled_parts = []
         group_parts = []
         grouped_example_count = 0
@@ -551,7 +560,7 @@ def _apply_train_feature_postprocess(x_train, x_val, args):
 
 def main():
     parser = argparse.ArgumentParser(description="Train an individual-identification linear probe on pooled per-recording features.")
-    parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES", "Perch"])
+    parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES", "Perch", "HuBERT", "BirdMAE"])
     parser.add_argument("--species", required=True)
     parser.add_argument("--annotation_json", required=True)
     parser.add_argument("--spec_dir", required=True)
@@ -592,6 +601,10 @@ def main():
     parser.add_argument("--perch_model_name", default="perch_v2")
     parser.add_argument("--perch_audio_sr", type=int, default=32000)
     parser.add_argument("--perch_window_seconds", type=float, default=5.0)
+    parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
+    parser.add_argument("--hubert_audio_sr", type=int, default=16000)
+    parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
+    parser.add_argument("--bird_mae_audio_sr", type=int, default=32000)
     parser.add_argument("--audio_context_seconds", type=float, default=2.0)
     parser.add_argument("--train_audio_speed_min_pct", type=float, default=0.0)
     parser.add_argument("--train_audio_speed_max_pct", type=float, default=0.0)
@@ -636,7 +649,7 @@ def main():
     active_window_modes = int(args.window_mean_pool) + int(args.window_concat_pool) + int(args.window_token_probe)
     assert active_window_modes <= 1, "Choose at most one window aggregation mode."
     if args.train_audio_speed_max_pct > 0.0:
-        assert args.encoder in {"SongMAE", "AVES", "Spec", "Perch"}
+        assert args.encoder in {"SongMAE", "AVES", "Spec", "Perch", "HuBERT", "BirdMAE"}
         assert args.wav_root is not None or args.wav_manifest is not None
 
     if args.encoder == "Spec":
@@ -646,11 +659,15 @@ def main():
         assert not args.window_mean_pool, "Perch emits one embedding per fixed window; no pooling needed."
         assert not args.window_concat_pool, "Perch emits one embedding per fixed window; no concat pooling needed."
         assert not args.window_token_probe, "Perch token probing is not supported."
+    if args.encoder == "HuBERT":
+        assert not args.window_concat_pool, "HuBERT concat pooling is not supported."
+    if args.encoder == "BirdMAE":
+        assert not args.window_concat_pool, "Bird-MAE concat pooling is not supported."
 
     _apply_spec_normalization_preset(args)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    patch_width = 1 if args.encoder in {"AVES", "Perch"} else _load_patch_width(run_dir)
+    patch_width = 1 if args.encoder in {"AVES", "Perch", "HuBERT", "BirdMAE"} else _load_patch_width(run_dir)
     model_state = None
     args.songmae_input_normalization = None
     args.songmae_input_normalization_stats_dir = None
@@ -690,6 +707,28 @@ def main():
                 "perch_model_name": args.perch_model_name,
                 "perch_audio_sr": args.perch_audio_sr,
                 "perch_window_seconds": args.perch_window_seconds,
+            }
+        )
+    elif args.encoder == "HuBERT":
+        model_state = hubert.load_model_state_for_inference(
+            {
+                "run_dir": str(run_dir),
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "hubert_model_name": args.hubert_model_name,
+                "hubert_audio_sr": args.hubert_audio_sr,
+            }
+        )
+    elif args.encoder == "BirdMAE":
+        model_state = bird_mae.load_model_state_for_inference(
+            {
+                "run_dir": str(run_dir),
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "bird_mae_model_name": args.bird_mae_model_name,
+                "bird_mae_audio_sr": args.bird_mae_audio_sr,
             }
         )
 
@@ -834,6 +873,10 @@ def main():
             "perch_model_name": args.perch_model_name,
             "perch_audio_sr": int(args.perch_audio_sr),
             "perch_window_seconds": float(args.perch_window_seconds),
+            "hubert_model_name": args.hubert_model_name,
+            "hubert_audio_sr": int(args.hubert_audio_sr),
+            "bird_mae_model_name": args.bird_mae_model_name,
+            "bird_mae_audio_sr": int(args.bird_mae_audio_sr),
             "audio_context_seconds": float(args.audio_context_seconds),
             "train_audio_speed_min_pct": float(args.train_audio_speed_min_pct),
             "train_audio_speed_max_pct": float(args.train_audio_speed_max_pct),

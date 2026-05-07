@@ -158,6 +158,8 @@ def build_command(exp, out_dir):
     for key, value in exp["extra_args"].items():
         if key == "pre_encoder":
             continue
+        if value is None:
+            continue
         flag = f"--{key}"
         if isinstance(value, bool):
             if value:
@@ -194,6 +196,9 @@ def main():
         )
         if "encoder_layer_idx" in extra_args and extra_args["encoder_layer_idx"] is not None:
             out_dir = out_dir / slugify(f"layer_{extra_args['encoder_layer_idx']}")
+        postprocess = extra_args.get("embedding_postprocess")
+        if postprocess and postprocess != "none":
+            out_dir = out_dir / slugify(postprocess)
         out_dir.mkdir(parents=True, exist_ok=True)
         command = build_command(exp, out_dir)
         if args.dry_run:

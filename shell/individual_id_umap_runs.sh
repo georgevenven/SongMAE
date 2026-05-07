@@ -37,6 +37,15 @@ IID_AVES_WAV_ROOT="${IID_AVES_WAV_ROOT:-/media/george-vengrovski/disk2/raw_data/
 IID_AVES_WAV_MANIFEST="${IID_AVES_WAV_MANIFEST:-}"
 IID_AVES_WAV_EXTS="${IID_AVES_WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
 IID_AVES_AUDIO_SR="${IID_AVES_AUDIO_SR:-16000}"
+IID_PERCH_MODEL_NAME="${IID_PERCH_MODEL_NAME:-perch_v2}"
+IID_PERCH_AUDIO_SR="${IID_PERCH_AUDIO_SR:-32000}"
+IID_PERCH_WINDOW_SECONDS="${IID_PERCH_WINDOW_SECONDS:-5.0}"
+IID_HUBERT_MODEL_NAME="${IID_HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
+IID_HUBERT_AUDIO_SR="${IID_HUBERT_AUDIO_SR:-16000}"
+IID_BIRD_MAE_MODEL_NAME="${IID_BIRD_MAE_MODEL_NAME:-DBD-research-group/Bird-MAE-Base}"
+IID_BIRD_MAE_AUDIO_SR="${IID_BIRD_MAE_AUDIO_SR:-32000}"
+IID_AUDIO_CONTEXT_SECONDS="${IID_AUDIO_CONTEXT_SECONDS:-2.0}"
+IID_UMAP_SILHOUETTE_SAMPLE_SIZE="${IID_UMAP_SILHOUETTE_SAMPLE_SIZE:-10000}"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -59,6 +68,8 @@ cmd=(
   --max_points "$IID_UMAP_MAX_POINTS"
   --feature_postprocess "$IID_UMAP_FEATURE_POSTPROCESS"
   --feature_postprocess_dim "$IID_UMAP_FEATURE_POSTPROCESS_DIM"
+  --audio_context_seconds "$IID_AUDIO_CONTEXT_SECONDS"
+  --silhouette_sample_size "$IID_UMAP_SILHOUETTE_SAMPLE_SIZE"
 )
 
 if [[ -n "${IID_CHECKPOINT:-}" ]]; then
@@ -82,6 +93,34 @@ if [[ "$IID_ENCODER" == "AVES" ]]; then
   cmd+=(--wav_root "$IID_AVES_WAV_ROOT")
   cmd+=(--wav_exts "$IID_AVES_WAV_EXTS")
   cmd+=(--aves_audio_sr "$IID_AVES_AUDIO_SR")
+  if [[ -n "$IID_AVES_WAV_MANIFEST" ]]; then
+    cmd+=(--wav_manifest "$IID_AVES_WAV_MANIFEST")
+  fi
+fi
+if [[ "$IID_ENCODER" == "HuBERT" ]]; then
+  cmd+=(--hubert_model_name "$IID_HUBERT_MODEL_NAME")
+  cmd+=(--hubert_audio_sr "$IID_HUBERT_AUDIO_SR")
+  cmd+=(--wav_root "$IID_AVES_WAV_ROOT")
+  cmd+=(--wav_exts "$IID_AVES_WAV_EXTS")
+  if [[ -n "$IID_AVES_WAV_MANIFEST" ]]; then
+    cmd+=(--wav_manifest "$IID_AVES_WAV_MANIFEST")
+  fi
+fi
+if [[ "$IID_ENCODER" == "Perch" ]]; then
+  cmd+=(--perch_model_name "$IID_PERCH_MODEL_NAME")
+  cmd+=(--perch_audio_sr "$IID_PERCH_AUDIO_SR")
+  cmd+=(--perch_window_seconds "$IID_PERCH_WINDOW_SECONDS")
+  cmd+=(--wav_root "$IID_AVES_WAV_ROOT")
+  cmd+=(--wav_exts "$IID_AVES_WAV_EXTS")
+  if [[ -n "$IID_AVES_WAV_MANIFEST" ]]; then
+    cmd+=(--wav_manifest "$IID_AVES_WAV_MANIFEST")
+  fi
+fi
+if [[ "$IID_ENCODER" == "BirdMAE" ]]; then
+  cmd+=(--bird_mae_model_name "$IID_BIRD_MAE_MODEL_NAME")
+  cmd+=(--bird_mae_audio_sr "$IID_BIRD_MAE_AUDIO_SR")
+  cmd+=(--wav_root "$IID_AVES_WAV_ROOT")
+  cmd+=(--wav_exts "$IID_AVES_WAV_EXTS")
   if [[ -n "$IID_AVES_WAV_MANIFEST" ]]; then
     cmd+=(--wav_manifest "$IID_AVES_WAV_MANIFEST")
   fi

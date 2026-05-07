@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import colorsys
 import hashlib
 import json
 import sys
@@ -9,15 +10,18 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
-from matplotlib import cm
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 sys.path.append(str(ROOT / "src"))
 
 import aves  # noqa: E402
+import bird_mae  # noqa: E402
 import extract_embedding  # noqa: E402
+import hubert  # noqa: E402
+import perch  # noqa: E402
 
 
 SPECIES_CONFIGS = {
@@ -294,6 +298,31 @@ def _fit_pca(features, target_dim):
     return pca.fit_transform(features).astype(np.float32, copy=False)
 
 
+def _load_recording_features(path, mode, dim, alpha):
+    if path is None:
+        return None
+    data = np.load(path, allow_pickle=True)
+    stems = [str(x) for x in data["recording_stems"].tolist()]
+    matrix = data["recording_matrix"].astype(np.float32, copy=False)
+    matrix = (matrix + matrix.T) * np.float32(0.5)
+    np.fill_diagonal(matrix, 0.0)
+    if mode == "affinity_row":
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        features = matrix / np.maximum(norms, 1e-12)
+        features = features.astype(np.float32, copy=False) * np.float32(alpha)
+        return dict(zip(stems, features))
+
+    assert mode == "svd"
+    u, s, _ = np.linalg.svd(matrix, full_matrices=False)
+    dim = min(int(dim), int(s.shape[0]))
+    assert dim > 0
+    features = u[:, :dim] * np.sqrt(s[:dim])[None, :]
+    norms = np.linalg.norm(features, axis=1, keepdims=True)
+    features = features / np.maximum(norms, 1e-12)
+    features = features.astype(np.float32, copy=False) * np.float32(alpha)
+    return dict(zip(stems, features))
+
+
 def _apply_feature_postprocess(features, args):
     if args.feature_postprocess == "none":
         return features.astype(np.float32, copy=False), None
@@ -322,22 +351,36 @@ def _pool_embeddings(embeddings, window, mode, hop, layout="sliding", seed=0, st
         return np.zeros((0, embeddings.shape[1]), dtype=np.float32)
     if window <= 1:
         return embeddings.astype(np.float32, copy=False)
-    assert mode == "mean"
+    assert mode in {"mean", "stats"}
 
     if starts is None:
         starts, short_segment = _window_starts_for_length(embeddings.shape[0], window, hop, layout, seed)
     if short_segment:
-        return embeddings.mean(axis=0, keepdims=True).astype(np.float32, copy=False)
+        return _pool_chunk_stats(embeddings) if mode == "stats" else embeddings.mean(axis=0, keepdims=True).astype(np.float32, copy=False)
 
     pooled = []
     for start in starts.tolist():
         chunk = embeddings[start : start + window]
-        pooled.append(chunk.mean(axis=0))
+        pooled.append(_pool_chunk_stats(chunk)[0] if mode == "stats" else chunk.mean(axis=0))
 
     if not pooled:
-        pooled.append(embeddings.mean(axis=0))
+        pooled.append(_pool_chunk_stats(embeddings)[0] if mode == "stats" else embeddings.mean(axis=0))
 
     return np.asarray(pooled, dtype=np.float32)
+
+
+def _pool_chunk_stats(chunk):
+    quantiles = np.quantile(chunk, [0.25, 0.5, 0.75], axis=0)
+    stats = [
+        chunk.mean(axis=0),
+        chunk.std(axis=0),
+        chunk.min(axis=0),
+        chunk.max(axis=0),
+        quantiles[0],
+        quantiles[1],
+        quantiles[2],
+    ]
+    return np.concatenate(stats, axis=0)[None, :].astype(np.float32, copy=False)
 
 
 def _pool_labels(labels, window, hop, layout="sliding", seed=0, starts=None, short_segment=False):
@@ -411,12 +454,100 @@ def _fit_umap(features, neighbors, min_dist, metric):
     return reducer.fit_transform(features)
 
 
+def _label_silhouette(xy, labels, sample_size, seed):
+    labels = np.asarray(labels)
+    valid = np.isfinite(xy).all(axis=1)
+    xy = xy[valid]
+    labels = labels[valid]
+    unique, counts = np.unique(labels, return_counts=True)
+    total_points = int(xy.shape[0])
+    classes = int(unique.shape[0])
+    min_class_points = int(counts.min()) if counts.size else 0
+    if xy.shape[0] < 3 or unique.shape[0] < 2 or unique.shape[0] >= xy.shape[0]:
+        return {
+            "score": None,
+            "total_points": total_points,
+            "scored_points": 0,
+            "classes": classes,
+            "min_class_points": min_class_points,
+        }
+
+    if sample_size > 0 and xy.shape[0] > sample_size:
+        if unique.shape[0] >= sample_size:
+            return {
+                "score": None,
+                "total_points": total_points,
+                "scored_points": 0,
+                "classes": classes,
+                "min_class_points": min_class_points,
+            }
+        rng = np.random.default_rng(seed)
+        keep = []
+        for label in unique.tolist():
+            label_indices = np.flatnonzero(labels == label)
+            keep.append(int(rng.choice(label_indices)))
+        remaining = int(sample_size) - len(keep)
+        if remaining > 0:
+            mask = np.ones((xy.shape[0],), dtype=bool)
+            mask[np.asarray(keep, dtype=np.int64)] = False
+            extra = rng.choice(np.flatnonzero(mask), size=remaining, replace=False)
+            keep.extend(extra.tolist())
+        keep = np.asarray(sorted(keep), dtype=np.int64)
+        xy = xy[keep]
+        labels = labels[keep]
+    return {
+        "score": float(silhouette_score(xy, labels, metric="euclidean")),
+        "total_points": total_points,
+        "scored_points": int(xy.shape[0]),
+        "classes": classes,
+        "min_class_points": min_class_points,
+    }
+
+
+def _syllable_plot_labels(birds, syllables):
+    categories = []
+    for bird, syllable in zip(birds.tolist(), syllables.tolist()):
+        if int(syllable) < 0:
+            categories.append("silence")
+        else:
+            categories.append(f"{bird}:{int(syllable)}")
+    return np.asarray(categories, dtype=object)
+
+
+def _umap_silhouette_scores(xy, bird_labels, syllable_labels, sample_size, seed):
+    syllable_labels = np.asarray(syllable_labels)
+    non_silence = syllable_labels >= 0
+    syllable_categories = _syllable_plot_labels(bird_labels, syllable_labels)
+    scores = {
+        "bird": _label_silhouette(xy, bird_labels, sample_size, seed),
+        "syllable": _label_silhouette(xy, syllable_categories, sample_size, seed),
+        "syllable_non_silence": _label_silhouette(
+            xy[non_silence],
+            syllable_categories[non_silence],
+            sample_size,
+            seed,
+        ),
+    }
+    print(
+        "[umap] silhouette: "
+        f"bird={scores['bird']['score']} "
+        f"syllable={scores['syllable']['score']} "
+        f"syllable_non_silence={scores['syllable_non_silence']['score']}"
+    )
+    return scores
+
+
 def _bird_palette(birds):
     birds = sorted(set(birds))
-    colors = cm.tab20(np.linspace(0, 1, max(1, len(birds))))
     palette = {}
-    for bird, color in zip(birds, colors):
-        palette[bird] = np.asarray(color, dtype=np.float32)[:3]
+    for index, bird in enumerate(birds):
+        hue = (index * 0.618033988749895) % 1.0
+        saturation = 0.72 if index % 2 == 0 else 0.9
+        value = 0.86 if (index // 2) % 2 == 0 else 0.68
+        palette[bird] = np.asarray(
+            colorsys.hsv_to_rgb(hue, saturation, value),
+            dtype=np.float32,
+        )
     return palette
 
 
@@ -459,8 +590,8 @@ def _scatter_umap(xy, labels, title, out_base):
     _format_extract_embedding_umap(ax)
     _format_umap_title(ax, title)
     fig.tight_layout()
-    fig.savefig(out_base.with_suffix(".png"), bbox_inches="tight", dpi=300)
-    fig.savefig(out_base.with_suffix(".pdf"), bbox_inches="tight", dpi=300, format="pdf")
+    fig.savefig(out_base.parent / f"{out_base.name}.png", bbox_inches="tight", dpi=300)
+    fig.savefig(out_base.parent / f"{out_base.name}.pdf", bbox_inches="tight", dpi=300, format="pdf")
     plt.close(fig)
 
 
@@ -468,13 +599,7 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
     assert syllables.shape[0] == xy.shape[0]
     assert birds.shape[0] == xy.shape[0]
 
-    categories = []
-    for bird, syllable in zip(birds.tolist(), syllables.tolist()):
-        if int(syllable) < 0:
-            categories.append("silence")
-        else:
-            categories.append(f"{bird}:{int(syllable)}")
-
+    categories = _syllable_plot_labels(birds, syllables).tolist()
     unique = sorted(set(categories))
     non_silence = [label for label in unique if label != "silence"]
     palette = {}
@@ -513,8 +638,8 @@ def _scatter_umap_syllables(xy, syllables, birds, title, out_base):
     _format_extract_embedding_umap(ax)
     _format_umap_title(ax, title)
     fig.tight_layout()
-    fig.savefig(out_base.with_suffix(".png"), bbox_inches="tight", dpi=300)
-    fig.savefig(out_base.with_suffix(".pdf"), bbox_inches="tight", dpi=300, format="pdf")
+    fig.savefig(out_base.parent / f"{out_base.name}.png", bbox_inches="tight", dpi=300)
+    fig.savefig(out_base.parent / f"{out_base.name}.pdf", bbox_inches="tight", dpi=300, format="pdf")
     plt.close(fig)
 
 
@@ -532,8 +657,8 @@ def _scatter_single_umap(xy, title, out_base, color):
     _format_extract_embedding_umap(ax)
     _format_umap_title(ax, title)
     fig.tight_layout()
-    fig.savefig(out_base.with_suffix(".png"), bbox_inches="tight", dpi=300)
-    fig.savefig(out_base.with_suffix(".pdf"), bbox_inches="tight", dpi=300, format="pdf")
+    fig.savefig(out_base.parent / f"{out_base.name}.png", bbox_inches="tight", dpi=300)
+    fig.savefig(out_base.parent / f"{out_base.name}.pdf", bbox_inches="tight", dpi=300, format="pdf")
     plt.close(fig)
 
 
@@ -647,6 +772,7 @@ def _load_songmae_segments_by_bird(args, sampled_recordings, model_state):
             {
                 "features": features[:count],
                 "labels": labels[:count],
+                "recording_stem": segment["recording_stem"],
             }
         )
     return per_bird_segments, extracted.get("feature_postprocess")
@@ -692,6 +818,120 @@ def _load_aves_segments(args, bird_id, recording_stem, model_state):
             {
                 "features": features[:count],
                 "labels": labels[:count],
+            }
+        )
+    return segments
+
+
+def _load_hubert_segments(args, bird_id, recording_stem, model_state):
+    try:
+        extracted = hubert.extract_recording_embeddings_with_state(
+            {
+                "json_path": str(args.annotation_json),
+                "bird": bird_id,
+                "recording_stem": recording_stem,
+                "recording_mode": args.recording_mode,
+                "encoder_layer_idx": args.encoder_layer_idx,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "audio_sr": args.hubert_audio_sr,
+                "audio_context_seconds": getattr(args, "audio_context_seconds", 0.0),
+                "seed": getattr(args, "seed", 0),
+                "train_audio_speed_min_pct": getattr(args, "train_audio_speed_min_pct", 0.0),
+                "train_audio_speed_max_pct": getattr(args, "train_audio_speed_max_pct", 0.0),
+            },
+            model_state,
+        )
+    except ValueError as exc:
+        if str(exc) == "No valid HuBERT tokens extracted for the requested recording set.":
+            return []
+        raise
+
+    segments = []
+    for segment in extracted["segments"]:
+        features = segment["encoded_embeddings_before_pos_removal"]
+        labels = segment["labels_downsampled"]
+        count = min(features.shape[0], labels.shape[0])
+        if count == 0:
+            continue
+        segments.append(
+            {
+                "features": features[:count],
+                "labels": labels[:count],
+            }
+        )
+    return segments
+
+
+def _load_bird_mae_segments(args, bird_id, recording_stem, model_state):
+    try:
+        extracted = bird_mae.extract_recording_embeddings_with_state(
+            {
+                "json_path": str(args.annotation_json),
+                "bird": bird_id,
+                "recording_stem": recording_stem,
+                "recording_mode": args.recording_mode,
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "audio_sr": args.bird_mae_audio_sr,
+                "audio_context_seconds": getattr(args, "audio_context_seconds", 0.0),
+                "seed": getattr(args, "seed", 0),
+                "train_audio_speed_min_pct": getattr(args, "train_audio_speed_min_pct", 0.0),
+                "train_audio_speed_max_pct": getattr(args, "train_audio_speed_max_pct", 0.0),
+            },
+            model_state,
+        )
+    except ValueError as exc:
+        if str(exc) == "No valid Bird-MAE embeddings extracted for the requested recording set.":
+            return []
+        raise
+
+    segments = []
+    for segment in extracted["segments"]:
+        features = segment["encoded_embeddings_before_pos_removal"]
+        labels = segment["labels_downsampled"]
+        count = min(features.shape[0], labels.shape[0])
+        if count == 0:
+            continue
+        segments.append(
+            {
+                "features": features[:count],
+                "labels": labels[:count],
+            }
+        )
+    return segments
+
+
+def _load_perch_segments(args, bird_id, recording_stem, model_state):
+    extracted = perch.extract_recording_embeddings_with_state(
+        {
+            "json_path": str(args.annotation_json),
+            "bird": bird_id,
+            "recording_stem": recording_stem,
+            "recording_mode": args.recording_mode,
+            "wav_root": args.wav_root,
+            "wav_manifest": args.wav_manifest,
+            "wav_exts": args.wav_exts,
+            "perch_audio_sr": args.perch_audio_sr,
+            "seed": getattr(args, "seed", 0),
+            "train_audio_speed_min_pct": getattr(args, "train_audio_speed_min_pct", 0.0),
+            "train_audio_speed_max_pct": getattr(args, "train_audio_speed_max_pct", 0.0),
+        },
+        model_state,
+    )
+
+    segments = []
+    for segment in extracted["segments"]:
+        features = segment["features"]
+        if features.shape[0] == 0:
+            continue
+        labels = np.full((features.shape[0],), -1, dtype=np.int64)
+        segments.append(
+            {
+                "features": features,
+                "labels": labels,
             }
         )
     return segments
@@ -775,7 +1015,18 @@ def _load_spec_segments(args, bird_id, recording_stem, patch_width):
     return segments
 
 
-def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, pool_mode, pool_layout, seed, pca_dim, max_points=0):
+def _build_embedding_representation(
+    per_bird_segments,
+    pool_window,
+    pool_hop,
+    pool_mode,
+    pool_layout,
+    seed,
+    pca_dim,
+    max_points=0,
+    recording_svd_features=None,
+    recording_svd_append="post",
+):
     candidates = []
     for bird_id in sorted(per_bird_segments):
         for segment_index, segment in enumerate(per_bird_segments[bird_id]):
@@ -793,6 +1044,7 @@ def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, po
                     "starts": starts,
                     "short_segment": short_segment,
                     "count": int(starts.shape[0]),
+                    "recording_stem": segment.get("recording_stem"),
                 }
             )
 
@@ -807,9 +1059,15 @@ def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, po
                 continue
             if not short_segment:
                 starts = starts[local_indices]
-        if pool_mode == "concat_pca":
+        candidate_features = candidate["features"]
+        if recording_svd_features is not None and recording_svd_append == "frame":
+            stem = candidate["recording_stem"]
+            assert stem in recording_svd_features, stem
+            recording_features = np.repeat(recording_svd_features[stem][None, :], candidate_features.shape[0], axis=0)
+            candidate_features = np.hstack([candidate_features, recording_features]).astype(np.float32, copy=False)
+        if pool_mode in {"concat", "concat_pca"}:
             pooled = _concat_window_embeddings(
-                candidate["features"],
+                candidate_features,
                 pool_window,
                 pool_hop,
                 layout=pool_layout,
@@ -819,7 +1077,7 @@ def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, po
             )
         else:
             pooled = _pool_embeddings(
-                candidate["features"],
+                candidate_features,
                 pool_window,
                 pool_mode,
                 pool_hop,
@@ -840,6 +1098,11 @@ def _build_embedding_representation(per_bird_segments, pool_window, pool_hop, po
         count = min(pooled.shape[0], pooled_labels.shape[0])
         if count == 0:
             continue
+        if recording_svd_features is not None and recording_svd_append == "post":
+            stem = candidate["recording_stem"]
+            assert stem in recording_svd_features, stem
+            recording_features = np.repeat(recording_svd_features[stem][None, :], count, axis=0)
+            pooled = np.hstack([pooled[:count], recording_features]).astype(np.float32, copy=False)
         bird_id = candidate["bird_id"]
         pooled_by_bird.setdefault(bird_id, []).append(pooled[:count])
         labels_by_bird.setdefault(bird_id, []).append(pooled_labels[:count])
@@ -976,7 +1239,7 @@ def _songmae_input_normalization(model_state, args):
 
 def main():
     parser = argparse.ArgumentParser(description="Individual-ID UMAPs with explicit encoder mode and record-wise pooling.")
-    parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES"])
+    parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES", "HuBERT", "BirdMAE", "Perch"])
     parser.add_argument("--species", required=True)
     parser.add_argument("--annotation_json", required=True)
     parser.add_argument("--spec_dir", required=True)
@@ -989,7 +1252,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pool_window", type=int, default=None)
     parser.add_argument("--pool_hop", type=int, default=None)
-    parser.add_argument("--pool_mode", default="mean", choices=["mean", "concat_pca"])
+    parser.add_argument("--pool_mode", default="mean", choices=["mean", "stats", "concat", "concat_pca"])
     parser.add_argument("--concat_pca_dim", type=int, default=256)
     parser.add_argument("--pool_layout", default="sliding", choices=["sliding", "shotgun"])
     parser.add_argument("--max_points", type=int, default=0)
@@ -997,6 +1260,11 @@ def main():
     parser.add_argument("--feature_postprocess_dim", type=int, default=None)
     parser.add_argument("--feature_postprocess_load", default=None)
     parser.add_argument("--feature_postprocess_save", default=None)
+    parser.add_argument("--recording_svd_npz", default=None)
+    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "affinity_row"])
+    parser.add_argument("--recording_svd_dim", type=int, default=32)
+    parser.add_argument("--recording_svd_alpha", type=float, default=1.0)
+    parser.add_argument("--recording_svd_append", default="post", choices=["post", "frame"])
     parser.add_argument(
         "--songmae_feature_source",
         default="encoded_before",
@@ -1018,9 +1286,18 @@ def main():
     parser.add_argument("--wav_manifest", default=None)
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--aves_audio_sr", type=int, default=16000)
+    parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
+    parser.add_argument("--hubert_audio_sr", type=int, default=16000)
+    parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
+    parser.add_argument("--bird_mae_audio_sr", type=int, default=32000)
+    parser.add_argument("--perch_model_name", default="perch_v2")
+    parser.add_argument("--perch_audio_sr", type=int, default=32000)
+    parser.add_argument("--perch_window_seconds", type=float, default=5.0)
+    parser.add_argument("--audio_context_seconds", type=float, default=2.0)
     parser.add_argument("--umap_neighbors", type=int, default=200)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
+    parser.add_argument("--silhouette_sample_size", type=int, default=10000)
     args = parser.parse_args()
 
     species_key, species_config = _species_config(args.species)
@@ -1076,7 +1353,7 @@ def main():
     _apply_spec_normalization_preset(args)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    patch_width = 1 if args.encoder == "AVES" else _load_patch_width(run_dir)
+    patch_width = 1 if args.encoder in {"AVES", "HuBERT", "BirdMAE", "Perch"} else _load_patch_width(run_dir)
     model_state = None
     args.songmae_input_normalization = None
     args.songmae_input_normalization_stats_dir = None
@@ -1103,6 +1380,40 @@ def main():
                 "audio_sr": args.aves_audio_sr,
                 "aves_model_path": args.aves_model_path,
                 "aves_config_path": args.aves_config_path,
+            }
+        )
+    elif args.encoder == "HuBERT":
+        model_state = hubert.load_model_state_for_inference(
+            {
+                "run_dir": str(args.run_dir),
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "hubert_model_name": args.hubert_model_name,
+                "hubert_audio_sr": args.hubert_audio_sr,
+            }
+        )
+    elif args.encoder == "BirdMAE":
+        model_state = bird_mae.load_model_state_for_inference(
+            {
+                "run_dir": str(args.run_dir),
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "bird_mae_model_name": args.bird_mae_model_name,
+                "bird_mae_audio_sr": args.bird_mae_audio_sr,
+            }
+        )
+    elif args.encoder == "Perch":
+        model_state = perch.load_model_state_for_inference(
+            {
+                "run_dir": str(args.run_dir),
+                "wav_root": args.wav_root,
+                "wav_manifest": args.wav_manifest,
+                "wav_exts": args.wav_exts,
+                "perch_model_name": args.perch_model_name,
+                "perch_audio_sr": args.perch_audio_sr,
+                "perch_window_seconds": args.perch_window_seconds,
             }
         )
 
@@ -1138,6 +1449,12 @@ def main():
             for recording_stem in sampled_recordings[bird_id]:
                 if args.encoder == "AVES":
                     loaded_segments = _load_aves_segments(args, bird_id, recording_stem, model_state)
+                elif args.encoder == "HuBERT":
+                    loaded_segments = _load_hubert_segments(args, bird_id, recording_stem, model_state)
+                elif args.encoder == "BirdMAE":
+                    loaded_segments = _load_bird_mae_segments(args, bird_id, recording_stem, model_state)
+                elif args.encoder == "Perch":
+                    loaded_segments = _load_perch_segments(args, bird_id, recording_stem, model_state)
                 else:
                     loaded_segments = _load_spec_segments(args, bird_id, recording_stem, patch_width)
                 bird_segments.extend(loaded_segments)
@@ -1145,8 +1462,14 @@ def main():
                 per_bird_segments[bird_id] = bird_segments
 
     assert per_bird_segments, "No valid segments were extracted."
+    recording_svd_features = _load_recording_features(
+        args.recording_svd_npz,
+        args.recording_feature_mode,
+        args.recording_svd_dim,
+        args.recording_svd_alpha,
+    )
 
-    if args.encoder in {"SongMAE", "AVES"}:
+    if args.encoder in {"SongMAE", "AVES", "HuBERT", "BirdMAE", "Perch"}:
         features, bird_labels, syllable_labels = _build_embedding_representation(
             per_bird_segments=per_bird_segments,
             pool_window=args.pool_window,
@@ -1156,12 +1479,15 @@ def main():
             seed=args.seed,
             pca_dim=args.concat_pca_dim,
             max_points=args.max_points,
+            recording_svd_features=recording_svd_features,
+            recording_svd_append=args.recording_svd_append,
         )
-        prefix = "songmae" if args.encoder == "SongMAE" else "aves"
+        prefix = {"SongMAE": "songmae", "AVES": "aves", "HuBERT": "hubert", "BirdMAE": "birdmae", "Perch": "perch"}[args.encoder]
         source_suffix = ""
         if args.encoder == "SongMAE" and args.songmae_feature_source != "encoded_before":
             source_suffix = f"_{args.songmae_feature_source}"
-        rep_name = f"{prefix}{source_suffix}_pool_{args.pool_mode}{args.concat_pca_dim if args.pool_mode == 'concat_pca' else ''}_{args.pool_layout}_w{args.pool_window}_h{args.pool_hop}"
+        pca_suffix = args.concat_pca_dim if args.pool_mode == "concat_pca" else ""
+        rep_name = f"{prefix}{source_suffix}_pool_{args.pool_mode}{pca_suffix}_{args.pool_layout}_w{args.pool_window}_h{args.pool_hop}"
     else:
         features, bird_labels, syllable_labels = _build_spec_representation(
             per_bird_segments=per_bird_segments,
@@ -1176,12 +1502,17 @@ def main():
 
     if args.max_points > 0:
         rep_name = f"{rep_name}_maxpts{args.max_points}"
+    if recording_svd_features is not None:
+        feature_name = "recsvd" if args.recording_feature_mode == "svd" else "recaffrow"
+        dim_suffix = args.recording_svd_dim if args.recording_feature_mode == "svd" else "full"
+        rep_name = f"{rep_name}_{feature_name}{dim_suffix}_a{args.recording_svd_alpha:g}"
+        if args.recording_svd_append != "post":
+            rep_name = f"{rep_name}_{args.recording_svd_append}"
 
     if args.encoder != "SongMAE":
         features, feature_postprocess = _apply_feature_postprocess(features, args)
     if feature_postprocess is not None:
         rep_name = f"{rep_name}_{_feature_postprocess_kind(feature_postprocess)}{feature_postprocess['dim']}"
-
     assert features.shape[0] >= 2, "Not enough points for UMAP."
     print(f"[umap] {rep_name}: points={features.shape[0]} dim={features.shape[1]}")
 
@@ -1190,6 +1521,13 @@ def main():
         neighbors=args.umap_neighbors,
         min_dist=args.umap_min_dist,
         metric=args.umap_metric,
+    )
+    silhouette_scores = _umap_silhouette_scores(
+        xy=xy,
+        bird_labels=bird_labels,
+        syllable_labels=syllable_labels,
+        sample_size=args.silhouette_sample_size,
+        seed=args.seed,
     )
 
     out_base = out_dir / rep_name
@@ -1251,6 +1589,11 @@ def main():
             "feature_postprocess_dim": int(feature_postprocess["dim"]) if feature_postprocess is not None else 0,
             "feature_postprocess_load": args.feature_postprocess_load,
             "feature_postprocess_save": args.feature_postprocess_save,
+            "recording_svd_npz": args.recording_svd_npz,
+            "recording_feature_mode": args.recording_feature_mode,
+            "recording_svd_dim": int(args.recording_svd_dim),
+            "recording_svd_alpha": float(args.recording_svd_alpha),
+            "recording_svd_append": args.recording_svd_append,
             "per_bird_umaps": bool(args.per_bird_umaps),
             "normalization_preset": args.normalization_preset,
             "audio_params_stats_dir": args.audio_params_stats_dir,
@@ -1265,11 +1608,21 @@ def main():
             "wav_manifest": args.wav_manifest,
             "wav_exts": args.wav_exts,
             "aves_audio_sr": int(args.aves_audio_sr),
+            "hubert_model_name": args.hubert_model_name,
+            "hubert_audio_sr": int(args.hubert_audio_sr),
+            "bird_mae_model_name": args.bird_mae_model_name,
+            "bird_mae_audio_sr": int(args.bird_mae_audio_sr),
+            "perch_model_name": args.perch_model_name,
+            "perch_audio_sr": int(args.perch_audio_sr),
+            "perch_window_seconds": float(args.perch_window_seconds),
+            "audio_context_seconds": float(args.audio_context_seconds),
             "encoder_layer_idx": args.encoder_layer_idx,
             "umap_neighbors": int(args.umap_neighbors),
             "umap_min_dist": float(args.umap_min_dist),
             "umap_metric": args.umap_metric,
+            "silhouette_sample_size": int(args.silhouette_sample_size),
         },
+        "silhouette_scores": silhouette_scores,
         "per_bird_umaps": per_bird_saved,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,12 +14,11 @@ SPECIES_ORDER = [
     ("zf", "Zebra Finch"),
     ("bf", "Bengalese Finch"),
     ("canary", "Canary"),
+    ("ovenbird", "Ovenbird"),
     ("chiffchaff", "Chiffchaff"),
     ("european_starling", "European Starling"),
     ("tree_pipit", "Tree Pipit"),
     ("little_owl", "Little Owl"),
-    ("orangutan", "Orangutan"),
-    ("ovenbird", "Ovenbird"),
 ]
 
 
@@ -73,100 +73,105 @@ def fit_panel_image(im, panel_w, panel_h):
     return canvas
 
 
-def species_assets(run_tag, rep_name):
-    available = []
-    missing = []
+def species_assets(run_tag):
+    assets = []
     for key, label in SPECIES_ORDER:
-        img_path = RESULTS_DIR / f"{key}_{run_tag}" / rep_name
-        if img_path.is_file():
-            available.append((key, label, img_path))
-        else:
-            missing.append(label)
-    return available, missing
+        run_dir = RESULTS_DIR / f"{key}_{run_tag}"
+        if not run_dir.is_dir():
+            matches = sorted(RESULTS_DIR.glob(f"{key}_{run_tag}*"))
+            if not matches:
+                continue
+            assert len(matches) == 1, f"Expected one result dir for {key}_{run_tag}*, found {len(matches)}"
+            run_dir = matches[0]
+        summary_path = run_dir / "summary.json"
+        if not summary_path.is_file():
+            continue
+        images = sorted(path for path in run_dir.glob("*.png") if not path.stem.endswith("_syllable"))
+        assert len(images) == 1, f"Expected one non-syllable UMAP PNG in {run_dir}, found {len(images)}"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        score = summary["silhouette_scores"]["bird"]["score"]
+        assets.append((label, images[0], score))
+    return assets
 
 
-def draw_round_rect(draw, box, radius, fill, outline=None, width=1):
-    draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+def latest_species_assets(prefix):
+    assets = []
+    for key, label in SPECIES_ORDER:
+        run_dirs = []
+        for run_dir in RESULTS_DIR.glob(f"{key}_{prefix}*"):
+            summary_path = run_dir / "summary.json"
+            if summary_path.is_file():
+                run_dirs.append(run_dir)
+        if not run_dirs:
+            continue
+        run_dir = max(run_dirs, key=lambda path: (path / "summary.json").stat().st_mtime)
+        images = sorted(path for path in run_dir.glob("*.png") if not path.stem.endswith("_syllable"))
+        assert len(images) == 1, f"Expected one non-syllable UMAP PNG in {run_dir}, found {len(images)}"
+        summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+        score = summary["silhouette_scores"]["bird"]["score"]
+        assets.append((label, images[0], score))
+    return assets
+
+
+def score_text(score):
+    if score is None:
+        return "sil: n/a"
+    return f"sil: {float(score):.3f}"
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run-tag", required=True)
-    parser.add_argument("--rep-name", required=True)
-    parser.add_argument("--title", default="Individual-ID UMAP Collage")
-    parser.add_argument("--subtitle", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--run-tag")
+    group.add_argument("--latest-prefix")
     parser.add_argument("--out-name", default=None)
     args = parser.parse_args()
 
-    available, missing = species_assets(args.run_tag, args.rep_name)
-    assert available, "No completed UMAP PNGs found."
+    if args.run_tag is not None:
+        assets = species_assets(args.run_tag)
+    else:
+        assets = latest_species_assets(args.latest_prefix)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    cols = 3
-    rows = (len(available) + cols - 1) // cols
-    page_margin = 72
-    gutter = 36
-    card_w = 1080
-    image_h = 760
-    label_h = 92
-    card_h = image_h + label_h
-    title_h = 180
-    footer_h = 90 if missing else 40
+    cols = 4
+    rows = 2
+    gutter = 24
+    page_margin = 36
+    panel_w = 900
+    panel_h = 720
 
-    width = page_margin * 2 + cols * card_w + (cols - 1) * gutter
-    height = page_margin + title_h + rows * card_h + (rows - 1) * gutter + footer_h + page_margin
+    width = page_margin * 2 + cols * panel_w + (cols - 1) * gutter
+    height = page_margin * 2 + rows * panel_h + (rows - 1) * gutter
 
-    bg = Image.new("RGB", (width, height), (244, 240, 232))
-    accent = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    accent_draw = ImageDraw.Draw(accent)
-    accent_draw.ellipse((-180, -120, 900, 720), fill=(223, 126, 73, 40))
-    accent_draw.ellipse((width - 920, height - 700, width + 120, height + 120), fill=(74, 124, 129, 38))
-    bg = Image.alpha_composite(bg.convert("RGBA"), accent).convert("RGB")
-
+    bg = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(bg)
-    title_font = load_font(60, bold=True)
-    subtitle_font = load_font(28)
-    label_font = load_font(30, bold=True)
-    note_font = load_font(24)
+    score_font = load_font(32, bold=True)
 
-    draw.text((page_margin, page_margin), args.title, font=title_font, fill=(29, 35, 42))
-    draw.text((page_margin, page_margin + 76), args.subtitle, font=subtitle_font, fill=(90, 98, 109))
-    draw.line(
-        (page_margin, page_margin + 128, width - page_margin, page_margin + 128),
-        fill=(204, 190, 173),
-        width=3,
-    )
-
-    for idx, (_, label, img_path) in enumerate(available):
+    for idx, (_, img_path, score) in enumerate(assets):
         row = idx // cols
         col = idx % cols
-        x = page_margin + col * (card_w + gutter)
-        y = page_margin + title_h + row * (card_h + gutter)
-        card_box = (x, y, x + card_w, y + card_h)
-
-        shadow = Image.new("RGBA", (card_w + 24, card_h + 24), (0, 0, 0, 0))
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.rounded_rectangle((12, 12, card_w + 12, card_h + 12), radius=26, fill=(35, 30, 24, 44))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(10))
-        bg.paste(shadow, (x - 12, y - 4), shadow)
-
-        draw_round_rect(draw, card_box, radius=26, fill=(252, 251, 248), outline=(217, 209, 198), width=2)
-
+        x = page_margin + col * (panel_w + gutter)
+        y = page_margin + row * (panel_h + gutter)
         with Image.open(img_path) as im:
-            panel = fit_panel_image(im, card_w - 40, image_h - 34)
-        bg.paste(panel, (x + 20, y + 18))
+            panel = fit_panel_image(im, panel_w, panel_h)
+        bg.paste(panel, (x, y))
 
-        label_y = y + image_h + 12
-        draw.text((x + 28, label_y), label, font=label_font, fill=(36, 44, 51))
-        draw.text((x + 28, label_y + 38), img_path.parent.name.split("_data2vec_")[0], font=note_font, fill=(108, 117, 128))
-
-    if missing:
-        note = "Missing in this collage: " + ", ".join(missing)
-        draw.text((page_margin, height - page_margin - 34), note, font=note_font, fill=(120, 86, 66))
+        text = score_text(score)
+        text_box = draw.textbbox((0, 0), text, font=score_font)
+        text_w = text_box[2] - text_box[0]
+        text_h = text_box[3] - text_box[1]
+        text_x = x + panel_w - text_w - 44
+        text_y = y + 58
+        draw.rectangle(
+            (text_x - 8, text_y - 4, text_x + text_w + 8, text_y + text_h + 6),
+            fill=(255, 255, 255),
+        )
+        draw.text((text_x, text_y), text, font=score_font, fill=(0, 0, 0))
 
     out_name = args.out_name
     if out_name is None:
-        out_name = f"individual_id_umaps_{args.run_tag}_collage.png"
+        tag = args.run_tag if args.run_tag is not None else f"latest_{args.latest_prefix}"
+        out_name = f"individual_id_umaps_{tag}_collage.png"
     out_path = OUT_DIR / out_name
     bg.save(out_path, quality=95)
     print(out_path)
