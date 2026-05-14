@@ -2,6 +2,7 @@
 
 import argparse
 import colorsys
+import csv
 import hashlib
 import json
 import sys
@@ -10,8 +11,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import completeness_score, homogeneity_score, silhouette_score, v_measure_score
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
@@ -298,12 +300,19 @@ def _fit_pca(features, target_dim):
     return pca.fit_transform(features).astype(np.float32, copy=False)
 
 
-def _load_recording_features(path, mode, dim, alpha):
+def _load_recording_features(path, mode, dim, alpha, include_stems=None):
     if path is None:
         return None
     data = np.load(path, allow_pickle=True)
     stems = [str(x) for x in data["recording_stems"].tolist()]
     matrix = data["recording_matrix"].astype(np.float32, copy=False)
+    if include_stems is not None:
+        index = {stem: i for i, stem in enumerate(stems)}
+        stems = sorted(str(stem) for stem in include_stems)
+        missing = [stem for stem in stems if stem not in index]
+        assert not missing, missing[:5]
+        keep = np.asarray([index[stem] for stem in stems], dtype=np.int64)
+        matrix = matrix[np.ix_(keep, keep)]
     matrix = (matrix + matrix.T) * np.float32(0.5)
     np.fill_diagonal(matrix, 0.0)
     if mode == "affinity_row":
@@ -312,15 +321,78 @@ def _load_recording_features(path, mode, dim, alpha):
         features = features.astype(np.float32, copy=False) * np.float32(alpha)
         return dict(zip(stems, features))
 
-    assert mode == "svd"
-    u, s, _ = np.linalg.svd(matrix, full_matrices=False)
-    dim = min(int(dim), int(s.shape[0]))
-    assert dim > 0
-    features = u[:, :dim] * np.sqrt(s[:dim])[None, :]
+    assert mode in {"svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}
+    if mode in {"normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}:
+        degree = matrix.sum(axis=1, keepdims=True)
+        scale = 1.0 / np.sqrt(np.maximum(degree, 1e-12))
+        matrix = (matrix * scale) * scale.T
+
+    if mode in {"norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}:
+        values, vectors = np.linalg.eigh(matrix.astype(np.float64, copy=False))
+        order = np.argsort(values)[::-1]
+        start = 1 if mode == "norm_adj_eig_skip1" else 0
+        dim = min(int(dim), int(values.shape[0]) - start)
+        assert dim > 0
+        if mode == "norm_adj_eig_kmeans":
+            eig_dim = min(20, int(values.shape[0]) - start)
+            assert eig_dim > 0
+            eig_features = vectors[:, order[start : start + eig_dim]].astype(np.float32, copy=False)
+            eig_norms = np.linalg.norm(eig_features, axis=1, keepdims=True)
+            eig_features = eig_features / np.maximum(eig_norms, 1e-12)
+            clusters = KMeans(n_clusters=dim, n_init=20, random_state=0).fit_predict(eig_features)
+            features = np.eye(dim, dtype=np.float32)[clusters]
+        else:
+            features = vectors[:, order[start : start + dim]].astype(np.float32, copy=False)
+    else:
+        u, s, _ = np.linalg.svd(matrix, full_matrices=False)
+        dim = min(int(dim), int(s.shape[0]))
+        assert dim > 0
+        if mode == "svd_u":
+            features = u[:, :dim]
+        elif mode == "svd_us":
+            features = u[:, :dim] * s[:dim][None, :]
+        else:
+            features = u[:, :dim] * np.sqrt(s[:dim])[None, :]
     norms = np.linalg.norm(features, axis=1, keepdims=True)
     features = features / np.maximum(norms, 1e-12)
     features = features.astype(np.float32, copy=False) * np.float32(alpha)
     return dict(zip(stems, features))
+
+
+def _combine_recording_features(primary, extra, stems=None):
+    if extra is None:
+        return primary
+    if primary is None:
+        return extra
+    if stems is None:
+        stems = sorted(primary)
+    return {
+        stem: np.hstack([primary[stem], extra[stem]]).astype(np.float32, copy=False)
+        for stem in sorted(stems)
+    }
+
+
+def _recording_feature_name(mode):
+    names = {
+        "svd": "recsvd",
+        "svd_u": "recsvdu",
+        "svd_us": "recsvdus",
+        "normalized_svd": "recnormsvd",
+        "norm_adj_eig": "recnormeig",
+        "norm_adj_eig_skip1": "recnormeigskip1",
+        "norm_adj_eig_kmeans": "recnormeigkmeans",
+        "affinity_row": "recaffrow",
+    }
+    return names[mode]
+
+
+def _recording_feature_suffix(mode, dim, alpha, scope):
+    feature_name = _recording_feature_name(mode)
+    dim_suffix = dim if mode != "affinity_row" else "full"
+    suffix = f"{feature_name}{dim_suffix}_a{alpha:g}"
+    if scope != "full":
+        suffix = f"{suffix}_{scope}"
+    return suffix
 
 
 def _apply_feature_postprocess(features, args):
@@ -442,12 +514,14 @@ def _mean_pool_spectrogram(spec, window_bins, hop_bins, layout="sliding", seed=0
     return np.asarray(pooled, dtype=np.float32)
 
 
-def _fit_umap(features, neighbors, min_dist, metric):
+def _fit_umap(features, neighbors, min_dist, metric, random_state, negative_sample_rate):
     reducer = umap.UMAP(
         n_components=2,
         n_neighbors=int(neighbors),
         min_dist=float(min_dist),
         metric=metric,
+        random_state=random_state,
+        negative_sample_rate=int(negative_sample_rate),
         low_memory=True,
         n_jobs=-1,
     )
@@ -535,6 +609,162 @@ def _umap_silhouette_scores(xy, bird_labels, syllable_labels, sample_size, seed)
         f"syllable_non_silence={scores['syllable_non_silence']['score']}"
     )
     return scores
+
+
+def _label_metric(labels_true, labels_pred, metric):
+    labels_true = np.asarray(labels_true)
+    labels_pred = np.asarray(labels_pred)
+    if labels_true.shape[0] < 2:
+        return None
+    if np.unique(labels_true).shape[0] < 2 or np.unique(labels_pred).shape[0] < 2:
+        return None
+    return float(metric(labels_true, labels_pred))
+
+
+def _median_int(values):
+    if not values:
+        return None
+    return float(np.median(np.asarray(values, dtype=np.float32)))
+
+
+def _recording_cluster_interpretation(cluster_count, recording_homogeneity, median_clusters_per_recording, median_recordings_per_cluster):
+    if cluster_count <= 1:
+        return "single_cluster"
+    if recording_homogeneity is not None and recording_homogeneity >= 0.8:
+        return "recording_fracture_risk"
+    if (
+        median_clusters_per_recording is not None
+        and median_recordings_per_cluster is not None
+        and median_clusters_per_recording >= 2
+        and median_recordings_per_cluster >= 2
+    ):
+        return "shared_multi_part_structure"
+    return "mixed"
+
+
+def _hdbscan_recording_rows(bird_labels, recording_labels, clusters):
+    rows = []
+    for bird_id in sorted(set(bird_labels.tolist())):
+        bird_mask = bird_labels == bird_id
+        bird_clusters = clusters[bird_mask]
+        bird_recordings = recording_labels[bird_mask]
+        non_noise = bird_clusters >= 0
+        cluster_ids = sorted(set(bird_clusters[non_noise].tolist()))
+        recording_ids = sorted(set(bird_recordings.tolist()))
+        noise_fraction = float(np.mean(~non_noise)) if bird_clusters.size else 0.0
+
+        valid_recordings = bird_recordings[non_noise]
+        valid_clusters = bird_clusters[non_noise]
+        recording_homogeneity = _label_metric(valid_recordings, valid_clusters, homogeneity_score)
+        recording_completeness = _label_metric(valid_recordings, valid_clusters, completeness_score)
+        recording_v_measure = _label_metric(valid_recordings, valid_clusters, v_measure_score)
+
+        clusters_per_recording = []
+        for recording in recording_ids:
+            rec_clusters = bird_clusters[(bird_recordings == recording) & non_noise]
+            clusters_per_recording.append(len(set(rec_clusters.tolist())))
+
+        recordings_per_cluster = []
+        for cluster_id in cluster_ids:
+            cluster_recordings = bird_recordings[bird_clusters == cluster_id]
+            recordings_per_cluster.append(len(set(cluster_recordings.tolist())))
+
+        median_clusters_per_recording = _median_int(clusters_per_recording)
+        median_recordings_per_cluster = _median_int(recordings_per_cluster)
+        rows.append(
+            {
+                "bird_id": str(bird_id),
+                "points": int(bird_clusters.shape[0]),
+                "recordings": int(len(recording_ids)),
+                "clusters": int(len(cluster_ids)),
+                "noise_fraction": noise_fraction,
+                "recording_homogeneity": recording_homogeneity,
+                "recording_completeness": recording_completeness,
+                "recording_v_measure": recording_v_measure,
+                "median_clusters_per_recording": median_clusters_per_recording,
+                "median_recordings_per_cluster": median_recordings_per_cluster,
+                "interpretation": _recording_cluster_interpretation(
+                    len(cluster_ids),
+                    recording_homogeneity,
+                    median_clusters_per_recording,
+                    median_recordings_per_cluster,
+                ),
+            }
+        )
+    return rows
+
+
+def _write_hdbscan_recording_csv(path, rows):
+    fieldnames = [
+        "bird_id",
+        "points",
+        "recordings",
+        "clusters",
+        "noise_fraction",
+        "recording_homogeneity",
+        "recording_completeness",
+        "recording_v_measure",
+        "median_clusters_per_recording",
+        "median_recordings_per_cluster",
+        "interpretation",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def _hdbscan_umap_analysis(xy, bird_labels, syllable_labels, recording_labels, out_dir, rep_name, args):
+    import hdbscan
+
+    min_cluster_size = args.hdbscan_min_cluster_size
+    if min_cluster_size <= 0:
+        min_cluster_size = max(25, int(round(xy.shape[0] * 0.005)))
+    min_samples = args.hdbscan_min_samples if args.hdbscan_min_samples > 0 else None
+
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=int(min_cluster_size),
+        min_samples=min_samples,
+    )
+    clusters = clusterer.fit_predict(xy)
+    non_noise = clusters >= 0
+    cluster_ids = sorted(set(clusters[non_noise].tolist()))
+
+    bird_homogeneity = _label_metric(bird_labels[non_noise], clusters[non_noise], homogeneity_score)
+    bird_completeness = _label_metric(bird_labels[non_noise], clusters[non_noise], completeness_score)
+    bird_v_measure = _label_metric(bird_labels[non_noise], clusters[non_noise], v_measure_score)
+    rows = _hdbscan_recording_rows(bird_labels, recording_labels, clusters)
+
+    _scatter_umap(
+        xy=xy,
+        labels=np.asarray([f"cluster_{int(label)}" if int(label) >= 0 else "noise" for label in clusters], dtype=object),
+        title=_plot_title(args.species_display_name, "HDBSCAN"),
+        out_base=out_dir / f"{rep_name}_hdbscan",
+    )
+    np.savez_compressed(
+        out_dir / f"{rep_name}_hdbscan_points.npz",
+        xy=xy.astype(np.float32, copy=False),
+        bird_labels=bird_labels.astype(object, copy=False),
+        syllable_labels=syllable_labels.astype(np.int64, copy=False),
+        recording_labels=recording_labels.astype(object, copy=False),
+        hdbscan_clusters=clusters.astype(np.int64, copy=False),
+    )
+    _write_hdbscan_recording_csv(out_dir / f"{rep_name}_hdbscan_recording_summary.csv", rows)
+
+    summary = {
+        "min_cluster_size": int(min_cluster_size),
+        "min_samples": None if min_samples is None else int(min_samples),
+        "points": int(xy.shape[0]),
+        "clusters": int(len(cluster_ids)),
+        "noise_fraction": float(np.mean(~non_noise)) if clusters.size else 0.0,
+        "bird_homogeneity": bird_homogeneity,
+        "bird_completeness": bird_completeness,
+        "bird_v_measure": bird_v_measure,
+        "recording_summary": rows,
+    }
+    (out_dir / f"{rep_name}_hdbscan_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return summary
 
 
 def _bird_palette(birds):
@@ -677,7 +907,7 @@ def _save_per_bird_umaps(
     for bird_id in birds:
         single_bird = {bird_id: per_bird_segments[bird_id]}
         if args.encoder in {"SongMAE", "AVES"}:
-            features, _, _ = _build_embedding_representation(
+            features, _, _, _ = _build_embedding_representation(
                 per_bird_segments=single_bird,
                 pool_window=args.pool_window,
                 pool_hop=args.pool_hop,
@@ -688,7 +918,7 @@ def _save_per_bird_umaps(
                 max_points=args.max_points,
             )
         else:
-            features, _, _ = _build_spec_representation(
+            features, _, _, _ = _build_spec_representation(
                 per_bird_segments=single_bird,
                 pool_window=args.pool_window,
                 pool_hop=args.pool_hop,
@@ -706,6 +936,8 @@ def _save_per_bird_umaps(
             neighbors=min(args.umap_neighbors, max(1, features.shape[0] - 1)),
             min_dist=args.umap_min_dist,
             metric=args.umap_metric,
+            random_state=args.umap_random_state,
+            negative_sample_rate=args.umap_negative_sample_rate,
         )
         out_base = per_bird_dir / f"{bird_id}"
         _scatter_single_umap(
@@ -745,7 +977,7 @@ def _load_songmae_segments_by_bird(args, sampled_recordings, model_state):
                 "encoder_layer_idx": args.encoder_layer_idx,
                 "spec_normalization": args.songmae_input_normalization,
                 "normalization_stats_dir": args.songmae_input_normalization_stats_dir,
-                "minimal_output": True,
+                "minimal_output": args.songmae_feature_source == "encoded_before",
                 "embedding_postprocess": args.feature_postprocess,
                 "embedding_postprocess_dim": args.feature_postprocess_dim,
                 "embedding_postprocess_key": _songmae_feature_key(args.songmae_feature_source),
@@ -1051,6 +1283,7 @@ def _build_embedding_representation(
     allocations = _allocate_point_budget(candidates, max_points, seed)
     pooled_by_bird = {}
     labels_by_bird = {}
+    stems_by_bird = {}
     for candidate, local_indices in zip(candidates, allocations):
         starts = candidate["starts"]
         short_segment = candidate["short_segment"]
@@ -1106,16 +1339,20 @@ def _build_embedding_representation(
         bird_id = candidate["bird_id"]
         pooled_by_bird.setdefault(bird_id, []).append(pooled[:count])
         labels_by_bird.setdefault(bird_id, []).append(pooled_labels[:count])
+        stems_by_bird.setdefault(bird_id, []).append(np.repeat(str(candidate["recording_stem"]), count))
 
     x_parts = []
     y_parts = []
     s_parts = []
+    r_parts = []
     for bird_id in sorted(pooled_by_bird):
         bird_features = np.vstack(_pad_feature_widths(pooled_by_bird[bird_id]))
         bird_labels = np.concatenate(labels_by_bird[bird_id], axis=0)
+        bird_recordings = np.concatenate(stems_by_bird[bird_id], axis=0)
         x_parts.append(bird_features)
         y_parts.extend([bird_id] * bird_features.shape[0])
         s_parts.append(bird_labels)
+        r_parts.append(bird_recordings)
 
     assert x_parts, "No valid embedding segments were pooled."
     features = np.vstack(_pad_feature_widths(x_parts))
@@ -1125,6 +1362,7 @@ def _build_embedding_representation(
         features,
         np.asarray(y_parts, dtype=object),
         np.concatenate(s_parts, axis=0),
+        np.concatenate(r_parts, axis=0).astype(object, copy=False),
     )
 
 
@@ -1148,12 +1386,14 @@ def _build_spec_representation(per_bird_segments, pool_window, pool_hop, patch_w
                     "starts": starts,
                     "short_segment": short_segment,
                     "count": int(starts.shape[0]),
+                    "recording_stem": segment.get("recording_stem"),
                 }
             )
 
     allocations = _allocate_point_budget(candidates, max_points, seed)
     pooled_by_bird = {}
     labels_by_bird = {}
+    stems_by_bird = {}
     for candidate, local_indices in zip(candidates, allocations):
         starts = candidate["starts"]
         short_segment = candidate["short_segment"]
@@ -1186,22 +1426,27 @@ def _build_spec_representation(per_bird_segments, pool_window, pool_hop, patch_w
         bird_id = candidate["bird_id"]
         pooled_by_bird.setdefault(bird_id, []).append(pooled[:count])
         labels_by_bird.setdefault(bird_id, []).append(pooled_labels[:count])
+        stems_by_bird.setdefault(bird_id, []).append(np.repeat(str(candidate["recording_stem"]), count))
 
     x_parts = []
     y_parts = []
     s_parts = []
+    r_parts = []
     for bird_id in sorted(pooled_by_bird):
         bird_features = np.vstack(pooled_by_bird[bird_id])
         bird_labels = np.concatenate(labels_by_bird[bird_id], axis=0)
+        bird_recordings = np.concatenate(stems_by_bird[bird_id], axis=0)
         x_parts.append(bird_features)
         y_parts.extend([bird_id] * bird_features.shape[0])
         s_parts.append(bird_labels)
+        r_parts.append(bird_recordings)
 
     assert x_parts, "No valid spectrogram segments were pooled."
     return (
         np.vstack(x_parts),
         np.asarray(y_parts, dtype=object),
         np.concatenate(s_parts, axis=0),
+        np.concatenate(r_parts, axis=0).astype(object, copy=False),
     )
 
 
@@ -1261,9 +1506,14 @@ def main():
     parser.add_argument("--feature_postprocess_load", default=None)
     parser.add_argument("--feature_postprocess_save", default=None)
     parser.add_argument("--recording_svd_npz", default=None)
-    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "affinity_row"])
+    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row"])
+    parser.add_argument("--recording_feature_scope", default="full", choices=["full", "sampled"])
     parser.add_argument("--recording_svd_dim", type=int, default=32)
     parser.add_argument("--recording_svd_alpha", type=float, default=1.0)
+    parser.add_argument("--recording_extra_feature_mode", default=None, choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row"])
+    parser.add_argument("--recording_extra_feature_scope", default="full", choices=["full", "sampled"])
+    parser.add_argument("--recording_extra_feature_dim", type=int, default=32)
+    parser.add_argument("--recording_extra_feature_alpha", type=float, default=1.0)
     parser.add_argument("--recording_svd_append", default="post", choices=["post", "frame"])
     parser.add_argument(
         "--songmae_feature_source",
@@ -1297,7 +1547,14 @@ def main():
     parser.add_argument("--umap_neighbors", type=int, default=200)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
+    parser.add_argument("--umap_random_state", type=int, default=None)
+    parser.add_argument("--umap_negative_sample_rate", type=int, default=5)
     parser.add_argument("--silhouette_sample_size", type=int, default=10000)
+    parser.add_argument("--save_umap_features", action="store_true")
+    parser.add_argument("--features_only", action="store_true")
+    parser.add_argument("--hdbscan_analysis", action="store_true")
+    parser.add_argument("--hdbscan_min_cluster_size", type=int, default=0)
+    parser.add_argument("--hdbscan_min_samples", type=int, default=10)
     args = parser.parse_args()
 
     species_key, species_config = _species_config(args.species)
@@ -1462,15 +1719,37 @@ def main():
                 per_bird_segments[bird_id] = bird_segments
 
     assert per_bird_segments, "No valid segments were extracted."
+    recording_feature_stems = None
+    if args.recording_feature_scope == "sampled" or args.recording_extra_feature_scope == "sampled":
+        recording_feature_stems = {
+            segment["recording_stem"]
+            for segments in per_bird_segments.values()
+            for segment in segments
+        }
     recording_svd_features = _load_recording_features(
         args.recording_svd_npz,
         args.recording_feature_mode,
         args.recording_svd_dim,
         args.recording_svd_alpha,
+        include_stems=recording_feature_stems if args.recording_feature_scope == "sampled" else None,
+    )
+    recording_extra_features = None
+    if args.recording_extra_feature_mode is not None:
+        recording_extra_features = _load_recording_features(
+            args.recording_svd_npz,
+            args.recording_extra_feature_mode,
+            args.recording_extra_feature_dim,
+            args.recording_extra_feature_alpha,
+            include_stems=recording_feature_stems if args.recording_extra_feature_scope == "sampled" else None,
+        )
+    recording_svd_features = _combine_recording_features(
+        recording_svd_features,
+        recording_extra_features,
+        stems=recording_feature_stems,
     )
 
     if args.encoder in {"SongMAE", "AVES", "HuBERT", "BirdMAE", "Perch"}:
-        features, bird_labels, syllable_labels = _build_embedding_representation(
+        features, bird_labels, syllable_labels, recording_labels = _build_embedding_representation(
             per_bird_segments=per_bird_segments,
             pool_window=args.pool_window,
             pool_hop=args.pool_hop,
@@ -1489,7 +1768,7 @@ def main():
         pca_suffix = args.concat_pca_dim if args.pool_mode == "concat_pca" else ""
         rep_name = f"{prefix}{source_suffix}_pool_{args.pool_mode}{pca_suffix}_{args.pool_layout}_w{args.pool_window}_h{args.pool_hop}"
     else:
-        features, bird_labels, syllable_labels = _build_spec_representation(
+        features, bird_labels, syllable_labels, recording_labels = _build_spec_representation(
             per_bird_segments=per_bird_segments,
             pool_window=args.pool_window,
             pool_hop=args.pool_hop,
@@ -1503,9 +1782,21 @@ def main():
     if args.max_points > 0:
         rep_name = f"{rep_name}_maxpts{args.max_points}"
     if recording_svd_features is not None:
-        feature_name = "recsvd" if args.recording_feature_mode == "svd" else "recaffrow"
-        dim_suffix = args.recording_svd_dim if args.recording_feature_mode == "svd" else "full"
-        rep_name = f"{rep_name}_{feature_name}{dim_suffix}_a{args.recording_svd_alpha:g}"
+        suffix = _recording_feature_suffix(
+            args.recording_feature_mode,
+            args.recording_svd_dim,
+            args.recording_svd_alpha,
+            args.recording_feature_scope,
+        )
+        rep_name = f"{rep_name}_{suffix}"
+        if args.recording_extra_feature_mode is not None:
+            extra_suffix = _recording_feature_suffix(
+                args.recording_extra_feature_mode,
+                args.recording_extra_feature_dim,
+                args.recording_extra_feature_alpha,
+                args.recording_extra_feature_scope,
+            )
+            rep_name = f"{rep_name}_plus_{extra_suffix}"
         if args.recording_svd_append != "post":
             rep_name = f"{rep_name}_{args.recording_svd_append}"
 
@@ -1515,12 +1806,62 @@ def main():
         rep_name = f"{rep_name}_{_feature_postprocess_kind(feature_postprocess)}{feature_postprocess['dim']}"
     assert features.shape[0] >= 2, "Not enough points for UMAP."
     print(f"[umap] {rep_name}: points={features.shape[0]} dim={features.shape[1]}")
+    if args.save_umap_features:
+        feature_path = out_dir / f"{rep_name}_features.npz"
+        np.savez_compressed(
+            feature_path,
+            features=features.astype(np.float32, copy=False),
+            bird_labels=bird_labels.astype(object, copy=False),
+            syllable_labels=syllable_labels.astype(np.int64, copy=False),
+            recording_labels=recording_labels.astype(object, copy=False),
+        )
+    if args.features_only:
+        assert args.save_umap_features
+        summary = {
+            "model": {
+                "encoder": args.encoder,
+                "run_dir": str(args.run_dir),
+                "checkpoint": args.checkpoint,
+                "patch_width": int(patch_width),
+            },
+            "species": args.species,
+            "species_key": args.species_key,
+            "representation": rep_name,
+            "feature_path": str(feature_path),
+            "points": int(features.shape[0]),
+            "feature_dim": int(features.shape[1]),
+            "args": {
+                "annotation_json": args.annotation_json,
+                "spec_dir": args.spec_dir,
+                "recording_mode": args.recording_mode,
+                "songs_per_bird": int(args.songs_per_bird),
+                "seed": int(args.seed),
+                "pool_window": int(args.pool_window),
+                "pool_hop": int(args.pool_hop),
+                "pool_mode": args.pool_mode,
+                "pool_layout": args.pool_layout,
+                "max_points": int(args.max_points),
+                "feature_postprocess": _feature_postprocess_kind(feature_postprocess) or "none",
+                "feature_postprocess_dim": int(feature_postprocess["dim"]) if feature_postprocess is not None else 0,
+                "recording_svd_npz": args.recording_svd_npz,
+                "recording_feature_mode": args.recording_feature_mode,
+                "recording_svd_dim": int(args.recording_svd_dim),
+                "recording_svd_alpha": float(args.recording_svd_alpha),
+                "recording_svd_append": args.recording_svd_append,
+                "save_umap_features": bool(args.save_umap_features),
+                "features_only": bool(args.features_only),
+            },
+        }
+        (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        return
 
     xy = _fit_umap(
         features,
         neighbors=args.umap_neighbors,
         min_dist=args.umap_min_dist,
         metric=args.umap_metric,
+        random_state=args.umap_random_state,
+        negative_sample_rate=args.umap_negative_sample_rate,
     )
     silhouette_scores = _umap_silhouette_scores(
         xy=xy,
@@ -1529,6 +1870,17 @@ def main():
         sample_size=args.silhouette_sample_size,
         seed=args.seed,
     )
+    hdbscan_summary = None
+    if args.hdbscan_analysis:
+        hdbscan_summary = _hdbscan_umap_analysis(
+            xy=xy,
+            bird_labels=bird_labels,
+            syllable_labels=syllable_labels,
+            recording_labels=recording_labels,
+            out_dir=out_dir,
+            rep_name=rep_name,
+            args=args,
+        )
 
     out_base = out_dir / rep_name
     _scatter_umap(
@@ -1591,8 +1943,13 @@ def main():
             "feature_postprocess_save": args.feature_postprocess_save,
             "recording_svd_npz": args.recording_svd_npz,
             "recording_feature_mode": args.recording_feature_mode,
+            "recording_feature_scope": args.recording_feature_scope,
             "recording_svd_dim": int(args.recording_svd_dim),
             "recording_svd_alpha": float(args.recording_svd_alpha),
+            "recording_extra_feature_mode": args.recording_extra_feature_mode,
+            "recording_extra_feature_scope": args.recording_extra_feature_scope,
+            "recording_extra_feature_dim": int(args.recording_extra_feature_dim),
+            "recording_extra_feature_alpha": float(args.recording_extra_feature_alpha),
             "recording_svd_append": args.recording_svd_append,
             "per_bird_umaps": bool(args.per_bird_umaps),
             "normalization_preset": args.normalization_preset,
@@ -1620,9 +1977,16 @@ def main():
             "umap_neighbors": int(args.umap_neighbors),
             "umap_min_dist": float(args.umap_min_dist),
             "umap_metric": args.umap_metric,
+            "umap_random_state": args.umap_random_state,
+            "umap_negative_sample_rate": int(args.umap_negative_sample_rate),
             "silhouette_sample_size": int(args.silhouette_sample_size),
+            "save_umap_features": bool(args.save_umap_features),
+            "hdbscan_analysis": bool(args.hdbscan_analysis),
+            "hdbscan_min_cluster_size": int(args.hdbscan_min_cluster_size),
+            "hdbscan_min_samples": int(args.hdbscan_min_samples),
         },
         "silhouette_scores": silhouette_scores,
+        "hdbscan_summary": hdbscan_summary,
         "per_bird_umaps": per_bird_saved,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
