@@ -6,8 +6,8 @@
 /recons
 /runs
 /imgs
-/archive 
-/results 
+archive/
+results/
 /files
 /wandb
 /temp
