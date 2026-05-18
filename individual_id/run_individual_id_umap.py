@@ -26,76 +26,94 @@ import hubert  # noqa: E402
 import perch  # noqa: E402
 
 
+def _default_recording_svd(path):
+    return {
+        "recording_svd_npz": path,
+        "recording_feature_mode": "svd",
+        "recording_feature_scope": "full",
+        "recording_svd_dim": 15,
+        "recording_svd_alpha": 1.0,
+        "recording_svd_append": "post",
+    }
+
+
 SPECIES_CONFIGS = {
     "zf": {
         "aliases": ("zebra_finch",),
         "display_name": "Zebra Finch",
-        "pool_window": 30,
-        "pool_hop": 5,
+        "pool_window": 10,
+        "pool_hop": 2,
         "recording_mode": "events",
-        "songs_per_bird": 30,
+        "songs_per_bird": 0,
         "feature_postprocess": "pca_whiten_l2",
         "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/zf/knn_attribution_matrices.npz"),
     },
     "bf": {
         "aliases": ("bengalese_finch",),
         "display_name": "Bengalese Finch",
-        "pool_window": 30,
-        "pool_hop": 5,
+        "pool_window": 10,
+        "pool_hop": 2,
         "recording_mode": "events",
-        "songs_per_bird": 30,
+        "songs_per_bird": 200,
         "feature_postprocess": "pca_whiten_l2",
         "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_perbird200_uncapped/bf/knn_attribution_matrices.npz"),
     },
     "canary": {
         "aliases": (),
         "display_name": "Canary",
-        "pool_window": 100,
-        "pool_hop": 10,
-        "recording_mode": "events",
-        "songs_per_bird": 30,
-        "feature_postprocess": "pca_whiten_l2",
-        "feature_postprocess_dim": 1024,
-    },
-    "chiffchaff": {
-        "aliases": (),
-        "display_name": "Chiffchaff",
-        "pool_window": 300,
-        "pool_hop": 50,
-        "recording_mode": "events",
-        "songs_per_bird": 0,
-        "feature_postprocess": "pca_whiten_l2",
-        "feature_postprocess_dim": 1024,
-    },
-    "european_starling": {
-        "aliases": ("starling",),
-        "display_name": "European Starling",
-        "pool_window": 100,
-        "pool_hop": 10,
-        "recording_mode": "events",
-        "songs_per_bird": 30,
-        "feature_postprocess": "pca_whiten_l2",
-        "feature_postprocess_dim": 1024,
-    },
-    "tree_pipit": {
-        "aliases": (),
-        "display_name": "Tree Pipit",
-        "pool_window": 100,
-        "pool_hop": 10,
-        "recording_mode": "events",
-        "songs_per_bird": 0,
-        "feature_postprocess": "pca_whiten_l2",
-        "feature_postprocess_dim": 1024,
-    },
-    "little_owl": {
-        "aliases": (),
-        "display_name": "Little Owl",
         "pool_window": 30,
         "pool_hop": 5,
         "recording_mode": "events",
         "songs_per_bird": 0,
         "feature_postprocess": "pca_whiten_l2",
         "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/canary/knn_attribution_matrices.npz"),
+    },
+    "chiffchaff": {
+        "aliases": (),
+        "display_name": "Chiffchaff",
+        "pool_window": 30,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 88,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_recordings2000_uncapped/chiffchaff/knn_attribution_matrices.npz"),
+    },
+    "european_starling": {
+        "aliases": ("starling",),
+        "display_name": "European Starling",
+        "pool_window": 30,
+        "pool_hop": 5,
+        "recording_mode": "events",
+        "songs_per_bird": 30,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_laplacian_cap30/european_starling/knn_attribution_matrices.npz"),
+    },
+    "tree_pipit": {
+        "aliases": (),
+        "display_name": "Tree Pipit",
+        "pool_window": 10,
+        "pool_hop": 2,
+        "recording_mode": "events",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_perbird400_uncapped/tree_pipit/knn_attribution_matrices.npz"),
+    },
+    "little_owl": {
+        "aliases": (),
+        "display_name": "Little Owl",
+        "pool_window": 5,
+        "pool_hop": 2,
+        "recording_mode": "events",
+        "songs_per_bird": 0,
+        "feature_postprocess": "pca_whiten_l2",
+        "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/little_owl/knn_attribution_matrices.npz"),
     },
     "orangutan": {
         "aliases": (),
@@ -110,12 +128,13 @@ SPECIES_CONFIGS = {
     "ovenbird": {
         "aliases": ("lapp_ovenbird",),
         "display_name": "Ovenbird",
-        "pool_window": 100,
-        "pool_hop": 5,
+        "pool_window": 5,
+        "pool_hop": 2,
         "recording_mode": "events",
         "songs_per_bird": 0,
         "feature_postprocess": "pca_whiten_l2",
         "feature_postprocess_dim": 1024,
+        **_default_recording_svd("results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/ovenbird/knn_attribution_matrices.npz"),
     },
 }
 
@@ -320,6 +339,11 @@ def _load_recording_features(path, mode, dim, alpha, include_stems=None):
         features = matrix / np.maximum(norms, 1e-12)
         features = features.astype(np.float32, copy=False) * np.float32(alpha)
         return dict(zip(stems, features))
+    if mode == "affinity_prob":
+        row_sums = matrix.sum(axis=1, keepdims=True)
+        features = matrix / np.maximum(row_sums, 1e-12)
+        features = features.astype(np.float32, copy=False) * np.float32(alpha)
+        return dict(zip(stems, features))
 
     assert mode in {"svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}
     if mode in {"normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}:
@@ -382,13 +406,14 @@ def _recording_feature_name(mode):
         "norm_adj_eig_skip1": "recnormeigskip1",
         "norm_adj_eig_kmeans": "recnormeigkmeans",
         "affinity_row": "recaffrow",
+        "affinity_prob": "recaffprob",
     }
     return names[mode]
 
 
 def _recording_feature_suffix(mode, dim, alpha, scope):
     feature_name = _recording_feature_name(mode)
-    dim_suffix = dim if mode != "affinity_row" else "full"
+    dim_suffix = dim if mode not in {"affinity_row", "affinity_prob"} else "full"
     suffix = f"{feature_name}{dim_suffix}_a{alpha:g}"
     if scope != "full":
         suffix = f"{suffix}_{scope}"
@@ -1506,11 +1531,11 @@ def main():
     parser.add_argument("--feature_postprocess_load", default=None)
     parser.add_argument("--feature_postprocess_save", default=None)
     parser.add_argument("--recording_svd_npz", default=None)
-    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row"])
+    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row", "affinity_prob"])
     parser.add_argument("--recording_feature_scope", default="full", choices=["full", "sampled"])
     parser.add_argument("--recording_svd_dim", type=int, default=32)
     parser.add_argument("--recording_svd_alpha", type=float, default=1.0)
-    parser.add_argument("--recording_extra_feature_mode", default=None, choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row"])
+    parser.add_argument("--recording_extra_feature_mode", default=None, choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row", "affinity_prob"])
     parser.add_argument("--recording_extra_feature_scope", default="full", choices=["full", "sampled"])
     parser.add_argument("--recording_extra_feature_dim", type=int, default=32)
     parser.add_argument("--recording_extra_feature_alpha", type=float, default=1.0)
@@ -1570,6 +1595,13 @@ def main():
         args.feature_postprocess = species_config["feature_postprocess"]
     if args.feature_postprocess_dim is None:
         args.feature_postprocess_dim = species_config["feature_postprocess_dim"]
+    if args.recording_svd_npz is None:
+        args.recording_svd_npz = species_config.get("recording_svd_npz")
+        args.recording_feature_mode = species_config.get("recording_feature_mode", args.recording_feature_mode)
+        args.recording_feature_scope = species_config.get("recording_feature_scope", args.recording_feature_scope)
+        args.recording_svd_dim = species_config.get("recording_svd_dim", args.recording_svd_dim)
+        args.recording_svd_alpha = species_config.get("recording_svd_alpha", args.recording_svd_alpha)
+        args.recording_svd_append = species_config.get("recording_svd_append", args.recording_svd_append)
     args.species_key = species_key
     args.species_display_name = species_config["display_name"]
 
@@ -1923,6 +1955,12 @@ def main():
             "songs_per_bird": int(species_config["songs_per_bird"]),
             "feature_postprocess": species_config["feature_postprocess"],
             "feature_postprocess_dim": int(species_config["feature_postprocess_dim"]),
+            "recording_svd_npz": species_config.get("recording_svd_npz"),
+            "recording_feature_mode": species_config.get("recording_feature_mode"),
+            "recording_feature_scope": species_config.get("recording_feature_scope"),
+            "recording_svd_dim": species_config.get("recording_svd_dim"),
+            "recording_svd_alpha": species_config.get("recording_svd_alpha"),
+            "recording_svd_append": species_config.get("recording_svd_append"),
         },
         "args": {
             "annotation_json": str(annotation_json),

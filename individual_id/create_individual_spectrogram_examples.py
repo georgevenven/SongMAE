@@ -65,6 +65,21 @@ SPECIES = {
     ),
 }
 
+FULL_SONG_SPECIES = {
+    "zf": SPECIES["zf"],
+    "bf": SPECIES["bf"],
+    "canary": SPECIES["canary"],
+    "chiffchaff": SPECIES["chiffchaff"],
+    "european_starling": (
+        "European Starling",
+        "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz",
+        ROOT / "files/european_starling_annotations_unprefixed.json",
+    ),
+    "little_owl": SPECIES["little_owl"],
+    "ovenbird": SPECIES["ovenbird"],
+    "tree_pipit": SPECIES["tree_pipit"],
+}
+
 
 def clean_name(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "unknown"
@@ -128,6 +143,30 @@ def read_clip(path, start, width, audio, manifest):
     return clip
 
 
+def read_full_song(path, audio, manifest):
+    clip = np.load(path, mmap_mode="r")
+    return decode_storage_to_raw(
+        clip,
+        audio.get("storage_dtype", "float32"),
+        audio.get("storage_normalization", "none"),
+        manifest.get(path.name),
+    )
+
+
+def read_span(path, start_ms, stop_ms, audio, manifest):
+    arr = np.load(path, mmap_mode="r")
+    start = ms_to_timebin(start_ms, audio)
+    stop = min(ms_to_timebin(stop_ms, audio), arr.shape[1])
+    assert stop > start, f"empty spectrogram span: {path} {start_ms}-{stop_ms} ms"
+    clip = arr[:, start:stop]
+    return decode_storage_to_raw(
+        clip,
+        audio.get("storage_dtype", "float32"),
+        audio.get("storage_normalization", "none"),
+        manifest.get(path.name),
+    )
+
+
 def plot_examples(examples, out_path, seconds):
     fig, axes = plt.subplots(len(examples), 1, figsize=(10, 3.0 * len(examples)), dpi=SPEC_DPI)
     fig.subplots_adjust(hspace=0.75)
@@ -149,6 +188,153 @@ def plot_examples(examples, out_path, seconds):
         )
     fig.savefig(out_path, dpi=SPEC_DPI, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_full_song_sheet(examples, out_path, max_seconds, color_limits, width):
+    scale_seconds = 10.0 if max_seconds >= 25.0 else 2.0
+
+    fig, axes = plt.subplots(len(examples), 1, figsize=(width, 1.05 * len(examples) + 0.8), dpi=SPEC_DPI)
+    fig.subplots_adjust(left=0.18, right=0.99, top=0.98, bottom=0.12, hspace=0.16)
+    axes = np.atleast_1d(axes)
+
+    for ax, example in zip(axes, examples):
+        ax.imshow(
+            example["clip"],
+            extent=(0, example["seconds"], 0, example["clip"].shape[0]),
+            vmin=color_limits[0],
+            vmax=color_limits[1],
+            **SPEC_IMSHOW_KW,
+        )
+        ax.set_xlim(0, max_seconds)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_ylabel(example["label"], rotation=0, ha="right", va="center", fontsize=11, fontweight="bold")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+    x0 = 0.25
+    bottom_ax = axes[-1]
+    bottom_ax.plot(
+        [x0, x0 + scale_seconds],
+        [-0.22, -0.22],
+        transform=bottom_ax.get_xaxis_transform(),
+        color="black",
+        lw=2.0,
+        clip_on=False,
+    )
+    bottom_ax.text(
+        x0 + scale_seconds / 2.0,
+        -0.35,
+        f"{scale_seconds:g} s",
+        transform=bottom_ax.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=10,
+        clip_on=False,
+    )
+    fig.savefig(out_path, dpi=SPEC_DPI, bbox_inches="tight")
+    plt.close(fig)
+
+
+def load_full_song_candidates(key, label, spec_dir, annotation_json, args):
+    data = json.loads(Path(annotation_json).read_text(encoding="utf-8"))
+    rng = np.random.default_rng(stable_seed(args.seed, key, "full_song_sheet"))
+    rows = event_candidates(data) if args.detected_events_only else [(row, None, None) for row in data["recordings"]]
+    order = rng.permutation(len(rows))
+    selected = [rows[index] for index in order[: args.num_collages]]
+    assert len(selected) == args.num_collages, f"{key} has fewer than {args.num_collages} recordings"
+    return {
+        "key": key,
+        "label": label,
+        "spec_dir": Path(spec_dir),
+        "annotation_json": Path(annotation_json),
+        "rows": selected,
+        "audio": load_audio_params(Path(spec_dir)),
+    }
+
+
+def event_candidates(data):
+    rows = []
+    for row in data["recordings"]:
+        for event_index, event in enumerate(row.get("detected_events", [])):
+            if "offset_ms" in event and event["offset_ms"] > event["onset_ms"]:
+                rows.append((row, event_index, event))
+    return rows
+
+
+def read_full_song_example(job, collage_index):
+    manifest = load_quantization_manifest(job["spec_dir"], job["audio"])
+    row, event_index, event = job["rows"][collage_index]
+    stem = Path(row["recording"]["filename"]).stem
+    path = resolve_spec_path(job["spec_dir"], stem)
+    if event is None:
+        clip = read_full_song(path, job["audio"], manifest)
+    else:
+        clip = read_span(path, event["onset_ms"], event["offset_ms"], job["audio"], manifest)
+    seconds = clip.shape[1] * job["audio"]["hop_size"] / job["audio"]["sr"]
+    return {
+        "label": job["label"],
+        "clip": clip,
+        "seconds": seconds,
+        "metadata": {
+            "species": job["key"],
+            "label": job["label"],
+            "spectrogram": str(path),
+            "annotation_json": str(job["annotation_json"]),
+            "filename": row["recording"]["filename"],
+            "bird_id": row["recording"].get("bird_id"),
+            "duration_seconds": seconds,
+            "detected_events": len(row.get("detected_events", [])),
+            "event_index": event_index,
+            "event_onset_ms": None if event is None else event["onset_ms"],
+            "event_offset_ms": None if event is None else event["offset_ms"],
+        },
+    }
+
+
+def color_limits(sheets):
+    values = []
+    for examples in sheets:
+        for example in examples:
+            clip = example["clip"]
+            values.append(np.percentile(clip, [1.0, 99.5]))
+    limits = np.asarray(values)
+    return float(limits[:, 0].min()), float(limits[:, 1].max())
+
+
+def render_full_song_sheets(args):
+    keys = list(FULL_SONG_SPECIES) if args.species == ["all"] else args.species
+    jobs = []
+
+    for key in keys:
+        assert key in FULL_SONG_SPECIES, f"Unsupported full-song species: {key}"
+        label, spec_dir, annotation_json = FULL_SONG_SPECIES[key]
+        jobs.append(load_full_song_candidates(key, label, spec_dir, annotation_json, args))
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    sheets = [[read_full_song_example(job, index) for job in jobs] for index in range(args.num_collages)]
+    max_seconds = max(example["seconds"] for examples in sheets for example in examples)
+    limits = color_limits(sheets)
+
+    metadata = []
+    prefix = "species_detected_event_sheet" if args.detected_events_only else "species_full_song_sheet"
+    for collage_index, examples in enumerate(sheets):
+        out_path = args.out_dir / f"{prefix}_{collage_index + 1:03d}.png"
+        plot_full_song_sheet(examples, out_path, max_seconds, limits, args.sheet_width)
+        metadata.append(
+            {
+                "collage": out_path.name,
+                "xlim_seconds": max_seconds,
+                "color_vmin": limits[0],
+                "color_vmax": limits[1],
+                "examples": [example["metadata"] for example in examples],
+            }
+        )
+
+    (args.out_dir / f"{prefix}s.json").write_text(
+        json.dumps(metadata, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def render_species(key, label, spec_dir, annotation_json, args):
@@ -198,7 +384,7 @@ def species_jobs(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Render 5-second individual-id spectrogram examples.")
+    parser = argparse.ArgumentParser(description="Render individual-id spectrogram examples.")
     parser.add_argument("--species", nargs="+", default=["all"])
     parser.add_argument("--spec_dir", type=Path, default=None)
     parser.add_argument("--annotation_json", type=Path, default=None)
@@ -207,11 +393,22 @@ def main():
     parser.add_argument("--songs_per_individual", type=int, default=3)
     parser.add_argument("--max_individuals", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--species_song_sheet", action="store_true")
+    parser.add_argument("--num_collages", type=int, default=1)
+    parser.add_argument("--detected_events_only", action="store_true")
+    parser.add_argument("--sheet_width", type=float, default=12.0)
     args = parser.parse_args()
 
     assert args.seconds > 0.0
     assert args.songs_per_individual > 0
+    assert args.num_collages > 0
+    assert args.sheet_width > 0.0
     args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.species_song_sheet:
+        render_full_song_sheets(args)
+        print(f"wrote {args.num_collages} species sheets to {args.out_dir}")
+        return
 
     total = 0
     for key, label, spec_dir, annotation_json in species_jobs(args):
