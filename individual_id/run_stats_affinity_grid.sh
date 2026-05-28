@@ -168,5 +168,5 @@ for species in "${species_list[@]}"; do
 done
 
 if [[ "$NO_COLLAGE" != "1" ]]; then
-  python individual_id/make_stats_affinity_grid_collages.py --out_root "$OUT_ROOT"
+  python individual_id/plotting/make_stats_affinity_grid_collages.py --out_root "$OUT_ROOT"
 fi

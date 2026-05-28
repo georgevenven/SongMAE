@@ -11,6 +11,7 @@ results/
 /files
 /wandb
 /temp
+individual_id/temp/
 /home/george-vengrovski/Documents/projects/TinyBird/individual_id/temp
 scripts/concat_eval_f1_score_files.py
 processed_results.zip
