@@ -9,6 +9,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, roc_auc_score
 from sklearn.pipeline import make_pipeline
@@ -558,8 +560,104 @@ def _apply_train_feature_postprocess(x_train, x_val, args):
     )
 
 
+class _ThreeLayerMlp(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_classes):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_classes),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+def _fit_logistic_regression(x_train, y_train, x_val, args):
+    model = make_pipeline(
+        StandardScaler(),
+        LogisticRegression(
+            C=args.c,
+            max_iter=args.max_iter,
+            solver="lbfgs",
+        ),
+    )
+    model.fit(x_train, y_train)
+    return model.predict(x_train), model.predict(x_val), model.predict_proba(x_val).astype(np.float32, copy=False)
+
+
+def _mlp_probabilities(model, x, args, device):
+    loader = DataLoader(
+        torch.from_numpy(x),
+        batch_size=int(args.mlp_batch_size),
+        shuffle=False,
+    )
+    parts = []
+    with torch.no_grad():
+        for xb in loader:
+            logits = model(xb.to(device, non_blocking=True))
+            parts.append(torch.softmax(logits, dim=1).cpu().numpy())
+    return np.vstack(parts).astype(np.float32, copy=False)
+
+
+def _fit_mlp(x_train, y_train, x_val, args, num_classes):
+    torch.manual_seed(int(args.seed))
+    scaler = StandardScaler()
+    x_train = scaler.fit_transform(x_train).astype(np.float32, copy=False)
+    x_val = scaler.transform(x_val).astype(np.float32, copy=False)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = _ThreeLayerMlp(
+        input_dim=int(x_train.shape[1]),
+        hidden_dim=int(args.mlp_hidden_dim),
+        num_classes=int(num_classes),
+    ).to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(args.mlp_lr),
+        weight_decay=float(args.mlp_weight_decay),
+    )
+    criterion = nn.CrossEntropyLoss()
+    dataset = TensorDataset(
+        torch.from_numpy(x_train),
+        torch.from_numpy(y_train.astype(np.int64, copy=False)),
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=int(args.mlp_batch_size),
+        shuffle=True,
+        generator=torch.Generator().manual_seed(int(args.seed)),
+    )
+
+    model.train()
+    for _ in range(int(args.mlp_epochs)):
+        for xb, yb in loader:
+            xb = xb.to(device, non_blocking=True)
+            yb = yb.to(device, non_blocking=True)
+            optimizer.zero_grad(set_to_none=True)
+            loss = criterion(model(xb), yb)
+            loss.backward()
+            optimizer.step()
+
+    model.eval()
+    train_pred = _mlp_probabilities(model, x_train, args, device).argmax(axis=1)
+    val_probs = _mlp_probabilities(model, x_val, args, device)
+    val_pred = val_probs.argmax(axis=1)
+    return train_pred, val_pred, val_probs
+
+
+def _fit_probe(x_train, y_train, x_val, args, num_classes):
+    if args.probe_model == "logistic_regression":
+        return _fit_logistic_regression(x_train, y_train, x_val, args)
+    if args.probe_model == "mlp":
+        return _fit_mlp(x_train, y_train, x_val, args, num_classes)
+    raise SystemExit(f"Unsupported probe_model: {args.probe_model}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Train an individual-identification linear probe on pooled per-recording features.")
+    parser = argparse.ArgumentParser(description="Train an individual-identification probe on pooled per-recording features.")
     parser.add_argument("--encoder", required=True, choices=["SongMAE", "Spec", "AVES", "Perch", "HuBERT", "BirdMAE"])
     parser.add_argument("--species", required=True)
     parser.add_argument("--annotation_json", required=True)
@@ -579,8 +677,14 @@ def main():
     parser.add_argument("--window_token_probe", action="store_true")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
     parser.add_argument("--val_fraction", type=float, default=0.2)
+    parser.add_argument("--probe_model", default="logistic_regression", choices=["logistic_regression", "mlp"])
     parser.add_argument("--c", type=float, default=1.0)
     parser.add_argument("--max_iter", type=int, default=2000)
+    parser.add_argument("--mlp_hidden_dim", type=int, default=512)
+    parser.add_argument("--mlp_epochs", type=int, default=100)
+    parser.add_argument("--mlp_batch_size", type=int, default=1024)
+    parser.add_argument("--mlp_lr", type=float, default=1e-3)
+    parser.add_argument("--mlp_weight_decay", type=float, default=1e-4)
     parser.add_argument("--feature_postprocess", default="none", choices=["none", "pca_whiten_l2", "whiten_l2"])
     parser.add_argument("--feature_postprocess_dim", type=int, default=256)
     parser.add_argument("--normalization_preset", choices=["vanilla", "zscore", "zscore_rescaled"], default=None)
@@ -634,6 +738,11 @@ def main():
     assert 0.0 < args.val_fraction < 1.0
     assert args.audio_context_seconds > 0.0
     assert args.perch_window_seconds > 0.0
+    assert args.mlp_hidden_dim > 0
+    assert args.mlp_epochs > 0
+    assert args.mlp_batch_size > 0
+    assert args.mlp_lr > 0.0
+    assert args.mlp_weight_decay >= 0.0
     assert 0.0 <= args.train_audio_speed_min_pct <= args.train_audio_speed_max_pct < 1.0
     assert args.pool_hop > 0
     if args.encoder == "SongMAE":
@@ -759,21 +868,16 @@ def main():
     assert x_val.shape[0] > 0, "Validation split has no examples for the trained classes."
     y_val = label_encoder.transform(y_val_raw)
     x_train, x_val, feature_postprocess = _apply_train_feature_postprocess(x_train, x_val, args)
-    model = make_pipeline(
-        StandardScaler(),
-        LogisticRegression(
-            C=args.c,
-            max_iter=args.max_iter,
-            solver="lbfgs",
-        ),
+    train_pred, val_pred, val_probs = _fit_probe(
+        x_train,
+        y_train,
+        x_val,
+        args,
+        len(label_encoder.classes_),
     )
-    model.fit(x_train, y_train)
-
-    train_pred = model.predict(x_train)
-    val_pred = model.predict(x_val)
-    val_probs = model.predict_proba(x_val)
 
     train_accuracy = float(accuracy_score(y_train, train_pred))
+    probe_label = args.probe_model
     if args.window_token_probe:
         y_val_auc_true, val_auc_probs, val_auc_group_ids = _aggregate_group_probabilities(
             val_group_ids,
@@ -792,7 +896,7 @@ def main():
             val_auc_probs,
         )
         print(
-            f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
+            f"[{probe_label}] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
             f"train_acc={train_accuracy:.4f} meanprob_acc={val_accuracy:.4f} "
             f"meanprob_macro_f1={val_macro_f1:.4f} val_roc_auc_ovr_macro={val_roc_auc_ovr_macro:.4f}"
         )
@@ -814,7 +918,7 @@ def main():
             val_probs,
         )
         print(
-            f"[linear_probe] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
+            f"[{probe_label}] train_examples={x_train.shape[0]} val_examples={x_val.shape[0]} "
             f"train_acc={train_accuracy:.4f} val_acc={val_accuracy:.4f} "
             f"val_macro_f1={val_macro_f1:.4f} val_roc_auc_ovr_macro={val_roc_auc_ovr_macro:.4f}"
         )
@@ -853,8 +957,14 @@ def main():
             "window_token_probe": bool(args.window_token_probe),
             "encoder_layer_idx": args.encoder_layer_idx,
             "val_fraction": float(args.val_fraction),
+            "probe_model": args.probe_model,
             "c": float(args.c),
             "max_iter": int(args.max_iter),
+            "mlp_hidden_dim": int(args.mlp_hidden_dim),
+            "mlp_epochs": int(args.mlp_epochs),
+            "mlp_batch_size": int(args.mlp_batch_size),
+            "mlp_lr": float(args.mlp_lr),
+            "mlp_weight_decay": float(args.mlp_weight_decay),
             "feature_postprocess": args.feature_postprocess,
             "feature_postprocess_dim": int(args.feature_postprocess_dim),
             "normalization_preset": args.normalization_preset,

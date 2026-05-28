@@ -92,6 +92,8 @@ def _load_stems(annotation_json):
     data = json.loads(Path(annotation_json).read_text(encoding="utf-8"))
     by_bird = {}
     for item in data["recordings"]:
+        if not item.get("detected_events"):
+            continue
         recording = item["recording"]
         bird_id = str(recording["bird_id"]).strip()
         stem = Path(recording["filename"]).stem
@@ -464,7 +466,13 @@ def _subset_experiment(args, out_dir):
                     }
                 )
 
-    csv_path = out_dir / "subset_recording_count_sweep.csv"
+    if args.random_fraction_recordings_per_bird:
+        suffix = "_random_fraction"
+    elif args.balanced_max_recordings_per_bird:
+        suffix = "_balanced_max"
+    else:
+        suffix = "_all_recordings_all_counts"
+    csv_path = out_dir / f"subset_recording_count_sweep{suffix}.csv"
     _write_rows_csv(csv_path, rows)
     by_recording_count = {}
     for per_bird in recordings_per_bird:
@@ -484,7 +492,7 @@ def _subset_experiment(args, out_dir):
         "overall_row_normalized_stable_rank_r2": _linear_fit_r2(rows, "row_normalized_stable_rank"),
         "by_recordings_per_bird": by_recording_count,
     }
-    (out_dir / "subset_recording_count_sweep_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (out_dir / f"subset_recording_count_sweep{suffix}_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
 
 
@@ -515,7 +523,7 @@ def _linear_fit_xy(rows, x):
 
 
 def _plot_subset_experiment(args, out_dir):
-    csv_path = Path(args.plot_subset_csv) if args.plot_subset_csv else out_dir / "subset_recording_count_sweep.csv"
+    csv_path = Path(args.plot_subset_csv) if args.plot_subset_csv else out_dir / "subset_recording_count_sweep_all_recordings_all_counts.csv"
     rows = _read_subset_rows(csv_path)
     x_values = np.asarray([row[args.plot_prediction_key] for row in rows], dtype=np.float64)
     x, y, slope, intercept, r2 = _linear_fit_xy(rows, x_values)
@@ -577,11 +585,16 @@ def _save_all_species_heatmaps(root, key, filename):
     plt.close(fig)
 
 
-def _save_all_species_scatter(root, prediction_key, x_label, filename):
+def _save_all_species_scatter(root, prediction_key, x_label, filename,
+                              csv_name="subset_recording_count_sweep_all_recordings_all_counts.csv"):
     species_keys = list(NAME_ALIASES)
     fig, panels = _panel_grid(species_keys, (12, 6.2))
     for ax, species_key in panels:
-        path = root / species_key / "subset_recording_count_sweep_all_recordings_all_counts.csv"
+        path = root / species_key / csv_name
+        if not path.exists():
+            ax.set_axis_off()
+            ax.set_title(f"{NAME_ALIASES[species_key]}\n(missing {csv_name})", fontsize=10)
+            continue
         rows = _read_subset_rows(path)
         x_values = np.asarray([row[prediction_key] for row in rows], dtype=np.float64)
         x, y, slope, intercept, r2 = _linear_fit_xy(rows, x_values)
@@ -784,6 +797,20 @@ def _plot_all_species_summary(args):
         "Row-normalized stable rank",
         "all_species_row_normalized_stable_rank_proxy",
     )
+    _save_all_species_scatter(
+        root,
+        "stable_rank",
+        "Stable rank",
+        "all_species_stable_rank_random_fraction_proxy",
+        csv_name="subset_recording_count_sweep_random_fraction.csv",
+    )
+    _save_all_species_scatter(
+        root,
+        "row_normalized_stable_rank",
+        "Row-normalized stable rank",
+        "all_species_row_normalized_stable_rank_random_fraction_proxy",
+        csv_name="subset_recording_count_sweep_random_fraction.csv",
+    )
     _save_variable_recording_stable_rank(root, 0.30, args.variable_recording_repeats, args.seed)
     _save_all_species_purity(root)
     _save_all_species_summary_csv(root)
@@ -796,6 +823,8 @@ def _plot_all_species_summary(args):
                     "all_species_recording_knn_heatmaps.png",
                     "all_species_stable_rank_proxy.png",
                     "all_species_row_normalized_stable_rank_proxy.png",
+                    "all_species_stable_rank_random_fraction_proxy.png",
+                    "all_species_row_normalized_stable_rank_random_fraction_proxy.png",
                     "all_species_stable_rank_variable_recordings_per_bird_min30pct.png",
                     "all_species_row_normalized_stable_rank_variable_recordings_per_bird_min30pct.png",
                     "all_species_knn_purity.png",
@@ -903,6 +932,7 @@ def _write_outputs(args, sampled, neighbors, device, actual_k, out_dir):
         "songmae_affinity_features": args.songmae_affinity_features,
         "feature_postprocess": args.feature_postprocess,
         "feature_postprocess_dim": int(args.feature_postprocess_dim),
+        "recording_filter": "detected_events_nonempty",
         "device": device,
         "recordings": int(sampled["sampled_counts"].size),
         "points": int(sampled["features"].shape[0]),

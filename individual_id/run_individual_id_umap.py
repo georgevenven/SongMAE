@@ -11,9 +11,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
+import umap.umap_ as umap_
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import completeness_score, homogeneity_score, silhouette_score, v_measure_score
+from sklearn.utils import check_random_state
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
@@ -319,39 +321,83 @@ def _fit_pca(features, target_dim):
     return pca.fit_transform(features).astype(np.float32, copy=False)
 
 
-def _load_recording_features(path, mode, dim, alpha, include_stems=None):
+def _recording_feature_aliases(data, stems):
+    if "recording_birds" not in data.files or "bird_ids" not in data.files:
+        return [(stem,) for stem in stems]
+    bird_ids = [str(x) for x in data["bird_ids"].tolist()]
+    recording_birds = np.asarray(data["recording_birds"])
+    return [
+        (stem, f"{bird_ids[int(bird_idx)]}__{stem}")
+        for stem, bird_idx in zip(stems, recording_birds)
+    ]
+
+
+def _recording_feature_dict(row_aliases, features):
+    result = {}
+    for aliases, feature in zip(row_aliases, features):
+        for alias in aliases:
+            result[alias] = feature
+    return result
+
+
+def _load_recording_features(path, mode, dim, alpha, feature_norm, include_stems=None):
     if path is None:
         return None
     data = np.load(path, allow_pickle=True)
     stems = [str(x) for x in data["recording_stems"].tolist()]
+    row_aliases = _recording_feature_aliases(data, stems)
     matrix = data["recording_matrix"].astype(np.float32, copy=False)
     if include_stems is not None:
-        index = {stem: i for i, stem in enumerate(stems)}
+        index = {
+            alias: i
+            for i, aliases in enumerate(row_aliases)
+            for alias in aliases
+        }
         stems = sorted(str(stem) for stem in include_stems)
         missing = [stem for stem in stems if stem not in index]
         assert not missing, missing[:5]
         keep = np.asarray([index[stem] for stem in stems], dtype=np.int64)
         matrix = matrix[np.ix_(keep, keep)]
+        row_aliases = [(stem,) for stem in stems]
     matrix = (matrix + matrix.T) * np.float32(0.5)
     np.fill_diagonal(matrix, 0.0)
     if mode == "affinity_row":
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         features = matrix / np.maximum(norms, 1e-12)
         features = features.astype(np.float32, copy=False) * np.float32(alpha)
-        return dict(zip(stems, features))
+        return _recording_feature_dict(row_aliases, features)
     if mode == "affinity_prob":
         row_sums = matrix.sum(axis=1, keepdims=True)
         features = matrix / np.maximum(row_sums, 1e-12)
         features = features.astype(np.float32, copy=False) * np.float32(alpha)
-        return dict(zip(stems, features))
+        return _recording_feature_dict(row_aliases, features)
 
-    assert mode in {"svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}
+    if mode == "pca":
+        dim = min(int(dim), int(matrix.shape[0]), int(matrix.shape[1]))
+        assert dim > 0
+        features = PCA(n_components=dim, svd_solver="full").fit_transform(matrix)
+    elif mode == "umap":
+        dim = min(int(dim), int(matrix.shape[0]) - 1)
+        assert dim > 0
+        row_norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        rows = matrix / np.maximum(row_norms, 1e-12)
+        features = umap.UMAP(
+            n_components=dim,
+            n_neighbors=min(15, max(2, matrix.shape[0] - 1)),
+            min_dist=0.1,
+            metric="cosine",
+            random_state=0,
+        ).fit_transform(rows)
+    else:
+        assert mode in {"svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}
     if mode in {"normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}:
         degree = matrix.sum(axis=1, keepdims=True)
         scale = 1.0 / np.sqrt(np.maximum(degree, 1e-12))
         matrix = (matrix * scale) * scale.T
 
-    if mode in {"norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}:
+    if mode in {"pca", "umap"}:
+        pass
+    elif mode in {"norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans"}:
         values, vectors = np.linalg.eigh(matrix.astype(np.float64, copy=False))
         order = np.argsort(values)[::-1]
         start = 1 if mode == "norm_adj_eig_skip1" else 0
@@ -377,10 +423,12 @@ def _load_recording_features(path, mode, dim, alpha, include_stems=None):
             features = u[:, :dim] * s[:dim][None, :]
         else:
             features = u[:, :dim] * np.sqrt(s[:dim])[None, :]
-    norms = np.linalg.norm(features, axis=1, keepdims=True)
-    features = features / np.maximum(norms, 1e-12)
+    assert feature_norm in {"l2", "none"}
+    if feature_norm == "l2":
+        norms = np.linalg.norm(features, axis=1, keepdims=True)
+        features = features / np.maximum(norms, 1e-12)
     features = features.astype(np.float32, copy=False) * np.float32(alpha)
-    return dict(zip(stems, features))
+    return _recording_feature_dict(row_aliases, features)
 
 
 def _combine_recording_features(primary, extra, stems=None):
@@ -401,6 +449,8 @@ def _recording_feature_name(mode):
         "svd": "recsvd",
         "svd_u": "recsvdu",
         "svd_us": "recsvdus",
+        "pca": "recpca",
+        "umap": "recumap",
         "normalized_svd": "recnormsvd",
         "norm_adj_eig": "recnormeig",
         "norm_adj_eig_skip1": "recnormeigskip1",
@@ -447,6 +497,8 @@ def _pool_embeddings(embeddings, window, mode, hop, layout="sliding", seed=0, st
     if embeddings.shape[0] == 0:
         return np.zeros((0, embeddings.shape[1]), dtype=np.float32)
     if window <= 1:
+        if starts is not None:
+            return embeddings[starts].astype(np.float32, copy=False)
         return embeddings.astype(np.float32, copy=False)
     assert mode in {"mean", "stats"}
 
@@ -485,6 +537,8 @@ def _pool_labels(labels, window, hop, layout="sliding", seed=0, starts=None, sho
     if labels.shape[0] == 0:
         return np.zeros((0,), dtype=np.int64)
     if window <= 1:
+        if starts is not None:
+            return labels[starts].astype(np.int64, copy=False)
         return labels.astype(np.int64, copy=False)
 
     if starts is None:
@@ -551,6 +605,62 @@ def _fit_umap(features, neighbors, min_dist, metric, random_state, negative_samp
         n_jobs=-1,
     )
     return reducer.fit_transform(features)
+
+
+def _fit_multiview_umap(features, recording_features, neighbors, min_dist, metric, random_state, negative_sample_rate, combine):
+    rng = check_random_state(random_state)
+    angular = metric in {"cosine", "correlation"}
+    stats_graph, _, _ = umap_.fuzzy_simplicial_set(
+        features,
+        int(neighbors),
+        rng,
+        metric,
+        {},
+        angular=angular,
+        set_op_mix_ratio=1.0,
+    )
+    recording_graph, _, _ = umap_.fuzzy_simplicial_set(
+        recording_features,
+        int(neighbors),
+        rng,
+        metric,
+        {},
+        angular=angular,
+        set_op_mix_ratio=1.0,
+    )
+    product = stats_graph.multiply(recording_graph)
+    assert combine in {"union", "intersection"}
+    if combine == "union":
+        graph = stats_graph + recording_graph - product
+    else:
+        graph = product
+    graph.eliminate_zeros()
+    graph = umap_.reset_local_connectivity(graph)
+    a, b = umap_.find_ab_params(1.0, float(min_dist))
+    embedding, _ = umap_.simplicial_set_embedding(
+        features,
+        graph,
+        2,
+        1.0,
+        a,
+        b,
+        1.0,
+        int(negative_sample_rate),
+        None,
+        "spectral",
+        rng,
+        metric,
+        {},
+        False,
+        {},
+        False,
+        parallel=False,
+    )
+    return embedding.astype(np.float32, copy=False)
+
+
+def _recording_view_features(recording_labels, recording_svd_features):
+    return np.vstack([recording_svd_features[str(stem)] for stem in recording_labels]).astype(np.float32, copy=False)
 
 
 def _label_silhouette(xy, labels, sample_size, seed):
@@ -1531,15 +1641,17 @@ def main():
     parser.add_argument("--feature_postprocess_load", default=None)
     parser.add_argument("--feature_postprocess_save", default=None)
     parser.add_argument("--recording_svd_npz", default=None)
-    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row", "affinity_prob"])
+    parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "svd_u", "svd_us", "pca", "umap", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row", "affinity_prob"])
     parser.add_argument("--recording_feature_scope", default="full", choices=["full", "sampled"])
     parser.add_argument("--recording_svd_dim", type=int, default=32)
     parser.add_argument("--recording_svd_alpha", type=float, default=1.0)
-    parser.add_argument("--recording_extra_feature_mode", default=None, choices=["svd", "svd_u", "svd_us", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row", "affinity_prob"])
+    parser.add_argument("--recording_feature_norm", default="l2", choices=["l2", "none"])
+    parser.add_argument("--recording_extra_feature_mode", default=None, choices=["svd", "svd_u", "svd_us", "pca", "umap", "normalized_svd", "norm_adj_eig", "norm_adj_eig_skip1", "norm_adj_eig_kmeans", "affinity_row", "affinity_prob"])
     parser.add_argument("--recording_extra_feature_scope", default="full", choices=["full", "sampled"])
     parser.add_argument("--recording_extra_feature_dim", type=int, default=32)
     parser.add_argument("--recording_extra_feature_alpha", type=float, default=1.0)
     parser.add_argument("--recording_svd_append", default="post", choices=["post", "frame"])
+    parser.add_argument("--recording_view_combine", default="concat", choices=["concat", "union", "intersection"])
     parser.add_argument(
         "--songmae_feature_source",
         default="encoded_before",
@@ -1763,6 +1875,7 @@ def main():
         args.recording_feature_mode,
         args.recording_svd_dim,
         args.recording_svd_alpha,
+        args.recording_feature_norm,
         include_stems=recording_feature_stems if args.recording_feature_scope == "sampled" else None,
     )
     recording_extra_features = None
@@ -1772,6 +1885,7 @@ def main():
             args.recording_extra_feature_mode,
             args.recording_extra_feature_dim,
             args.recording_extra_feature_alpha,
+            args.recording_feature_norm,
             include_stems=recording_feature_stems if args.recording_extra_feature_scope == "sampled" else None,
         )
     recording_svd_features = _combine_recording_features(
@@ -1779,6 +1893,9 @@ def main():
         recording_extra_features,
         stems=recording_feature_stems,
     )
+    if args.recording_view_combine != "concat":
+        assert recording_svd_features is not None
+        assert args.recording_svd_append == "post"
 
     if args.encoder in {"SongMAE", "AVES", "HuBERT", "BirdMAE", "Perch"}:
         features, bird_labels, syllable_labels, recording_labels = _build_embedding_representation(
@@ -1790,7 +1907,7 @@ def main():
             seed=args.seed,
             pca_dim=args.concat_pca_dim,
             max_points=args.max_points,
-            recording_svd_features=recording_svd_features,
+            recording_svd_features=recording_svd_features if args.recording_view_combine == "concat" else None,
             recording_svd_append=args.recording_svd_append,
         )
         prefix = {"SongMAE": "songmae", "AVES": "aves", "HuBERT": "hubert", "BirdMAE": "birdmae", "Perch": "perch"}[args.encoder]
@@ -1821,6 +1938,8 @@ def main():
             args.recording_feature_scope,
         )
         rep_name = f"{rep_name}_{suffix}"
+        if args.recording_feature_norm != "l2":
+            rep_name = f"{rep_name}_recnorm{args.recording_feature_norm}"
         if args.recording_extra_feature_mode is not None:
             extra_suffix = _recording_feature_suffix(
                 args.recording_extra_feature_mode,
@@ -1831,6 +1950,8 @@ def main():
             rep_name = f"{rep_name}_plus_{extra_suffix}"
         if args.recording_svd_append != "post":
             rep_name = f"{rep_name}_{args.recording_svd_append}"
+        if args.recording_view_combine != "concat":
+            rep_name = f"{rep_name}_recview{args.recording_view_combine}"
 
     if args.encoder != "SongMAE":
         features, feature_postprocess = _apply_feature_postprocess(features, args)
@@ -1877,9 +1998,11 @@ def main():
                 "feature_postprocess_dim": int(feature_postprocess["dim"]) if feature_postprocess is not None else 0,
                 "recording_svd_npz": args.recording_svd_npz,
                 "recording_feature_mode": args.recording_feature_mode,
+                "recording_feature_norm": args.recording_feature_norm,
                 "recording_svd_dim": int(args.recording_svd_dim),
                 "recording_svd_alpha": float(args.recording_svd_alpha),
                 "recording_svd_append": args.recording_svd_append,
+                "recording_view_combine": args.recording_view_combine,
                 "save_umap_features": bool(args.save_umap_features),
                 "features_only": bool(args.features_only),
             },
@@ -1887,14 +2010,27 @@ def main():
         (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         return
 
-    xy = _fit_umap(
-        features,
-        neighbors=args.umap_neighbors,
-        min_dist=args.umap_min_dist,
-        metric=args.umap_metric,
-        random_state=args.umap_random_state,
-        negative_sample_rate=args.umap_negative_sample_rate,
-    )
+    if args.recording_view_combine == "concat":
+        xy = _fit_umap(
+            features,
+            neighbors=args.umap_neighbors,
+            min_dist=args.umap_min_dist,
+            metric=args.umap_metric,
+            random_state=args.umap_random_state,
+            negative_sample_rate=args.umap_negative_sample_rate,
+        )
+    else:
+        recording_view_features = _recording_view_features(recording_labels, recording_svd_features)
+        xy = _fit_multiview_umap(
+            features,
+            recording_view_features,
+            neighbors=args.umap_neighbors,
+            min_dist=args.umap_min_dist,
+            metric=args.umap_metric,
+            random_state=args.umap_random_state,
+            negative_sample_rate=args.umap_negative_sample_rate,
+            combine=args.recording_view_combine,
+        )
     silhouette_scores = _umap_silhouette_scores(
         xy=xy,
         bird_labels=bird_labels,
@@ -1958,6 +2094,7 @@ def main():
             "recording_svd_npz": species_config.get("recording_svd_npz"),
             "recording_feature_mode": species_config.get("recording_feature_mode"),
             "recording_feature_scope": species_config.get("recording_feature_scope"),
+            "recording_feature_norm": species_config.get("recording_feature_norm", "l2"),
             "recording_svd_dim": species_config.get("recording_svd_dim"),
             "recording_svd_alpha": species_config.get("recording_svd_alpha"),
             "recording_svd_append": species_config.get("recording_svd_append"),
@@ -1982,6 +2119,7 @@ def main():
             "recording_svd_npz": args.recording_svd_npz,
             "recording_feature_mode": args.recording_feature_mode,
             "recording_feature_scope": args.recording_feature_scope,
+            "recording_feature_norm": args.recording_feature_norm,
             "recording_svd_dim": int(args.recording_svd_dim),
             "recording_svd_alpha": float(args.recording_svd_alpha),
             "recording_extra_feature_mode": args.recording_extra_feature_mode,
@@ -1989,6 +2127,7 @@ def main():
             "recording_extra_feature_dim": int(args.recording_extra_feature_dim),
             "recording_extra_feature_alpha": float(args.recording_extra_feature_alpha),
             "recording_svd_append": args.recording_svd_append,
+            "recording_view_combine": args.recording_view_combine,
             "per_bird_umaps": bool(args.per_bird_umaps),
             "normalization_preset": args.normalization_preset,
             "audio_params_stats_dir": args.audio_params_stats_dir,
