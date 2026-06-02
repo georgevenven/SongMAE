@@ -1187,7 +1187,7 @@ def main():
     parser = argparse.ArgumentParser(description="Build bird/recording kNN attribution matrices.")
     parser.add_argument("species_key", choices=sorted(SPECIES))
     parser.add_argument("--encoder", default="SongMAE", choices=["SongMAE", "Spec", "AVES", "Perch", "HuBERT", "BirdMAE"])
-    parser.add_argument("--run_dir", default="/media/george-vengrovski/Desk SSD/LAMBDA_TRAIN_RUNS/runs/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8")
+    parser.add_argument("--run_dir", default=str(ROOT / "github_assets/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8"))
     parser.add_argument("--checkpoint", default="model_step_499999.pth")
     parser.add_argument("--out_dir", default=str(ROOT / "results" / "individual_id_knn_graph_metrics" / "bird_knn_matrix"))
     parser.add_argument("--songs_per_bird", type=int, default=0)

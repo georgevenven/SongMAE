@@ -218,7 +218,7 @@ set_model_config() {
   IID_CHECKPOINT="${IID_CHECKPOINT_OVERRIDE:-}"
   case "$model_preset" in
     species_default)
-      IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-/media/george-vengrovski/Desk SSD/LAMBDA_TRAIN_RUNS/runs/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8}"
+      IID_RUN_DIR="${IID_RUN_DIR_OVERRIDE:-$ROOT/github_assets/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8}"
       IID_MODEL_TAG="${IID_MODEL_TAG_OVERRIDE:-xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8_ckpt499999}"
       ;;
     data2vec_40k)
