@@ -171,6 +171,14 @@ def _transform_cca(features, recording_view, model, normalize=True):
     return a.astype(np.float32, copy=False), b.astype(np.float32, copy=False)
 
 
+def _block_normalize_views(a, b, recording_weight):
+    a = (a - a.mean(axis=0, keepdims=True)) / np.maximum(a.std(axis=0, keepdims=True), 1e-6)
+    b = (b - b.mean(axis=0, keepdims=True)) / np.maximum(b.std(axis=0, keepdims=True), 1e-6)
+    a = a / np.sqrt(a.shape[1])
+    b = b / np.sqrt(b.shape[1])
+    return a.astype(np.float32, copy=False), (b * float(recording_weight)).astype(np.float32, copy=False)
+
+
 def _parse_floats(text):
     return [float(value) for value in str(text).split(",") if value]
 
@@ -461,6 +469,8 @@ def main():
     parser.add_argument("--spec_normalization", default="none")
     parser.add_argument("--spec_normalization_stats_dir", default=None)
     parser.add_argument("--cca_components", type=int, default=15)
+    parser.add_argument("--cca_block_normalize", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--recording_cca_weight", type=float, default=1.0)
     parser.add_argument("--umap_neighbors", type=int, default=50)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="cosine")
@@ -507,6 +517,8 @@ def main():
     else:
         cca = _rcca_fit(recording_songmae, recording_fit_view, args.cca_components, 0.0, args.cca_ridge_b)
     songmae_cca, recording_cca = _transform_cca(songmae_features, recording_view, cca)
+    if args.cca_block_normalize:
+        songmae_cca, recording_cca = _block_normalize_views(songmae_cca, recording_cca, args.recording_cca_weight)
     features = np.hstack([songmae_cca, recording_cca]).astype(np.float32, copy=False)
     if args.recording_feature_mode == "affinity_row":
         mode_tag = "recaffrow"
@@ -518,7 +530,11 @@ def main():
         mode_tag = f"recsvd{args.recording_svd_dim}"
     cca_tag = "cca" if args.cca_mode == "thin" else args.cca_mode
     pool_tag = "recording_stats" if args.recording_level_stats_pool else f"{args.pool_mode}_{args.pool_layout}_w{args.pool_window}_h{args.pool_hop}"
-    rep_name = f"songmae_pool_{pool_tag}_maxpts{args.max_points}_{mode_tag}_{cca_tag}{features.shape[1]}"
+    norm_tag = "_blocknorm" if args.cca_block_normalize else ""
+    if args.cca_block_normalize and float(args.recording_cca_weight) != 1.0:
+        weight = str(args.recording_cca_weight).replace(".", "p")
+        norm_tag = f"{norm_tag}_recw{weight}"
+    rep_name = f"songmae_pool_{pool_tag}_maxpts{args.max_points}_{mode_tag}_{cca_tag}{features.shape[1]}{norm_tag}"
 
     feature_path = out_dir / f"{rep_name}_features.npz"
     np.savez_compressed(
