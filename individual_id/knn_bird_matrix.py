@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.colors import LinearSegmentedColormap, PowerNorm
+from matplotlib.ticker import MaxNLocator
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import svds
 
@@ -110,6 +111,71 @@ def _pick(stems, limit, seed, bird_id):
     return [stems[index] for index in indices]
 
 
+def _cap_total_recordings(rows, limit, seed):
+    if limit <= 0 or len(rows) <= limit:
+        return rows
+    by_bird = {}
+    for row in rows:
+        by_bird.setdefault(row["bird_id"], []).append(row)
+    picked = []
+    for bird_id, bird_rows in sorted(by_bird.items()):
+        bird_limit = max(1, int(round(limit * len(bird_rows) / len(rows))))
+        bird_seed = int(hashlib.sha1(bird_id.encode("utf-8")).hexdigest()[:8], 16)
+        rng = np.random.default_rng(seed + bird_seed)
+        indices = np.sort(rng.choice(len(bird_rows), size=min(bird_limit, len(bird_rows)), replace=False))
+        picked.extend(bird_rows[index] for index in indices)
+    if len(picked) <= limit:
+        return sorted(picked, key=lambda row: (row["bird_id"], row["recording_stem"]))
+    rng = np.random.default_rng(seed)
+    indices = np.sort(rng.choice(len(picked), size=limit, replace=False))
+    return sorted([picked[index] for index in indices], key=lambda row: (row["bird_id"], row["recording_stem"]))
+
+
+def _point_cap_per_recording(args, recording_count):
+    per_recording_cap = args.max_points_per_recording
+    if args.max_total_points > 0:
+        total_cap = max(1, args.max_total_points // recording_count)
+        per_recording_cap = total_cap if per_recording_cap <= 0 else min(per_recording_cap, total_cap)
+    return int(per_recording_cap)
+
+
+def _cap_recording_features(args, row, features, recording_count):
+    cap = _point_cap_per_recording(args, recording_count)
+    if cap <= 0 or features.shape[0] <= cap:
+        return features.astype(np.float32, copy=False)
+    key = f"{args.seed}|{row['bird_id']}|{row['recording_stem']}|bird-matrix"
+    rng = np.random.default_rng(int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16))
+    indices = np.sort(rng.choice(features.shape[0], size=cap, replace=False))
+    return features[indices].astype(np.float32, copy=False)
+
+
+def _feature_spill_path(args, row):
+    key = f"{row['bird_id']}|{row['recording_stem']}"
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return Path(args.feature_memmap_dir) / f"{args.species_key}_recordings" / f"{digest}.npy"
+
+
+def _store_recording_features(args, row, features):
+    if not args.feature_memmap_dir:
+        return {**row, "features": features}
+    path = _feature_spill_path(args, row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(path, features.astype(np.float32, copy=False))
+    return {**row, "feature_path": str(path), "feature_shape": tuple(features.shape)}
+
+
+def _row_feature_shape(row):
+    if "features" in row:
+        return row["features"].shape
+    return tuple(row["feature_shape"])
+
+
+def _load_row_features(row):
+    if "features" in row:
+        return row["features"]
+    return np.load(row["feature_path"], mmap_mode="r")
+
+
 def _selected_recordings(args):
     species, annotation_json, spec_dir, recording_mode = SPECIES[args.species_key]
     args.species = species
@@ -125,7 +191,7 @@ def _selected_recordings(args):
         for stem in _pick(stems, args.songs_per_bird, args.seed, bird_id):
             rows.append({"bird_id": bird_id, "recording_stem": stem})
     assert rows, f"no singers have at least {args.min_songs_per_bird} recordings"
-    return rows
+    return _cap_total_recordings(rows, args.max_recordings, args.seed)
 
 
 def _feature_key(args):
@@ -168,7 +234,8 @@ def _extract_songmae_tokens(args, selected):
     for row in selected:
         arrays = arrays_by_stem[row["recording_stem"]]
         if arrays:
-            rows.append({**row, "features": np.vstack(arrays).astype(np.float32, copy=False)})
+            features = _cap_recording_features(args, row, np.vstack(arrays), len(selected))
+            rows.append(_store_recording_features(args, row, features))
     assert rows
     return rows
 
@@ -248,7 +315,8 @@ def _extract_linear_encoder(args, selected):
             apply_audio_speed_augmentation=False,
         )
         if features.shape[0] > 0:
-            rows.append({**row, "features": features.astype(np.float32, copy=False)})
+            features = _cap_recording_features(args, row, features, len(selected))
+            rows.append(_store_recording_features(args, row, features))
     assert rows
     return rows
 
@@ -262,32 +330,50 @@ def _extract(args, selected):
 def _sample(args, rows):
     bird_ids = sorted({row["bird_id"] for row in rows})
     bird_to_code = {bird_id: index for index, bird_id in enumerate(bird_ids)}
-    features = []
+    total_points = sum(_row_feature_shape(row)[0] for row in rows)
+    feature_dim = _row_feature_shape(rows[0])[1]
+    if args.feature_memmap_dir:
+        feature_dir = Path(args.feature_memmap_dir)
+        feature_dir.mkdir(parents=True, exist_ok=True)
+        feature_path = feature_dir / f"{args.species_key}_features.npy"
+        features = np.lib.format.open_memmap(
+            feature_path,
+            mode="w+",
+            dtype=np.float32,
+            shape=(total_points, feature_dim),
+        )
+        feature_storage = str(feature_path)
+    else:
+        features = np.empty((total_points, feature_dim), dtype=np.float32)
+        feature_storage = "memory"
     point_birds = []
     point_recordings = []
     recording_birds = []
     recording_stems = []
     counts = []
-    per_recording_cap = args.max_points_per_recording
-    if args.max_total_points > 0:
-        total_cap = max(1, args.max_total_points // len(rows))
-        per_recording_cap = total_cap if per_recording_cap <= 0 else min(per_recording_cap, total_cap)
+    per_recording_cap = _point_cap_per_recording(args, len(rows))
+    point_start = 0
     for recording_index, row in enumerate(rows):
-        x = row["features"]
+        x = _load_row_features(row)
         if per_recording_cap > 0 and x.shape[0] > per_recording_cap:
             key = f"{args.seed}|{row['bird_id']}|{row['recording_stem']}|bird-matrix"
             rng = np.random.default_rng(int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16))
             indices = np.sort(rng.choice(x.shape[0], size=per_recording_cap, replace=False))
             x = x[indices]
         bird = bird_to_code[row["bird_id"]]
-        features.append(x)
+        point_end = point_start + x.shape[0]
+        features[point_start:point_end] = x
+        row["features"] = None
         point_birds.extend([bird] * x.shape[0])
         point_recordings.extend([recording_index] * x.shape[0])
         recording_birds.append(bird)
         recording_stems.append(row["recording_stem"])
         counts.append(int(x.shape[0]))
+        point_start = point_end
+        if "feature_path" in row:
+            Path(row["feature_path"]).unlink(missing_ok=True)
     return {
-        "features": np.vstack(features).astype(np.float32, copy=False),
+        "features": features,
         "point_birds": np.asarray(point_birds, dtype=np.int64),
         "point_recordings": np.asarray(point_recordings, dtype=np.int64),
         "recording_birds": np.asarray(recording_birds, dtype=np.int64),
@@ -295,25 +381,95 @@ def _sample(args, rows):
         "bird_ids": np.asarray(bird_ids, dtype=object),
         "sampled_counts": np.asarray(counts, dtype=np.int64),
         "point_cap_per_recording": int(per_recording_cap),
+        "feature_storage": feature_storage,
     }
 
 
 def _postprocess_sampled_features(args, sampled):
     if args.feature_postprocess == "none":
+        sampled["features_l2_normalized"] = False
         return None
+    if args.feature_postprocess == "pca_whiten_l2":
+        features = sampled["features"]
+        n_components = min(int(args.feature_postprocess_dim), int(features.shape[0]), int(features.shape[1]))
+        assert n_components > 0
+        fit_points = int(args.pca_fit_points)
+        if fit_points > 0 and features.shape[0] > fit_points:
+            rng = np.random.default_rng(args.seed)
+            fit_indices = np.sort(rng.choice(features.shape[0], size=fit_points, replace=False))
+            fit_features = features[fit_indices]
+        else:
+            fit_features = features
+            fit_points = int(features.shape[0])
+        mean = fit_features.mean(axis=0, dtype=np.float64)
+        cov = np.zeros((features.shape[1], features.shape[1]), dtype=np.float64)
+        chunk_size = int(args.postprocess_chunk_size)
+        for start in range(0, fit_features.shape[0], chunk_size):
+            end = min(start + chunk_size, fit_features.shape[0])
+            centered = fit_features[start:end].astype(np.float64, copy=False) - mean
+            cov += centered.T @ centered
+        cov /= max(fit_features.shape[0] - 1, 1)
+        values, vectors = np.linalg.eigh(cov)
+        order = np.argsort(values)[::-1][:n_components]
+        transform = {
+            "kind": "pca_whiten_l2",
+            "dim": int(n_components),
+            "fit_points": int(fit_points),
+            "mean": mean.astype(np.float32),
+            "components": vectors[:, order].T.astype(np.float32),
+            "explained_variance": values[order].astype(np.float32),
+        }
+        if n_components == features.shape[1]:
+            out = features
+            out_path = None
+        elif sampled["feature_storage"] != "memory":
+            out_path = Path(sampled["feature_storage"]).with_name(f"{args.species_key}_features_pca.npy")
+            out = np.lib.format.open_memmap(
+                out_path,
+                mode="w+",
+                dtype=np.float32,
+                shape=(features.shape[0], n_components),
+            )
+        else:
+            out = np.empty((features.shape[0], n_components), dtype=np.float32)
+            out_path = None
+        scale = np.sqrt(np.maximum(transform["explained_variance"], 1e-12))
+        for start in range(0, features.shape[0], chunk_size):
+            end = min(start + chunk_size, features.shape[0])
+            centered = features[start:end].astype(np.float32, copy=False) - transform["mean"]
+            projected = centered @ transform["components"].T
+            projected = (projected / scale).astype(np.float32, copy=False)
+            norms = np.maximum(np.linalg.norm(projected, axis=1, keepdims=True), 1e-12)
+            out[start:end] = projected / norms
+        sampled["features"] = out
+        sampled["features_l2_normalized"] = True
+        if out_path is not None:
+            Path(sampled["feature_storage"]).unlink(missing_ok=True)
+            sampled["feature_storage"] = str(out_path)
+        return transform
     transform = extract_embedding.fit_feature_postprocess(
         sampled["features"],
         mode=args.feature_postprocess,
         dim=args.feature_postprocess_dim,
     )
     sampled["features"] = extract_embedding.apply_feature_postprocess_transform(sampled["features"], transform)
+    sampled["features_l2_normalized"] = True
     return transform
 
 
-def _knn(args, sampled, k):
-    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+def _normalize_features_inplace(args, x):
+    chunk_size = int(args.postprocess_chunk_size)
+    for start in range(0, x.shape[0], chunk_size):
+        end = min(start + chunk_size, x.shape[0])
+        chunk = x[start:end]
+        norms = np.maximum(np.linalg.norm(chunk, axis=1, keepdims=True), 1e-12)
+        x[start:end] = chunk / norms
+
+
+def _knn_full_cuda(args, sampled, k, device):
     x = sampled["features"]
-    x = x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-12)
+    if not sampled.get("features_l2_normalized", False):
+        _normalize_features_inplace(args, x)
     features = torch.from_numpy(x).to(device=device, dtype=torch.float32)
     recordings = torch.from_numpy(sampled["point_recordings"]).to(device=device, dtype=torch.long)
     max_same_recording = int(torch.bincount(recordings).max().item())
@@ -330,6 +486,58 @@ def _knn(args, sampled, k):
         else:
             sims[torch.arange(end - start, device=device), arange[start:end]] = -float("inf")
         neighbors[start:end] = torch.topk(sims, k=k, dim=1).indices.cpu().numpy()
+    return neighbors, k
+
+
+def _knn_blocked_cuda(args, sampled, k, device):
+    x = sampled["features"]
+    if not sampled.get("features_l2_normalized", False):
+        _normalize_features_inplace(args, x)
+    recordings_cpu = sampled["point_recordings"]
+    recording_counts = np.bincount(recordings_cpu)
+    max_same_recording = int(recording_counts.max())
+    k = min(k, x.shape[0] - max_same_recording if args.exclude_same_recording else x.shape[0] - 1)
+    assert k > 0
+
+    neighbors = np.empty((x.shape[0], k), dtype=np.int64)
+    candidate_chunk = int(args.knn_candidate_chunk_size)
+    for start in range(0, x.shape[0], args.knn_chunk_size):
+        end = min(start + args.knn_chunk_size, x.shape[0])
+        query = torch.from_numpy(x[start:end]).to(device=device, dtype=torch.float32)
+        query_recordings = torch.from_numpy(recordings_cpu[start:end]).to(device=device, dtype=torch.long)
+        best_scores = torch.full((end - start, k), -float("inf"), device=device)
+        best_indices = torch.full((end - start, k), -1, device=device, dtype=torch.long)
+
+        for cand_start in range(0, x.shape[0], candidate_chunk):
+            cand_end = min(cand_start + candidate_chunk, x.shape[0])
+            candidates = torch.from_numpy(x[cand_start:cand_end]).to(device=device, dtype=torch.float32)
+            sims = query @ candidates.T
+            if args.exclude_same_recording:
+                cand_recordings = torch.from_numpy(recordings_cpu[cand_start:cand_end]).to(device=device, dtype=torch.long)
+                sims[query_recordings[:, None] == cand_recordings[None, :]] = -float("inf")
+            else:
+                query_ids = torch.arange(start, end, device=device)
+                cand_ids = torch.arange(cand_start, cand_end, device=device)
+                sims[query_ids[:, None] == cand_ids[None, :]] = -float("inf")
+
+            block_k = min(k, sims.shape[1])
+            block_scores, block_indices = torch.topk(sims, k=block_k, dim=1)
+            block_indices += cand_start
+            merged_scores = torch.cat([best_scores, block_scores], dim=1)
+            merged_indices = torch.cat([best_indices, block_indices], dim=1)
+            best_scores, order = torch.topk(merged_scores, k=k, dim=1)
+            best_indices = torch.gather(merged_indices, 1, order)
+
+        neighbors[start:end] = best_indices.cpu().numpy()
+    return neighbors, k
+
+
+def _knn(args, sampled, k):
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    if args.knn_candidate_chunk_size > 0:
+        neighbors, k = _knn_blocked_cuda(args, sampled, k, device)
+    else:
+        neighbors, k = _knn_full_cuda(args, sampled, k, device)
     return neighbors, str(device), k
 
 
@@ -532,10 +740,14 @@ def _plot_subset_experiment(args, out_dir):
     ax.scatter(x, y, s=34, alpha=0.78, color="#2f6fbb", edgecolor="white", linewidth=0.45)
     x_line = np.linspace(float(x.min()), float(x.max()), 200)
     ax.plot(x_line, slope * x_line + intercept, color="black", linestyle="--", linewidth=1.0)
-    ax.text(0.04, 0.96, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=10)
+    ax.text(0.04, 0.96, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=12)
     ax.set_xlabel(args.plot_x_label)
     ax.set_ylabel("Known number of singers")
     ax.set_title(args.plot_title or f"{args.species_key} stable-rank count proxy")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
@@ -565,7 +777,8 @@ def _panel_grid(items, figsize):
 
 def _save_all_species_heatmaps(root, key, filename):
     species_keys = list(NAME_ALIASES)
-    fig, panels = _panel_grid(species_keys, (12, 6.2))
+    fig, panels = _panel_grid(species_keys, (12, 6.8))
+    axis_label = "Individual" if key == "bird_matrix" else "Recording"
     for ax, species_key in panels:
         data = np.load(root / species_key / "knn_attribution_matrices.npz", allow_pickle=True)
         matrix = data[key].astype(np.float32, copy=False)
@@ -576,10 +789,10 @@ def _save_all_species_heatmaps(root, key, filename):
         ax.set_yticks([])
         ax.set_title(NAME_ALIASES[species_key], fontsize=15)
     for ax in fig.axes[::4]:
-        ax.set_ylabel("Query", fontsize=14)
+        ax.set_ylabel(axis_label, fontsize=14)
     for ax in fig.axes[4:]:
-        ax.set_xlabel("Neighbor recording", fontsize=14)
-    fig.tight_layout()
+        ax.set_xlabel(axis_label, fontsize=14)
+    fig.tight_layout(h_pad=2.0)
     fig.savefig(root / f"{filename}.png", bbox_inches="tight", dpi=300)
     fig.savefig(root / f"{filename}.pdf", bbox_inches="tight", dpi=300)
     plt.close(fig)
@@ -601,8 +814,12 @@ def _save_all_species_scatter(root, prediction_key, x_label, filename,
         ax.scatter(x, y, s=14, alpha=0.72, color="#2f6fbb", edgecolor="white", linewidth=0.25)
         x_line = np.linspace(float(x.min()), float(x.max()), 200)
         ax.plot(x_line, slope * x_line + intercept, color="black", linestyle="--", linewidth=0.8)
-        ax.text(0.05, 0.94, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=9)
+        ax.text(0.05, 0.94, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=11)
         ax.set_title(NAME_ALIASES[species_key], fontsize=15)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlim(left=0)
+        ax.set_ylim(bottom=0)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     for ax in fig.axes[::4]:
@@ -661,10 +878,14 @@ def _plot_stable_rank_rows(rows, key, title, out_base):
     ax.scatter(x, y, s=18, alpha=0.38, color="#2f6fbb", edgecolor="none")
     x_line = np.linspace(float(x.min()), float(x.max()), 200)
     ax.plot(x_line, slope * x_line + intercept, color="black", linestyle="--", linewidth=1.0)
-    ax.text(0.04, 0.96, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=10)
+    ax.text(0.04, 0.96, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=12)
     ax.set_title(title)
     ax.set_xlabel("Stable rank")
     ax.set_ylabel("Known singers")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
@@ -684,8 +905,12 @@ def _plot_variable_collage(root, species_keys, key, csv_stem, filename):
         ax.scatter(x, y, s=10, alpha=0.31, color="#2f6fbb", edgecolor="none")
         x_line = np.linspace(float(x.min()), float(x.max()), 200)
         ax.plot(x_line, slope * x_line + intercept, color="black", linestyle="--", linewidth=0.8)
-        ax.text(0.05, 0.94, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=9)
+        ax.text(0.05, 0.94, f"$R^2$ = {r2:.3f}", transform=ax.transAxes, va="top", ha="left", fontsize=11)
         ax.set_title(NAME_ALIASES[species_key], fontsize=15)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlim(left=0)
+        ax.set_ylim(bottom=0)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     for ax in fig.axes[::4]:
@@ -932,10 +1157,13 @@ def _write_outputs(args, sampled, neighbors, device, actual_k, out_dir):
         "songmae_affinity_features": args.songmae_affinity_features,
         "feature_postprocess": args.feature_postprocess,
         "feature_postprocess_dim": int(args.feature_postprocess_dim),
+        "pca_fit_points": int(args.pca_fit_points),
         "recording_filter": "detected_events_nonempty",
         "device": device,
+        "feature_storage": sampled["feature_storage"],
         "recordings": int(sampled["sampled_counts"].size),
         "points": int(sampled["features"].shape[0]),
+        "max_recordings": int(args.max_recordings),
         "max_points_per_recording": int(args.max_points_per_recording),
         "max_total_points": int(args.max_total_points),
         "point_cap_per_recording": int(sampled["point_cap_per_recording"]),
@@ -964,11 +1192,16 @@ def main():
     parser.add_argument("--out_dir", default=str(ROOT / "results" / "individual_id_knn_graph_metrics" / "bird_knn_matrix"))
     parser.add_argument("--songs_per_bird", type=int, default=0)
     parser.add_argument("--min_songs_per_bird", type=int, default=0)
+    parser.add_argument("--max_recordings", type=int, default=0)
     parser.add_argument("--max_points_per_recording", type=int, default=400)
     parser.add_argument("--max_total_points", type=int, default=50000)
+    parser.add_argument("--feature_memmap_dir", default=None)
     parser.add_argument("--k_values", default="1,2,5,10,20,50,100")
     parser.add_argument("--matrix_k", type=int, default=50)
+    parser.add_argument("--postprocess_chunk_size", type=int, default=65536)
+    parser.add_argument("--pca_fit_points", type=int, default=0)
     parser.add_argument("--knn_chunk_size", type=int, default=512)
+    parser.add_argument("--knn_candidate_chunk_size", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--subset_experiment", action="store_true")
     parser.add_argument("--subset_counts", default="all")

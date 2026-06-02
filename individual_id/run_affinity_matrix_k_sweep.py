@@ -28,11 +28,16 @@ def _base_args(args, species):
         out_dir=str(args.out_root),
         songs_per_bird=args.songs_per_bird,
         min_songs_per_bird=0,
+        max_recordings=args.max_recordings,
         max_points_per_recording=args.max_points_per_recording,
         max_total_points=args.max_total_points,
+        feature_memmap_dir=str(args.feature_memmap_dir) if args.feature_memmap_dir else None,
         k_values=",".join(str(k) for k in args.matrix_ks),
         matrix_k=max(args.matrix_ks),
+        postprocess_chunk_size=args.postprocess_chunk_size,
+        pca_fit_points=args.pca_fit_points,
         knn_chunk_size=args.knn_chunk_size,
+        knn_candidate_chunk_size=args.knn_candidate_chunk_size,
         seed=args.seed,
         exclude_same_recording=True,
         cpu=args.cpu,
@@ -250,21 +255,31 @@ def main():
     parser.add_argument("--out_root", type=Path, default=ROOT / "results/individual_id_knn_graph_metrics/affinity_matrix_k_sweep_songmae_unbinned_usable_songs30")
     parser.add_argument("--matrix_ks", default="8,16,32,64")
     parser.add_argument("--songs_per_bird", type=int, default=30)
+    parser.add_argument("--max_recordings", type=int, default=0)
     parser.add_argument("--max_points_per_recording", type=int, default=400)
     parser.add_argument("--max_total_points", type=int, default=50000)
+    parser.add_argument("--feature_memmap_dir", type=Path, default=None)
+    parser.add_argument("--postprocess_chunk_size", type=int, default=65536)
+    parser.add_argument("--pca_fit_points", type=int, default=200000)
     parser.add_argument("--knn_chunk_size", type=int, default=128)
+    parser.add_argument("--knn_candidate_chunk_size", type=int, default=0)
     parser.add_argument("--subset_repeats", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--run_dir", default="/media/george-vengrovski/Desk SSD/LAMBDA_TRAIN_RUNS/runs/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8")
     parser.add_argument("--checkpoint", default="model_step_499999.pth")
+    parser.add_argument("--species", default=",".join(SPECIES))
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     args.out_root = (ROOT / args.out_root).resolve() if not args.out_root.is_absolute() else args.out_root
+    if args.feature_memmap_dir is not None:
+        args.feature_memmap_dir = (ROOT / args.feature_memmap_dir).resolve() if not args.feature_memmap_dir.is_absolute() else args.feature_memmap_dir
     args.matrix_ks = km._parse_ints(args.matrix_ks)
     args.out_root.mkdir(parents=True, exist_ok=True)
 
-    for species in SPECIES:
+    species_keys = [x for x in args.species.split(",") if x]
+    for species in species_keys:
+        assert species in SPECIES
         _run_species(args, species)
     _analyze(args)
 

@@ -279,6 +279,86 @@ def _pick_recordings_up_to(stems, songs_per_bird, seed, bird_id):
     return _pick_recordings(stems, songs_per_bird, seed, bird_id)
 
 
+def _pool_count_from_tokens(tokens, pool_window, pool_hop):
+    tokens = int(tokens)
+    if tokens <= 0:
+        return 0
+    if tokens < pool_window:
+        return 1
+    return 1 + (tokens - pool_window) // pool_hop
+
+
+def _pool_count_from_timebins(timebins, patch_width, pool_window, pool_hop):
+    tokens = (int(timebins) + int(patch_width) - 1) // int(patch_width)
+    return _pool_count_from_tokens(tokens, pool_window, pool_hop)
+
+
+def _estimated_pool_count(args, stem, patch_width, event_map):
+    path = extract_embedding._resolve_single_spec_path(args.spec_dir, stem)
+    spec = np.load(path, mmap_mode="r")
+    rounded_length = int(spec.shape[1]) - (int(spec.shape[1]) % int(patch_width))
+    if rounded_length <= 0:
+        return 0
+    if args.recording_mode == "full_recordings":
+        return _pool_count_from_timebins(rounded_length, patch_width, args.pool_window, args.pool_hop)
+
+    total = 0
+    for event in event_map.get(stem, []):
+        start = max(0, min(int(event["on_timebins"]), rounded_length))
+        end = max(start, min(int(event["off_timebins"]), rounded_length))
+        total += _pool_count_from_timebins(end - start, patch_width, args.pool_window, args.pool_hop)
+    return total
+
+
+def _fit_recordings_to_point_budget(stems_by_bird, args, model_state):
+    if args.songs_per_bird > 0 or args.max_points <= 0:
+        return {
+            bird_id: _pick_recordings_up_to(stems, args.songs_per_bird, args.seed, bird_id)
+            for bird_id, stems in stems_by_bird.items()
+        }
+    patch_width = int(model_state["patch_width"])
+    audio = extract_embedding.load_audio_params(args.spec_dir, require_stats=False)
+    audio_params = (
+        audio["sr"],
+        audio["mels"],
+        audio["hop_size"],
+        audio["fft"],
+    )
+    event_map = extract_embedding.load_json_events(args.annotation_json, audio_params=audio_params)
+    queues = {}
+    total = 0
+    for bird_id, stems in stems_by_bird.items():
+        rows = [
+            (count, stem)
+            for stem in stems
+            for count in [_estimated_pool_count(args, stem, patch_width, event_map)]
+            if count > 0
+        ]
+        rows.sort()
+        queues[bird_id] = rows
+        total += sum(count for count, _ in rows)
+    if total <= args.max_points:
+        return {bird_id: [stem for _, stem in rows] for bird_id, rows in queues.items()}
+
+    sampled = {bird_id: [] for bird_id in queues}
+    used = 0
+    while True:
+        changed = False
+        for bird_id in sorted(queues):
+            if not queues[bird_id]:
+                continue
+            count, stem = queues[bird_id][0]
+            if used + count > args.max_points:
+                continue
+            queues[bird_id].pop(0)
+            sampled[bird_id].append(stem)
+            used += count
+            changed = True
+        if not changed:
+            break
+    return sampled
+
+
 def _build_recording_stats_representation(per_bird_segments):
     features = []
     bird_labels = []
@@ -321,11 +401,11 @@ def _load_songmae_points(args, allowed_recordings):
             bird_id: [stem for stem in stems if str(stem) in allowed_recordings]
             for bird_id, stems in stems_by_bird.items()
         }
-    sampled = {}
-    for bird_id in sorted(stems_by_bird):
-        picks = _pick_recordings_up_to(stems_by_bird[bird_id], args.songs_per_bird, args.seed, bird_id)
-        if picks:
-            sampled[bird_id] = picks
+    sampled = {
+        bird_id: picks
+        for bird_id, picks in _fit_recordings_to_point_budget(stems_by_bird, args, model_state).items()
+        if picks
+    }
     assert sampled
 
     per_bird_segments, feature_postprocess = _load_songmae_segments_by_bird(args, sampled, model_state)

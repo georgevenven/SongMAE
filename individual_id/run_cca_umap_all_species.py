@@ -14,6 +14,8 @@ from sklearn.metrics import adjusted_rand_score
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = Path("/home/george-vengrovski/anaconda3/envs/mae/bin/python")
 STABLE_RANK_CSV = ROOT / "results" / "individual_id_knn_graph_metrics" / "default_config_affinity_rank_spectra" / "affinity_rank_summary.csv"
+DEFAULT_RECORDING_SVD_ROOT = "results/individual_id_knn_graph_metrics/affinity_matrix_k_sweep_songmae_unbinned_usable_allrecordings_nocap_fullgpu/k8"
+DEFAULT_SPECIES = "zf,bf,canary,chiffchaff"
 
 
 SPECIES = {
@@ -118,11 +120,12 @@ def _stable_rank_from_npz(path):
     return max(2, round(float(energy.sum() / max(float(energy[0]), 1e-12))))
 
 
-def _stable_rank_dims(args):
+def _stable_rank_dims(args, species_keys):
     if args.recording_svd_root is not None:
         return {
             species: _stable_rank_from_npz(_recording_svd_path(args, species, config))
             for species, config in SPECIES.items()
+            if species in species_keys
         }
     with STABLE_RANK_CSV.open(newline="", encoding="utf-8") as handle:
         rows = csv.DictReader(handle)
@@ -161,7 +164,7 @@ def _run_config(args, config):
     return config
 
 
-def _command(species, config, max_points, out_dir, recording_svd_npz, recording_feature_mode, recording_svd_dim, cca_mode, cca_components, pool_window, pool_hop, songs_per_bird, use_feature_cache, recording_level_stats_pool, hdbscan_min_cluster_size, hdbscan_min_samples):
+def _command(species, config, max_points, out_dir, recording_svd_npz, recording_feature_mode, recording_svd_dim, cca_mode, cca_components, pool_window, pool_hop, pool_mode, songs_per_bird, use_feature_cache, recording_level_stats_pool, hdbscan_min_cluster_size, hdbscan_min_samples):
     cmd = [
         str(PYTHON),
         "individual_id/run_individual_id_cca_umap.py",
@@ -178,6 +181,7 @@ def _command(species, config, max_points, out_dir, recording_svd_npz, recording_
         "--songs_per_bird", str(songs_per_bird),
         "--pool_window", str(pool_window),
         "--pool_hop", str(pool_hop),
+        "--pool_mode", pool_mode,
         "--max_points", str(max_points),
         "--hdbscan_min_cluster_size", str(hdbscan_min_cluster_size),
         "--hdbscan_min_samples", str(hdbscan_min_samples),
@@ -237,7 +241,8 @@ def _write_status(path, rows):
 
 
 def run_batch(args, max_points):
-    stable_rank_dims = _stable_rank_dims(args)
+    species_keys = args.species.split(",") if args.species else list(SPECIES)
+    stable_rank_dims = {} if args.recording_svd_dim_mode == "fixed" else _stable_rank_dims(args, species_keys)
     if args.recording_svd_dim_mode == "stable_rank":
         mode_tag = f"rec{args.recording_feature_mode}stablerank"
     elif args.recording_svd_dim_mode == "stable_rank_x2":
@@ -263,12 +268,16 @@ def run_batch(args, max_points):
     if args.recording_level_stats_pool:
         mode_tag = f"{mode_tag}_recordingstats"
     if args.pool_window is not None:
+        if args.pool_mode != "stats":
+            mode_tag = f"{mode_tag}_{args.pool_mode}"
         mode_tag = f"{mode_tag}_w{args.pool_window}_h{args.pool_hop}_songs{args.songs_per_bird}"
-    root = ROOT / "results" / "individual_id_umap" / f"cca_{mode_tag}_all8_maxpts{max_points}"
+    species_tag = "all8" if args.species is None else f"{len(species_keys)}species"
+    root = ROOT / "results" / "individual_id_umap" / f"cca_{mode_tag}_{species_tag}_maxpts{max_points}"
     logs = root / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     rows = []
-    for species, base_config in SPECIES.items():
+    for species in species_keys:
+        base_config = SPECIES[species]
         config = _run_config(args, base_config)
         out_dir = root / species
         summary_path = _summary_path(out_dir)
@@ -292,7 +301,7 @@ def run_batch(args, max_points):
         songs_per_bird = config["songs"] if args.songs_per_bird is None else args.songs_per_bird
         use_feature_cache = args.pool_window is None and args.songs_per_bird is None
         recording_svd_npz = _recording_svd_path(args, species, config)
-        cmd = _command(species, config, max_points, out_dir, recording_svd_npz, args.recording_feature_mode, recording_svd_dim, args.cca_mode, args.cca_components, pool_window, pool_hop, songs_per_bird, use_feature_cache, args.recording_level_stats_pool, args.hdbscan_min_cluster_size, args.hdbscan_min_samples)
+        cmd = _command(species, config, max_points, out_dir, recording_svd_npz, args.recording_feature_mode, recording_svd_dim, args.cca_mode, args.cca_components, pool_window, pool_hop, args.pool_mode, songs_per_bird, use_feature_cache, args.recording_level_stats_pool, args.hdbscan_min_cluster_size, args.hdbscan_min_samples)
         log_path = logs / f"{species}.log"
         print(f"[batch] run {species} maxpts={max_points}")
         env = os.environ.copy()
@@ -315,13 +324,15 @@ def main():
     parser.add_argument("--max_points", type=int, action="append", default=None)
     parser.add_argument("--recording_feature_mode", default="umap", choices=["svd", "pca", "umap", "affinity_row"])
     parser.add_argument("--recording_svd_dim_mode", default="fixed", choices=["fixed", "stable_rank", "stable_rank_x2", "stable_rank_half", "stable_rank_quarter"])
-    parser.add_argument("--recording_svd_dim", type=int, default=15)
-    parser.add_argument("--recording_svd_root", default=None)
-    parser.add_argument("--recording_svd_tag", default=None)
+    parser.add_argument("--recording_svd_dim", type=int, default=8)
+    parser.add_argument("--recording_svd_root", default=DEFAULT_RECORDING_SVD_ROOT)
+    parser.add_argument("--recording_svd_tag", default="unbinnocapk8")
+    parser.add_argument("--species", default=DEFAULT_SPECIES)
     parser.add_argument("--cca_mode", default="thin", choices=["thin", "rcca_cv", "rcca_fixed"])
     parser.add_argument("--cca_components", type=int, default=None)
-    parser.add_argument("--pool_window", type=int, default=10)
-    parser.add_argument("--pool_hop", type=int, default=5)
+    parser.add_argument("--pool_window", type=int, default=5)
+    parser.add_argument("--pool_hop", type=int, default=2)
+    parser.add_argument("--pool_mode", default="mean", choices=["mean", "stats", "concat", "concat_pca"])
     parser.add_argument("--songs_per_bird", type=int, default=15)
     parser.add_argument("--recording_level_stats_pool", action="store_true")
     parser.add_argument("--hdbscan_min_cluster_size", type=int, default=0)
@@ -329,7 +340,7 @@ def main():
     args = parser.parse_args()
     assert (args.pool_window is None) == (args.pool_hop is None)
 
-    max_points = args.max_points or [100000]
+    max_points = args.max_points or [150000]
     for value in max_points:
         assert run_batch(args, value)
 
