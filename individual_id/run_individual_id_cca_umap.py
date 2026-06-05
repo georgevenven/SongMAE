@@ -24,8 +24,8 @@ from individual_id.run_individual_id_umap import (  # noqa: E402
     _load_songmae_segments_by_bird,
     _pick_recordings,
     _pool_chunk_stats,
-    _scatter_umap,
-    _scatter_umap_syllables,
+    _bird_palette,
+    _syllable_plot_labels,
     _songmae_input_normalization,
     _umap_silhouette_scores,
 )
@@ -57,6 +57,46 @@ def _limit_points(features, bird_labels, syllable_labels, recording_labels, max_
 
 def _display_name(species):
     return str(species).replace("_", " ").title()
+
+
+def _format_umap(ax, title):
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=12)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
+def _scatter_cca_umap(xy, labels, title, out_base):
+    birds = sorted(set(labels.tolist()))
+    palette = _bird_palette(birds)
+    fig, ax = plt.subplots(figsize=(5.5, 5.5), dpi=300)
+    for bird in birds:
+        idx = labels == bird
+        ax.scatter(xy[idx, 0], xy[idx, 1], s=10, alpha=0.15, color=palette[bird], edgecolors="none")
+    _format_umap(ax, title)
+    fig.tight_layout()
+    fig.savefig(out_base.parent / f"{out_base.name}.png", bbox_inches="tight", dpi=300)
+    fig.savefig(out_base.parent / f"{out_base.name}.pdf", bbox_inches="tight", dpi=300, format="pdf")
+    plt.close(fig)
+
+
+def _scatter_cca_syllables(xy, syllables, birds, title, out_base):
+    categories = np.asarray(_syllable_plot_labels(birds, syllables).tolist(), dtype=object)
+    unique = sorted(set(categories.tolist()))
+    non_silence = [label for label in unique if label != "silence"]
+    cmap = plt.get_cmap("gist_ncar", max(1, len(non_silence)))
+
+    fig, ax = plt.subplots(figsize=(5.5, 5.5), dpi=300)
+    if "silence" in unique:
+        idx = categories == "silence"
+        ax.scatter(xy[idx, 0], xy[idx, 1], s=10, alpha=0.1, color="#404040", edgecolors="none")
+    for index, label in enumerate(non_silence):
+        idx = categories == label
+        ax.scatter(xy[idx, 0], xy[idx, 1], s=10, alpha=0.15, color=cmap(index), edgecolors="none")
+    _format_umap(ax, title)
+    fig.tight_layout()
+    fig.savefig(out_base.parent / f"{out_base.name}.png", bbox_inches="tight", dpi=300)
+    fig.savefig(out_base.parent / f"{out_base.name}.pdf", bbox_inches="tight", dpi=300, format="pdf")
+    plt.close(fig)
 
 
 def _recording_means(features, recording_labels, recording_features):
@@ -583,8 +623,10 @@ def main():
         clusters,
     )
     plot_title = args.species_display_name or _display_name(args.species)
-    _scatter_umap(xy, bird_labels, f"{plot_title} | CCA", out_dir / rep_name)
-    _scatter_umap_syllables(xy, syllable_labels, bird_labels, f"{plot_title} | CCA syllables", out_dir / f"{rep_name}_syllable")
+    cluster_labels = np.asarray([f"cluster_{int(label)}" if int(label) >= 0 else "noise" for label in clusters], dtype=object)
+    _scatter_cca_umap(xy, cluster_labels, plot_title, out_dir / f"{rep_name}_hdbscan")
+    _scatter_cca_umap(xy, bird_labels, plot_title, out_dir / rep_name)
+    _scatter_cca_syllables(xy, syllable_labels, bird_labels, plot_title, out_dir / f"{rep_name}_syllable")
     silhouette_scores = _umap_silhouette_scores(xy, bird_labels, syllable_labels, args.silhouette_sample_size, args.seed)
 
     summary = {

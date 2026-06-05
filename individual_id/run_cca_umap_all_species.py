@@ -2,12 +2,14 @@
 
 import csv
 import argparse
+import colorsys
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import adjusted_rand_score
 
@@ -245,6 +247,65 @@ def _write_status(path, rows):
         writer.writerows(rows)
 
 
+def _palette(labels):
+    labels = sorted(set(labels.tolist()))
+    return {
+        label: colorsys.hsv_to_rgb((index * 0.618033988749895) % 1.0, 0.82, 0.78)
+        for index, label in enumerate(labels)
+    }
+
+
+def _purity(labels, clusters):
+    keep = clusters != -1
+    assert keep.any()
+    total = 0
+    for cluster in sorted(set(clusters[keep].tolist())):
+        _, counts = np.unique(labels[keep][clusters[keep] == cluster], return_counts=True)
+        total += counts.max()
+    return total / keep.sum()
+
+
+def _plot_all_species_umaps(root, species_keys):
+    fig, axes = plt.subplots(2, 4, figsize=(15.5, 7.6), dpi=300, squeeze=False)
+    axes = axes.ravel()
+    for ax, species in zip(axes, species_keys):
+        summary = _ensure_ari(_summary_path(root / species))
+        hdbscan = summary["hdbscan_summary"]
+        points = np.load(_hdbscan_points(summary), allow_pickle=True)
+        xy = points["xy"]
+        labels = points["bird_labels"]
+        clusters = points["hdbscan_clusters"]
+        purity = _purity(labels, clusters)
+        palette = _palette(labels)
+        for bird in sorted(palette):
+            idx = labels == bird
+            ax.scatter(xy[idx, 0], xy[idx, 1], s=4, alpha=0.18, color=palette[bird], edgecolors="none")
+        ax.set_title(SPECIES[species]["display"], fontsize=14, fontweight="bold")
+        ax.text(
+            0.98,
+            0.98,
+            (
+                f"V-measure {hdbscan['bird_v_measure']:.3f}\n"
+                f"Completeness {hdbscan['bird_completeness']:.3f}\n"
+                f"Purity {purity:.3f}"
+            ),
+            ha="right",
+            va="top",
+            transform=ax.transAxes,
+            fontsize=9,
+            fontweight="bold",
+            bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "none", "alpha": 0.82},
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for ax in axes[len(species_keys):]:
+        ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(root / "all_species_umap_individuals.png", bbox_inches="tight", dpi=300)
+    fig.savefig(root / "all_species_umap_individuals.pdf", bbox_inches="tight", dpi=300)
+    plt.close(fig)
+
+
 def run_batch(args, max_points):
     species_keys = args.species.split(",") if args.species else list(SPECIES)
     stable_rank_dims = {} if args.recording_svd_dim_mode == "fixed" else _stable_rank_dims(args, species_keys)
@@ -326,6 +387,7 @@ def run_batch(args, max_points):
             _write_status(root / "summary.tsv", rows)
             return False
         _write_status(root / "summary.tsv", rows)
+    _plot_all_species_umaps(root, species_keys)
     return True
 
 
