@@ -2,6 +2,8 @@
 
 SongMAE is the current project name. The codebase still contains many `TinyBird` references in module names, scripts, run directories, and saved configs because the project was renamed after we ran into naming conflicts with other repos, models, and projects. When the README says `SongMAE`, it refers to the same model family that is still called `TinyBird` in much of the code.
 
+The codebase is quite messy right now, due to experimentation + a bit of vibecoding. It will soon be refactored by hand into a repo thats modular and <2500 LoC.
+
 ## Model Summary
 
 - SongMAE is a pretrained foundation model for birdsong representation learning at the syllable and within-song level.
