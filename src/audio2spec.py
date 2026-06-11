@@ -11,6 +11,7 @@ write_statistics writes those mean/std values into audio_params.json.
 
 import argparse
 import json
+import multiprocessing as mp
 import random
 from pathlib import Path
 
@@ -62,13 +63,24 @@ def audio_file_to_spec(path, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels
     )
 
 
-def audio_dir_to_specs(src_dir, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+def audio_file_to_spec_from_args(args):
+    return audio_file_to_spec(*args)
+
+
+def audio_dir_to_specs(src_dir, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128, workers=1):
     src_dir = Path(src_dir)
     out_dir = Path(out_dir)
     write_audio_params(out_dir, sr, n_fft, hop_size, n_mels)
     paths = sorted(path for path in src_dir.rglob("*") if path.suffix.lower() in AUDIO_EXTS)
-    for path in tqdm(paths, desc="audio2spec"):
-        audio_file_to_spec(path, out_dir, sr, n_fft, hop_size, n_mels)
+    tasks = [(path, out_dir, sr, n_fft, hop_size, n_mels) for path in paths]
+    assert workers > 0
+    if workers == 1:
+        for task in tqdm(tasks, desc="audio2spec"):
+            audio_file_to_spec_from_args(task)
+    else:
+        with mp.Pool(workers) as pool:
+            iterator = pool.imap_unordered(audio_file_to_spec_from_args, tasks)
+            list(tqdm(iterator, total=len(tasks), desc="audio2spec"))
     return paths
 
 
@@ -111,10 +123,11 @@ def main():
     parser.add_argument("--hop_size", type=int, default=64)
     parser.add_argument("--n_fft", type=int, default=1024)
     parser.add_argument("--n_mels", type=int, default=128)
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--stats", action="store_true")
     args = parser.parse_args()
 
-    audio_dir_to_specs(args.src_dir, args.dst_dir, args.sr, args.n_fft, args.hop_size, args.n_mels)
+    audio_dir_to_specs(args.src_dir, args.dst_dir, args.sr, args.n_fft, args.hop_size, args.n_mels, args.workers)
     if args.stats:
         write_statistics(args.dst_dir)
 
