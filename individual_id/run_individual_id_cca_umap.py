@@ -15,6 +15,7 @@ sys.path.append(str(ROOT))
 sys.path.append(str(ROOT / "src"))
 
 import extract_embedding  # noqa: E402
+from utils import load_audio_params, load_json_events, resolve_single_spec_path  # noqa: E402
 from individual_id.run_individual_id_umap import (  # noqa: E402
     _build_embedding_representation,
     _fit_umap,
@@ -342,7 +343,7 @@ def _pool_count_from_timebins(timebins, patch_width, pool_window, pool_hop):
 
 
 def _estimated_pool_count(args, stem, patch_width, event_map):
-    path = extract_embedding._resolve_single_spec_path(args.spec_dir, stem)
+    path = resolve_single_spec_path(args.spec_dir, stem)
     spec = np.load(path, mmap_mode="r")
     rounded_length = int(spec.shape[1]) - (int(spec.shape[1]) % int(patch_width))
     if rounded_length <= 0:
@@ -365,14 +366,14 @@ def _fit_recordings_to_point_budget(stems_by_bird, args, model_state):
             for bird_id, stems in stems_by_bird.items()
         }
     patch_width = int(model_state["patch_width"])
-    audio = extract_embedding.load_audio_params(args.spec_dir, require_stats=False)
+    audio = load_audio_params(args.spec_dir, require_stats=False)
     audio_params = (
         audio["sr"],
         audio["mels"],
         audio["hop_size"],
         audio["fft"],
     )
-    event_map = extract_embedding.load_json_events(args.annotation_json, audio_params=audio_params)
+    event_map = load_json_events(args.annotation_json, audio_params=audio_params)
     queues = {}
     total = 0
     for bird_id, stems in stems_by_bird.items():
@@ -433,12 +434,7 @@ def _build_recording_stats_representation(per_bird_segments):
 
 
 def _load_songmae_points(args, allowed_recordings):
-    model_state = extract_embedding.load_model_state(
-        {
-            "run_dir": str(args.run_dir),
-            "checkpoint": args.checkpoint,
-        }
-    )
+    model_state = extract_embedding.load_model_state(str(args.run_dir), args.checkpoint)
     norm_mode, norm_stats_dir = _songmae_input_normalization(model_state, args)
     args.songmae_input_normalization = norm_mode
     args.songmae_input_normalization_stats_dir = norm_stats_dir

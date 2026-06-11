@@ -1,0 +1,337 @@
+import argparse
+import json
+import shutil
+from dataclasses import asdict, fields
+from datetime import datetime
+from pathlib import Path
+
+import torch
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
+from model import TinyBird
+from data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
+from data_structures import AudioParams, ModelConfig, TrainConfig
+from plotting_utils.pretrain_plotting import save_masked_reconstruction_plot
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNS_ROOT = PROJECT_ROOT / "runs"
+DEFAULT_CONFIG = {
+    "task": "unsupervised",
+    "steps": 500_000,
+    "lr": 3e-4,
+    "batch_size": 256,
+    "num_workers": 8,
+    "weight_decay": 0.1,
+    "eval_every": 500,
+    "warmup_steps": 1_000,
+    "min_lr": 1e-5,
+    "patch_height": 32,
+    "patch_width": 1,
+    "num_timebins": 1024,
+    "dropout": 0.1,
+    "mask_p": 0.75,
+    "mask_c": 0.1,
+    "mask_type": "voronoi",
+    "normalize_patches": True,
+    "enc_hidden_d": 384,
+    "enc_n_head": 6,
+    "enc_n_layer": 6,
+    "enc_dim_ff": 1536,
+    "dec_hidden_d": 192,
+    "dec_n_head": 6,
+    "dec_n_layer": 2,
+    "dec_dim_ff": 768,
+    "amp": False,
+    "wandb": False,
+    "recording_mode": "full_recordings",
+}
+
+# Run folder layout:
+# runs/<run_name>/
+#   audio_params.json   copied from the training spectrogram folder
+#   config.json         legacy combined config, kept for older scripts/checkpoints
+#   model.json          model architecture and input contract
+#   train.json          training recipe for this run
+#   logs.txt            TUI training log and refactor notes
+#   weights/            model_step_000000.pth, ...
+#   imgs/               optional visualizations
+
+
+class Trainer:
+    def __init__(self, config):
+        self.config = config
+        self.run_dir = self.setup_run()
+        self.logs_path = self.run_dir / "logs.txt"
+        self.weights_dir = self.run_dir / "weights"
+        self.imgs_dir = self.run_dir / "imgs"
+        self.weights_dir.mkdir(exist_ok=True)
+        self.imgs_dir.mkdir(exist_ok=True)
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_amp = config.get("amp", False) and self.device.type == "cuda"
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
+        self.model = self.build_model().to(self.device)
+        self.start_step = self.load_checkpoint() if config.get("continue_from") else 0
+        self.optimizer = AdamW(
+            [p for p in self.model.parameters() if p.requires_grad],
+            lr=config["lr"],
+            weight_decay=config.get("weight_decay", 0.0),
+        )
+        self.steps = config["steps"]
+        self.end_step = self.start_step + self.steps - 1
+        self.eval_every = config.get("eval_every", 500)
+        n_params = sum(p.numel() for p in self.model.parameters())
+        self.write_log(f"run={self.run_dir}")
+        self.write_log(f"device={self.device} | params={n_params:,} | steps={self.steps}")
+
+    def setup_run(self):
+        if self.config.get("continue_from"):
+            run_dir = resolve_run_path(self.config["continue_from"])
+            assert run_dir.exists(), f"continue run not found: {run_dir}"
+            return run_dir
+
+        RUNS_ROOT.mkdir(exist_ok=True)
+        run_dir = RUNS_ROOT / self.config["run_name"]
+        if run_dir.exists():
+            archive_dir = RUNS_ROOT / "archive"
+            archive_dir.mkdir(exist_ok=True)
+            stamped_name = f"{run_dir.name}_{datetime.now():%Y%m%d_%H%M%S}"
+            shutil.move(run_dir, archive_dir / stamped_name)
+
+        run_dir.mkdir()
+        self.save_run_files(run_dir)
+        return run_dir
+
+    def save_run_files(self, run_dir):
+        train_audio = Path(self.config["train_dir"]) / "audio_params.json"
+        assert train_audio.exists(), f"audio_params.json not found: {train_audio}"
+        shutil.copy2(train_audio, run_dir / "audio_params.json")
+        if self.config.get("annotation_file"):
+            shutil.copy2(self.config["annotation_file"], run_dir / "labels.json")
+
+        self.write_json(run_dir / "config.json", self.config)
+        self.write_json(run_dir / "model.json", self.config_slice(ModelConfig))
+        self.write_json(run_dir / "train.json", self.config_slice(TrainConfig))
+
+    def config_slice(self, cls):
+        keys = [field.name for field in fields(cls) if field.init]
+        data = {key: self.config[key] for key in keys if key in self.config}
+        return asdict(cls(**data))
+
+    def write_json(self, path, data):
+        path.write_text(json.dumps(data, indent=2) + "\n")
+
+    def load_checkpoint(self):
+        checkpoints = sorted(self.weights_dir.glob("model_step_*.pth"))
+        assert checkpoints, f"no checkpoints found in: {self.weights_dir}"
+        checkpoint = checkpoints[-1]
+        self.model.load_state_dict(torch.load(checkpoint, map_location=self.device))
+        step = int(checkpoint.stem.split("_step_")[1])
+        self.write_log(f"loaded checkpoint: {checkpoint}")
+        return step + 1
+
+    def save_checkpoint(self, step):
+        path = self.weights_dir / f"model_step_{step:06d}.pth"
+        torch.save(self.model.state_dict(), path)
+
+    def save_reconstruction(self, batch, step):
+        pass
+
+    def write_log(self, msg):
+        print(msg)
+        with self.logs_path.open("a") as f:
+            f.write(msg + "\n")
+
+    def build_model(self):
+        return TinyBird(self.config)
+
+    def build_datasets(self):
+        raise NotImplementedError
+
+    def forward_loss(self, batch):
+        raise NotImplementedError
+
+    def step(self, batch, train=True):
+        self.model.train() if train else self.model.eval()
+        with torch.set_grad_enabled(train):
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
+                loss = self.forward_loss(batch)
+        if train:
+            self.optimizer.zero_grad(set_to_none=True)
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        return loss.item()
+
+    def log(self, step, train_loss, val_loss=None):
+        msg = f"step {step:>7}/{self.end_step} | train {train_loss:.4f}"
+        if val_loss is not None:
+            msg += f" | val {val_loss:.4f}"
+        self.write_log(msg)
+
+    def train(self):
+        train_ds, val_ds = self.build_datasets()
+        kw = dict(batch_size=self.config["batch_size"],
+                  num_workers=self.config.get("num_workers", 4), pin_memory=True)
+        train_loader = DataLoader(train_ds, shuffle=True, **kw)
+        val_loader = DataLoader(val_ds, shuffle=False, **kw)
+        train_iter, val_iter = iter(train_loader), iter(val_loader)
+
+        for step in range(self.start_step, self.end_step + 1):
+            try:
+                batch = next(train_iter)
+            except StopIteration:
+                train_iter = iter(train_loader)
+                batch = next(train_iter)
+            train_loss = self.step(batch, train=True)
+
+            if step % self.eval_every == 0:
+                try:
+                    val_batch = next(val_iter)
+                except StopIteration:
+                    val_iter = iter(val_loader)
+                    val_batch = next(val_iter)
+                self.log(step, train_loss, self.step(val_batch, train=False))
+                self.save_checkpoint(step)
+                self.save_reconstruction(val_batch, step)
+
+        self.save_checkpoint(self.end_step)
+
+
+class UnsupervisedTrainer(Trainer):
+    def build_datasets(self):
+        c = self.config
+        return (SpectrogramDataset(c["train_dir"], c["num_timebins"]),
+                SpectrogramDataset(c["val_dir"], c["num_timebins"]))
+
+    def forward_loss(self, batch):
+        x = batch[0].to(self.device, non_blocking=True)
+        h, idx_restore, bool_mask, T = self.model.forward_encoder(x)
+        pred = self.model.forward_decoder(h, idx_restore, T)
+        return self.model.loss_mse(x, pred, bool_mask)
+
+    def save_reconstruction(self, batch, step):
+        sample_idx = (step // self.eval_every) % batch[0].shape[0]
+        path = save_masked_reconstruction_plot(
+            self.model,
+            batch,
+            self.config,
+            self.device,
+            self.use_amp,
+            self.imgs_dir,
+            step,
+            sample_idx=sample_idx,
+        )
+        self.write_log(f"saved reconstruction: {path}")
+
+
+class SupervisedTrainer(Trainer):
+    def build_model(self):
+        return TinyBird(self.config)  # TODO: SupervisedTinyBird (encoder backbone + head)
+
+    def build_datasets(self):
+        c = self.config
+        return (SpectrogramDatasetSupervised(c["train_dir"], c["annotation_file"], n_timebins=c["num_timebins"], recording_mode=c["recording_mode"]),
+                SpectrogramDatasetSupervised(c["val_dir"], c["annotation_file"], n_timebins=c["num_timebins"], recording_mode=c["recording_mode"]))
+
+    def forward_loss(self, batch):
+        x = batch[0].to(self.device, non_blocking=True)
+        labels = batch[1].to(self.device, non_blocking=True)
+        logits = self.model(x)
+        return self.model.compute_loss(logits, labels)
+
+
+def resolve_run_path(path):
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    if path.exists():
+        return path.resolve()
+    return RUNS_ROOT / path
+
+
+def add_train_args(parser):
+    parser.add_argument("--task", choices=["unsupervised", "supervised"])
+    parser.add_argument("--train_dir")
+    parser.add_argument("--val_dir")
+    parser.add_argument("--run_name")
+    parser.add_argument("--continue_from")
+    parser.add_argument("--annotation_file")
+    parser.add_argument("--recording_mode", choices=["events", "full_recordings"])
+    parser.add_argument("--steps", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--num_workers", type=int)
+    parser.add_argument("--weight_decay", type=float)
+    parser.add_argument("--eval_every", type=int)
+    parser.add_argument("--warmup_steps", type=int)
+    parser.add_argument("--min_lr", type=float)
+    parser.add_argument("--amp", action="store_true", default=None)
+    parser.add_argument("--wandb", action="store_true", default=None)
+
+
+def add_model_args(parser):
+    parser.add_argument("--patch_height", type=int)
+    parser.add_argument("--patch_width", type=int)
+    parser.add_argument("--num_timebins", type=int)
+    parser.add_argument("--dropout", type=float)
+    parser.add_argument("--mask_p", type=float)
+    parser.add_argument("--mask_c", type=float)
+    parser.add_argument("--mask_type", choices=["voronoi", "random"])
+    parser.add_argument("--no_normalize_patches", action="store_false", dest="normalize_patches", default=None)
+    parser.add_argument("--enc_hidden_d", type=int)
+    parser.add_argument("--enc_n_head", type=int)
+    parser.add_argument("--enc_n_layer", type=int)
+    parser.add_argument("--enc_dim_ff", type=int)
+    parser.add_argument("--dec_hidden_d", type=int)
+    parser.add_argument("--dec_n_head", type=int)
+    parser.add_argument("--dec_n_layer", type=int)
+    parser.add_argument("--dec_dim_ff", type=int)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train SongMAE models.")
+    add_train_args(parser)
+    add_model_args(parser)
+    return parser.parse_args()
+
+
+def config_from_args(args):
+    overrides = {key: value for key, value in vars(args).items() if value is not None}
+    run_dir = None
+    if args.continue_from:
+        run_dir = resolve_run_path(args.continue_from)
+        config = json.loads((run_dir / "config.json").read_text())
+        config.update(overrides)
+    else:
+        assert args.train_dir and args.val_dir and args.run_name
+        config = dict(DEFAULT_CONFIG)
+        config.update(overrides)
+
+    config.setdefault("task", "unsupervised")
+    if config["task"] == "supervised":
+        assert config.get("annotation_file"), "--annotation_file is required for supervised training"
+
+    audio = AudioParams.from_dir(run_dir or config["train_dir"])
+    config["mels"] = audio.mels
+    config["patch_size"] = (config["patch_height"], config["patch_width"])
+    model_keys = [field.name for field in fields(ModelConfig) if field.init]
+    ModelConfig(**{key: config[key] for key in model_keys if key in config})
+    return config
+
+
+def trainer_from_config(config):
+    if config["task"] == "unsupervised":
+        return UnsupervisedTrainer(config)
+    if config["task"] == "supervised":
+        return SupervisedTrainer(config)
+    raise ValueError(f"unknown training task: {config['task']}")
+
+
+def main():
+    trainer_from_config(config_from_args(parse_args())).train()
+
+
+if __name__ == "__main__":
+    main()

@@ -210,8 +210,9 @@ def main():
     out_dir = Path(args_cli.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model_state = extract_embedding.load_model_state({"run_dir": str(args.run_dir), "checkpoint": args.checkpoint})
-    args.songmae_input_normalization, args.songmae_input_normalization_stats_dir = extract_embedding.get_native_input_normalization(model_state)
+    model_state = extract_embedding.load_model_state(str(args.run_dir), args.checkpoint)
+    args.songmae_input_normalization = "audio_params"
+    args.songmae_input_normalization_stats_dir = model_state["run_dir"]
     patch_width = _load_patch_width(Path(args.run_dir))
     patch_height = int(model_state["patch_height"])
     patch_rows = int(model_state["num_patches_height"])

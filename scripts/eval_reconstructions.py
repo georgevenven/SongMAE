@@ -7,7 +7,6 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 # Local deps
@@ -42,6 +41,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None, help="Optional checkpoint filename to load")
     parser.add_argument("--per_patch_norm", action="store_true", help="Enable per-patch normalization for visualization")
     parser.add_argument("--inference_mode", action="store_true", help="Disable masking (autoencoder-style reconstruction)")
+    parser.add_argument("--numbers_only", action="store_true", help="Only compute CSV/summary metrics; skip image generation")
     parser.add_argument(
         "--image_format",
         type=str,
@@ -72,7 +72,8 @@ def main():
     mse_root = os.path.join(args.out_dir, "MSE analysis")
     os.makedirs(mse_root, exist_ok=True)
     imgs_dir = os.path.join(mse_root, "imgs")
-    os.makedirs(imgs_dir, exist_ok=True)
+    if not args.numbers_only:
+        os.makedirs(imgs_dir, exist_ok=True)
 
     # Save a copy of run config for traceability
     with open(os.path.join(mse_root, "eval_config.json"), "w") as f:
@@ -83,6 +84,7 @@ def main():
             "spec_dir": args.spec_dir,
             "num_samples": args.num_samples,
             "device": str(device),
+            "numbers_only": args.numbers_only,
             "model_config": config
         }
         json.dump(meta, f, indent=2)
@@ -128,28 +130,6 @@ def main():
             # pred_denorm = pred * (target_std + 1e-6) + target_mean  # (1, T, P)
             pred_denorm = pred.to(dtype=x_patches.dtype)
 
-            # Overlay image: original for unmasked, prediction for masked.
-            # In inference_mode there is no mask, so show full reconstruction.
-            if args.inference_mode:
-                overlay_patches = pred_denorm
-            else:
-                overlay_patches = x_patches.clone()
-                overlay_patches[bool_mask] = pred_denorm[bool_mask]
-            
-            # Normalize all patches patch-wise for consistent visualization
-            if args.per_patch_norm:
-                overlay_mean = overlay_patches.mean(dim=-1, keepdim=True)
-                overlay_std = overlay_patches.std(dim=-1, keepdim=True)
-                overlay_patches_normalized = (overlay_patches - overlay_mean) / (overlay_std + 1e-6)
-            else:
-                overlay_patches_normalized = overlay_patches
-            
-            overlay_img = depatchify(overlay_patches_normalized, H=H, W=W, patch_size=patch_size)
-
-            # Masked-original image for visualization
-            masked_patches = masked_original(x_patches, bool_mask)
-            masked_img = depatchify(masked_patches, H=H, W=W, patch_size=patch_size)
-
             # Per-sample MSEs in raw scale
             diff2 = (pred_denorm - x_patches) ** 2  # (1, T, P)
             mse_all = diff2.mean().item()
@@ -166,41 +146,59 @@ def main():
             SSE_masked += diff2[bool_mask].sum().item()
             N_masked += masked_elems
 
-            # Save visualization
-            x_img = x[0, 0].detach().cpu().numpy()
-            masked_img_np = masked_img[0, 0].detach().cpu().numpy()
-            overlay_np = overlay_img[0, 0].detach().cpu().numpy()
-
             fname = sanitize(filenames[0] if isinstance(filenames, list) else str(filenames))
 
-            # Plot: Overlay
-            fig2 = plt.figure(figsize=(7.9, 5.8933))
-            ax1 = plt.subplot(3, 1, 1)
-            ax1.imshow(x_img, origin="lower", aspect="auto")
-            ax1.set_title("Input Spectrogram", fontsize=16, fontweight='bold')
-            ax1.axis("off")
+            if not args.numbers_only:
+                import matplotlib.pyplot as plt
 
-            ax2 = plt.subplot(3, 1, 2)
-            ax2.imshow(masked_img_np, origin="lower", aspect="auto")
-            ax2.set_title("Input Spectrogram With Mask", fontsize=16, fontweight='bold')
-            ax2.axis("off")
+                # Overlay image: original for unmasked, prediction for masked.
+                # In inference_mode there is no mask, so show full reconstruction.
+                if args.inference_mode:
+                    overlay_patches = pred_denorm
+                else:
+                    overlay_patches = x_patches.clone()
+                    overlay_patches[bool_mask] = pred_denorm[bool_mask]
 
-            ax3 = plt.subplot(3, 1, 3)
-            ax3.imshow(overlay_np, origin="lower", aspect="auto")
-            ax3.set_title(
-                "Decoder Output" if args.inference_mode else "Decoder Predictions and Original Spectrogram",
-                fontsize=16,
-                fontweight="bold",
-            )
-            ax3.axis("off")
+                if args.per_patch_norm:
+                    overlay_mean = overlay_patches.mean(dim=-1, keepdim=True)
+                    overlay_std = overlay_patches.std(dim=-1, keepdim=True)
+                    overlay_patches = (overlay_patches - overlay_mean) / (overlay_std + 1e-6)
 
-            fig2.tight_layout()
-            out_image = os.path.join(imgs_dir, f"{i:06d}_{fname}_overlay.{args.image_format}")
-            save_kwargs = {"facecolor": "white", "edgecolor": "none"}
-            if args.image_format == "png":
-                save_kwargs["dpi"] = 300
-            fig2.savefig(out_image, **save_kwargs)
-            plt.close(fig2)
+                overlay_img = depatchify(overlay_patches, H=H, W=W, patch_size=patch_size)
+                masked_patches = masked_original(x_patches, bool_mask)
+                masked_img = depatchify(masked_patches, H=H, W=W, patch_size=patch_size)
+
+                x_img = x[0, 0].detach().cpu().numpy()
+                masked_img_np = masked_img[0, 0].detach().cpu().numpy()
+                overlay_np = overlay_img[0, 0].detach().cpu().numpy()
+
+                fig2 = plt.figure(figsize=(7.9, 5.8933))
+                ax1 = plt.subplot(3, 1, 1)
+                ax1.imshow(x_img, origin="lower", aspect="auto")
+                ax1.set_title("Input Spectrogram", fontsize=16, fontweight='bold')
+                ax1.axis("off")
+
+                ax2 = plt.subplot(3, 1, 2)
+                ax2.imshow(masked_img_np, origin="lower", aspect="auto")
+                ax2.set_title("Input Spectrogram With Mask", fontsize=16, fontweight='bold')
+                ax2.axis("off")
+
+                ax3 = plt.subplot(3, 1, 3)
+                ax3.imshow(overlay_np, origin="lower", aspect="auto")
+                ax3.set_title(
+                    "Decoder Output" if args.inference_mode else "Decoder Predictions and Original Spectrogram",
+                    fontsize=16,
+                    fontweight="bold",
+                )
+                ax3.axis("off")
+
+                fig2.tight_layout()
+                out_image = os.path.join(imgs_dir, f"{i:06d}_{fname}_overlay.{args.image_format}")
+                save_kwargs = {"facecolor": "white", "edgecolor": "none"}
+                if args.image_format == "png":
+                    save_kwargs["dpi"] = 300
+                fig2.savefig(out_image, **save_kwargs)
+                plt.close(fig2)
 
             # Append CSV
             with open(csv_path, "a") as fcsv:
@@ -229,7 +227,8 @@ def main():
     print("Done.")
     print(f"Summary: {os.path.join(mse_root, 'summary.json')}")
     print(f"Per-sample CSV: {csv_path}")
-    print(f"Images dir: {imgs_dir}")
+    if not args.numbers_only:
+        print(f"Images dir: {imgs_dir}")
 
 
 if __name__ == "__main__":

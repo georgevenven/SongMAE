@@ -1305,43 +1305,18 @@ def _load_perch_segments(args, bird_id, recording_stem, model_state):
 
 
 def _load_spec_segments(args, bird_id, recording_stem, patch_width):
-    if float(getattr(args, "train_audio_speed_max_pct", 0.0)) > 0.0:
-        loaded = extract_embedding.load_recording_segments_from_audio(
-            {
-                "spec_dir": str(args.spec_dir),
-                "json_path": str(args.annotation_json),
-                "bird": bird_id,
-                "recording_stem": recording_stem,
-                "recording_mode": args.recording_mode,
-                "wav_root": args.wav_root,
-                "wav_manifest": args.wav_manifest,
-                "wav_exts": args.wav_exts,
-                "seed": getattr(args, "seed", 0),
-                "train_audio_speed_min_pct": getattr(args, "train_audio_speed_min_pct", 0.0),
-                "train_audio_speed_max_pct": getattr(args, "train_audio_speed_max_pct", 0.0),
-            },
-            patch_width=patch_width,
-        )
-    else:
-        loaded = extract_embedding.load_recording_segments(
-            {
-                "spec_dir": str(args.spec_dir),
-                "json_path": str(args.annotation_json),
-                "bird": bird_id,
-                "recording_stem": recording_stem,
-                "recording_mode": args.recording_mode,
-            },
-            patch_width=patch_width,
-        )
-    target_stats = None
-    if args.spec_normalization == "per_recording_cmvn_rescaled_to_target_stats":
-        stats_dir = args.spec_normalization_stats_dir or args.spec_dir
-        target_stats = _load_target_stats(stats_dir)
-    normalized_segments = extract_embedding.normalize_recording_segments(
-        loaded["segments"],
-        args.spec_normalization,
-        target_stats=target_stats,
+    loaded = extract_embedding.load_recording_segments(
+        {
+            "spec_dir": str(args.spec_dir),
+            "json_path": str(args.annotation_json),
+            "bird": bird_id,
+            "recording_stem": recording_stem,
+            "recording_mode": args.recording_mode,
+        }
     )
+    stats_dir = args.spec_normalization_stats_dir or args.spec_dir
+    mean, std = _load_target_stats(stats_dir)
+    normalized_segments = extract_embedding.normalize_recording_segments(loaded["segments"], mean, std)
 
     segments = []
     audio_params = loaded["audio_params"]
@@ -1611,8 +1586,8 @@ def _apply_spec_normalization_preset(args):
 
 
 def _songmae_input_normalization(model_state, args):
-    mode, stats_dir = extract_embedding.get_native_input_normalization(model_state)
-    if mode == "audio_params" and args.audio_params_stats_dir is not None:
+    mode, stats_dir = "audio_params", model_state["run_dir"]
+    if args.audio_params_stats_dir is not None:
         stats_dir = args.audio_params_stats_dir
     return mode, stats_dir
 
@@ -1759,12 +1734,7 @@ def main():
     args.songmae_input_normalization = None
     args.songmae_input_normalization_stats_dir = None
     if args.encoder == "SongMAE":
-        model_state = extract_embedding.load_model_state(
-            {
-                "run_dir": str(args.run_dir),
-                "checkpoint": args.checkpoint,
-            }
-        )
+        model_state = extract_embedding.load_model_state(str(args.run_dir), args.checkpoint)
         (
             args.songmae_input_normalization,
             args.songmae_input_normalization_stats_dir,

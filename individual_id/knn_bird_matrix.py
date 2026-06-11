@@ -202,9 +202,9 @@ def _feature_key(args):
 
 
 def _extract_songmae_tokens(args, selected):
-    model_state = extract_embedding.load_model_state({"run_dir": args.run_dir, "checkpoint": args.checkpoint})
+    model_state = extract_embedding.load_model_state(args.run_dir, args.checkpoint)
     if args.spec_normalization == "auto":
-        args.spec_normalization, args.normalization_stats_dir = extract_embedding.get_native_input_normalization(model_state)
+        args.spec_normalization, args.normalization_stats_dir = "audio_params", model_state["run_dir"]
     key = _feature_key(args)
     request = {
         "run_dir": args.run_dir,
@@ -242,10 +242,9 @@ def _extract_songmae_tokens(args, selected):
 
 def _load_encoder_state(args):
     if args.encoder == "SongMAE":
-        model_state = extract_embedding.load_model_state({"run_dir": args.run_dir, "checkpoint": args.checkpoint})
-        args.songmae_input_normalization, args.songmae_input_normalization_stats_dir = extract_embedding.get_native_input_normalization(
-            model_state
-        )
+        model_state = extract_embedding.load_model_state(args.run_dir, args.checkpoint)
+        args.songmae_input_normalization = "audio_params"
+        args.songmae_input_normalization_stats_dir = model_state["run_dir"]
         return model_state
     if args.encoder == "AVES":
         return aves.load_model_state_for_inference(

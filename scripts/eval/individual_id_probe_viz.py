@@ -267,13 +267,9 @@ def main():
     out_dir = Path(args_cli.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model_state = extract_embedding.load_model_state(
-        {
-            "run_dir": str(args.run_dir),
-            "checkpoint": args.checkpoint,
-        }
-    )
-    args.songmae_input_normalization, args.songmae_input_normalization_stats_dir = extract_embedding.get_native_input_normalization(model_state)
+    model_state = extract_embedding.load_model_state(str(args.run_dir), args.checkpoint)
+    args.songmae_input_normalization = "audio_params"
+    args.songmae_input_normalization_stats_dir = model_state["run_dir"]
 
     stems_by_bird = _load_recording_stems_by_bird(Path(args.annotation_json))
     train_recordings, val_recordings = _build_recording_splits(args, stems_by_bird)

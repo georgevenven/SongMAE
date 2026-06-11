@@ -1,487 +1,199 @@
-import os
+"""Small shared helpers for the refactored SongMAE code."""
+
 import json
-import glob
 import re
-import torch
 from pathlib import Path
-from model import TinyBird
 
-def count_parameters(model):
-    """
-    Count and print the number of parameters in the encoder, decoder, and total model.
-    
-    Args:
-        model (TinyBird): The TinyBird model instance
-    
-    Returns:
-        dict: Dictionary containing parameter counts for encoder, decoder, and total
-    """
-    # Count encoder parameters
-    encoder_params = 0
-    encoder_components = [
-        model.patch_projection,
-        model.encoder,
-        model.pos_enc
-    ]
-    
-    for component in encoder_components:
-        if hasattr(component, 'parameters'):
-            encoder_params += sum(p.numel() for p in component.parameters())
-        else:
-            encoder_params += component.numel()  # For nn.Parameter
-    
-    # Count decoder parameters  
-    decoder_params = 0
-    decoder_components = [
-        model.decoder,
-        model.encoder_to_decoder,
-        model.decoder_to_pixel,
-        model.mask_token
-    ]
-    
-    for component in decoder_components:
-        if hasattr(component, 'parameters'):
-            decoder_params += sum(p.numel() for p in component.parameters())
-        else:
-            decoder_params += component.numel()  # For nn.Parameter
-    
-    # Count total parameters
-    total_params = sum(p.numel() for p in model.parameters())
-    
-    # Print the results
-    print("=" * 60)
-    print("MODEL PARAMETER COUNT")
-    print("=" * 60)
-    print(f"Encoder parameters:    {encoder_params:,}")
-    print(f"Decoder parameters:    {decoder_params:,}")
-    print(f"Total parameters:      {total_params:,}")
-    print("=" * 60)
-    
-    return {
-        'encoder': encoder_params,
-        'decoder': decoder_params, 
-        'total': total_params
-    }
+import numpy as np
+import torch
 
-def load_model_from_checkpoint(run_dir="", checkpoint_file=None, fallback_to_random=True):
-    """
-    Load a TinyBird model from a checkpoint directory.
-    
-    Args:
-        run_dir (str): Either:
-            - Absolute path to the run directory
-            - Relative path to a folder in runs/ (e.g., "my_run_name")
-            - Empty string (will raise error)
-        checkpoint_file (str, optional): Specific checkpoint filename to load.
-            If None, loads the latest checkpoint. Can be either:
-            - Just the filename (e.g., "model_step_005000.pth")
-            - Full path to the checkpoint file
-        fallback_to_random (bool, optional): If True, initialize with random weights
-            when checkpoint is not found instead of raising an error. Default: False
-    
-    Returns:
-        TinyBird: Loaded model with weights from the specified checkpoint, or random weights if fallback enabled
-    """
-    if not run_dir:
-        raise ValueError("run_dir cannot be empty. Provide either absolute path or relative path to runs/")
-    
-    # Handle path - check if it's absolute or relative
-    if os.path.isabs(run_dir):
-        # Absolute path provided
-        run_path = run_dir
-    else:
-        # Relative path - assume it's a folder name in runs/
-        runs_base = os.path.join("..", "runs")
-        run_path = os.path.join(runs_base, run_dir)
-    
-    # Check if run directory exists
-    if not os.path.exists(run_path):
-        if fallback_to_random:
-            raise ValueError(f"Cannot fallback to random weights: run directory not found and config unavailable: {run_path}")
-        raise FileNotFoundError(f"Run directory not found: {run_path}")
-    
-    # Load config.json
-    config_path = os.path.join(run_path, "config.json")
-    if not os.path.exists(config_path):
-        if fallback_to_random:
-            raise ValueError(f"Cannot fallback to random weights: config file not found: {config_path}")
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    
-    # Initialize model with config
-    tinybird = TinyBird(config)
-    
-    # Determine which checkpoint to load
-    weights_dir = os.path.join(run_path, "weights")
-    if not os.path.exists(weights_dir):
-        if fallback_to_random:
-            print(f"Weights directory not found: {weights_dir}")
-            print("Initializing model with random weights")
-            return tinybird, config
-        raise FileNotFoundError(f"Weights directory not found: {weights_dir}")
-    
-    checkpoint_path = None
-    if checkpoint_file is not None:
-        # Manual checkpoint specified
-        if os.path.isabs(checkpoint_file):
-            # Full path provided
-            checkpoint_path = checkpoint_file
-        else:
-            # Just filename provided, combine with weights directory
-            checkpoint_path = os.path.join(weights_dir, checkpoint_file)
-        
-        if not os.path.exists(checkpoint_path):
-            if fallback_to_random:
-                print(f"Specified checkpoint file not found: {checkpoint_path}")
-                print("Initializing model with random weights")
-                return tinybird, config
-            raise FileNotFoundError(f"Specified checkpoint file not found: {checkpoint_path}")
-        
-        print(f"Loading specified checkpoint: {checkpoint_path}")
-    else:
-        # Find the latest checkpoint automatically
-        checkpoint_pattern = os.path.join(weights_dir, "model_step_*.pth")
-        checkpoint_files = glob.glob(checkpoint_pattern)
-        
-        if not checkpoint_files:
-            if fallback_to_random:
-                print(f"No checkpoint files found in: {weights_dir}")
-                print("Initializing model with random weights")
-                return tinybird, config
-            raise FileNotFoundError(f"No checkpoint files found in: {weights_dir}")
-        
-        # Find the latest checkpoint (highest step number)
-        checkpoint_path = max(checkpoint_files, key=lambda x: int(x.split('_step_')[1].split('.pth')[0]))
-        print(f"Loading latest checkpoint: {checkpoint_path}")
-    
-    # Load weights
-    state_dict = torch.load(checkpoint_path, map_location='cpu')
-    tinybird.load_state_dict(state_dict)
-    
-    # Extract step number for info
-    try:
-        step_num = int(checkpoint_path.split('_step_')[1].split('.pth')[0])
-        print(f"Model loaded from step {step_num}")
-    except (IndexError, ValueError):
-        print(f"Model loaded from: {os.path.basename(checkpoint_path)}")
-    
-    return tinybird, config
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNS_ROOT = PROJECT_ROOT / "runs"
+CHUNK_MS_RE = re.compile(r"^(?P<base>.+)__ms_(?P<start>\d+)_(?P<end>\d+)$")
+
+def normalize_spectrogram(arr, mean, std):
+    arr = np.asarray(arr, dtype=np.float32)
+    return ((arr - np.float32(mean)) / np.float32(std)).astype(np.float32)
+
+
+def normalize_spectrogram_tensor(arr, mean, std):
+    mean = torch.as_tensor(mean, dtype=arr.dtype, device=arr.device)
+    std = torch.as_tensor(std, dtype=arr.dtype, device=arr.device)
+    return (arr - mean) / std
+
 
 def load_audio_params(data_dir, require_stats=True):
-    """
-    Load audio parameters from audio_params.json in the specified directory.
-    
-    Args:
-        data_dir (str): Path to directory containing audio_params.json
-        require_stats (bool): Whether mean/std must be present
-    
-    Returns:
-        dict: Dictionary containing audio parameters
-    
-    Raises:
-        SystemExit: If audio_params.json is missing or lacks required keys
-    """
-    audio_json_path = Path(data_dir) / "audio_params.json"
-    
-    if not audio_json_path.exists():
-        raise SystemExit(f"audio_params.json not found in directory: {data_dir}")
-    
-    with open(audio_json_path, "r") as f:
-        audio_data_json = json.load(f)
-    
-    # Validate required keys
-    required_keys = ["mels", "sr", "hop_size", "fft"]
-    if require_stats:
-        required_keys.extend(["mean", "std"])
-    for key in required_keys:
-        if key not in audio_data_json:
-            raise SystemExit(f"Missing required key '{key}' in audio_params.json. Exiting.")
-    
-    return audio_data_json
+    path = Path(data_dir) / "audio_params.json"
+    return json.loads(path.read_text())
 
 
-_CHUNK_MS_RE = re.compile(r"^(?P<base>.+)__ms_(?P<start>\d+)_(?P<end>\d+)$")
+def ms_to_timebins(ms_value, audio_params):
+    sr = audio_params[0]
+    hop_size = audio_params[2]
+    return int((ms_value / 1000) * sr / hop_size)
+
+
+def timebins_to_ms(timebin_value, audio_params):
+    sr = audio_params[0]
+    hop_size = audio_params[2]
+    return float(timebin_value) * hop_size / sr * 1000
+
+
+def load_json_events(json_path, audio_params, selected_bird=None):
+    data = json.loads(Path(json_path).read_text())
+    event_map = {}
+    for rec in data.get("recordings", []):
+        recording = rec.get("recording", {})
+        bird_id = recording.get("bird_id", "")
+        stem = Path(recording.get("filename", "")).stem
+        if selected_bird is not None and bird_id != selected_bird:
+            continue
+
+        events = []
+        for event in rec.get("detected_events", []):
+            units = [
+                (
+                    ms_to_timebins(unit["onset_ms"], audio_params),
+                    ms_to_timebins(unit["offset_ms"], audio_params),
+                    int(unit["id"]),
+                )
+                for unit in event.get("units", [])
+            ]
+            events.append(
+                {
+                    "on_timebins": ms_to_timebins(event["onset_ms"], audio_params),
+                    "off_timebins": ms_to_timebins(event["offset_ms"], audio_params),
+                    "units": units,
+                }
+            )
+        event_map[stem] = events
+    return event_map
+
+
+def create_label_arr(event, start_timebin, end_timebin):
+    labels = np.full((end_timebin - start_timebin,), fill_value=-1, dtype=np.int64)
+    for start, end, unit_id in event["units"]:
+        lo = max(int(start_timebin), int(start))
+        hi = min(int(end) + 1, int(end_timebin))
+        if lo >= hi:
+            continue
+        labels[lo - start_timebin : hi - start_timebin] = int(unit_id)
+    return labels
+
+
+def resolve_run_dir(run_dir):
+    path = Path(run_dir)
+    if path.is_absolute():
+        return path
+    if path.exists():
+        return path.resolve()
+    return RUNS_ROOT / path
+
+
+def load_model_from_checkpoint(run_dir, checkpoint_file=None, fallback_to_random=False):
+    from model import TinyBird
+
+    run_dir = resolve_run_dir(run_dir)
+    config = json.loads((run_dir / "config.json").read_text())
+    model = TinyBird(config)
+
+    if checkpoint_file is None:
+        checkpoint = sorted((run_dir / "weights").glob("model_step_*.pth"))[-1]
+    else:
+        checkpoint = Path(checkpoint_file)
+        if not checkpoint.is_absolute():
+            checkpoint = run_dir / "weights" / checkpoint
+
+    model.load_state_dict(torch.load(checkpoint, map_location="cpu"))
+    print(f"loaded checkpoint: {checkpoint}")
+    return model, config
+
+
+def load_model_state(run_dir, checkpoint_file=None):
+    from data_structures import ModelConfig
+
+    run_dir = resolve_run_dir(run_dir)
+    model, config = load_model_from_checkpoint(run_dir, checkpoint_file)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    model.eval()
+
+    model_json = run_dir / "model.json"
+    model_config = ModelConfig.from_json(model_json if model_json.exists() else run_dir / "config.json")
+    return {
+        "model": model,
+        "config": config,
+        "model_config": model_config,
+        "run_dir": str(run_dir),
+        "device": device,
+        "patch_height": model_config.patch_height,
+        "patch_width": model_config.patch_width,
+        "model_num_timebins": model_config.num_timebins,
+        "num_patches_time": model_config.num_patches_time,
+        "num_patches_height": model_config.num_patches_height,
+    }
+
+
+def resolve_single_spec_path(spec_dir, recording_stem):
+    spec_dir = Path(spec_dir)
+    path = spec_dir / f"{recording_stem}.npy"
+    if path.exists():
+        return path
+
+    paths = sorted(spec_dir.rglob(f"{recording_stem}.npy"))
+    assert paths, f"Recording not found: {recording_stem}"
+    assert len(paths) == 1, f"Multiple recordings found: {recording_stem}"
+    return paths[0]
 
 
 def parse_chunk_ms(filename):
     name = Path(filename).name
-    for ext in (".npy", ".wav"):
-        if name.endswith(ext):
-            name = name[: -len(ext)]
+    for suffix in (".npy", ".wav"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
             break
-    base = name
-    last_start = None
-    last_end = None
+
+    start = end = None
     while True:
-        match = _CHUNK_MS_RE.match(base)
-        if not match:
-            break
-        base = match.group("base")
-        last_start = int(match.group("start"))
-        last_end = int(match.group("end"))
-    return base, last_start, last_end
+        match = CHUNK_MS_RE.match(name)
+        if match is None:
+            return name, start, end
+        name = match.group("base")
+        start = int(match.group("start"))
+        end = int(match.group("end"))
 
 
 def clip_labels_to_chunk(labels, chunk_start_ms, chunk_end_ms):
     if chunk_start_ms is None:
         return labels
-    if chunk_end_ms is None:
-        chunk_end_ms = float("inf")
-
+    chunk_end_ms = chunk_end_ms if chunk_end_ms is not None else float("inf")
     clipped = []
     for label in labels:
         onset = label["onset_ms"]
         offset = label["offset_ms"]
         if offset <= chunk_start_ms or onset >= chunk_end_ms:
             continue
-        new_label = dict(label)
-        new_label["onset_ms"] = max(onset, chunk_start_ms) - chunk_start_ms
-        new_label["offset_ms"] = min(offset, chunk_end_ms) - chunk_start_ms
-        clipped.append(new_label)
+        label = dict(label)
+        label["onset_ms"] = max(onset, chunk_start_ms) - chunk_start_ms
+        label["offset_ms"] = min(offset, chunk_end_ms) - chunk_start_ms
+        clipped.append(label)
     return clipped
-
-def load_audio_labels(path, filename, mode):
-    """
-      Point of this function is to load the name of the file, and then match it with the name in the json, 
-      then return either the detection labels, or the syllable classes
-    
-      mode: "detect", "classify", or "unit_detect"
-      It should be file extension agnostic 
-    """
-    if mode not in ["detect", "classify", "unit_detect"]:
-        raise ValueError("mode must be 'detect', 'classify', or 'unit_detect'")
-    
-    base_filename, chunk_start_ms, chunk_end_ms = parse_chunk_ms(filename)
-
-    with open(path, "r") as f:
-        annotations = json.load(f)
-    
-    for rec in annotations["recordings"]:
-        rec_filename = Path(rec["recording"]["filename"]).stem
-        if rec_filename == base_filename:
-            if mode == "detect":
-                labels = [{"onset_ms": event["onset_ms"], "offset_ms": event["offset_ms"]}
-                          for event in rec["detected_events"]]
-            elif mode == "classify":
-                labels = [unit for event in rec["detected_events"] for unit in event["units"]]
-            else:  # unit_detect
-                labels = [unit for event in rec["detected_events"] for unit in event["units"]]
-            return clip_labels_to_chunk(labels, chunk_start_ms, chunk_end_ms)
-    
-    raise ValueError(f"No matching recording found for: {base_filename}")
 
 
 def get_class_id_map_from_annotations(path, mode):
-    """
-    Build a contiguous class-id mapping for classify mode.
-
-    Returns:
-        dict[int, int]: raw_unit_id -> contiguous_unit_id (0..N-1)
-    """
-    if mode not in ["detect", "classify", "unit_detect"]:
-        raise ValueError("mode must be 'detect', 'classify', or 'unit_detect'")
-
     if mode != "classify":
         return {}
-
-    with open(path, "r") as f:
-        annotations = json.load(f)
-
-    all_ids = set()
-    for rec in annotations["recordings"]:
-        for event in rec["detected_events"]:
-            for unit in event["units"]:
-                all_ids.add(int(unit["id"]))
-
-    if not all_ids:
-        raise ValueError(f"No syllable labels found in annotation file: {path}")
-
-    sorted_ids = sorted(all_ids)
-    return {raw_id: idx for idx, raw_id in enumerate(sorted_ids)}
-
-
-## Make this function simpler, no need for this complexity 
-def get_num_classes_from_annotations(path, mode):
-    """
-    Determine the number of classes from annotation file.
-    
-    Args:
-        path (str): Path to annotation JSON file
-        mode (str): "detect", "classify", or "unit_detect"
-        
-    Returns:
-        int: Number of classes including silence class 0
-             - For detect: 2 (silence=0, vocalization=1)
-             - For unit_detect: 2 (silence=0, unit_present=1)
-             - For classify: num_unique_syllable_ids + 1 (silence=0, syllables=1,2,3,...)
-    """
-    if mode not in ["detect", "classify", "unit_detect"]:
-        raise ValueError("mode must be 'detect', 'classify', or 'unit_detect'")
-    
-    if mode in ["detect", "unit_detect"]:
-        return 2  # silence and vocalization
-
-    class_id_map = get_class_id_map_from_annotations(path, mode)
-    num_classes = len(class_id_map) + 1  # +1 for silence class at 0
-
-    raw_ids = sorted(class_id_map.keys())
-    print(f"Found {len(raw_ids)} unique syllable IDs (range: {raw_ids[0]} to {raw_ids[-1]})")
-    print(f"Total classes including silence: {num_classes}")
-    
-    return num_classes
-
-def load_training_state(run_dir, eval_every=500):
-    """
-    Load training state from a run directory's loss log.
-    
-    Args:
-        run_dir (str): Path to the run directory containing loss_log.txt
-        eval_every (int): Evaluation interval to calculate next starting step
-    
-    Returns:
-        dict: Dictionary containing training state with keys:
-            - 'starting_step': Next step to continue training from
-            - 'steps': List of train step numbers
-            - 'val_steps': List of validation step numbers
-            - 'train_losses': List of training losses
-            - 'val_losses': List of validation losses
-            - 'ema_train_losses': List of EMA training losses
-            - 'ema_val_losses': List of EMA validation losses
-            - 'last_ema_train_loss': Last EMA training loss value (or None)
-            - 'last_ema_val_loss': Last EMA validation loss value (or None)
-            - 'found_state': Boolean indicating if training state was found
-    """
-    loss_log_path = os.path.join(run_dir, "loss_log.txt")
-    
-    # Initialize default state
-    training_state = {
-        'starting_step': 0,
-        'steps': [],
-        'val_steps': [],
-        'train_losses': [],
-        'val_losses': [],
-        'ema_train_losses': [],
-        'ema_val_losses': [],
-        'last_ema_train_loss': None,
-        'last_ema_val_loss': None,
-        'found_state': False
+    annotations = json.loads(Path(path).read_text())
+    ids = {
+        int(unit["id"])
+        for recording in annotations["recordings"]
+        for event in recording.get("detected_events", [])
+        for unit in event.get("units", [])
     }
-    
-    if os.path.exists(loss_log_path):
-        try:
-            # Read CSV manually to avoid pandas dependency
-            with open(loss_log_path, 'r') as f:
-                raw_lines = [line.strip() for line in f.readlines() if line.strip()]
+    return {raw_id: idx for idx, raw_id in enumerate(sorted(ids))}
 
-            if raw_lines:
-                def _safe_float(value):
-                    value = value.strip()
-                    if value == "":
-                        return None
-                    try:
-                        return float(value)
-                    except ValueError:
-                        return None
 
-                def _safe_int(value):
-                    value = value.strip()
-                    if value == "":
-                        return None
-                    try:
-                        return int(value)
-                    except ValueError:
-                        return None
-
-                # Support both headered and headerless logs.
-                first_parts = [p.strip() for p in raw_lines[0].split(',')]
-                has_header = _safe_int(first_parts[0]) is None
-                if has_header:
-                    header = first_parts
-                    lines = raw_lines[1:]
-                    idx_step = header.index("step") if "step" in header else 0
-                    idx_train = header.index("train_loss") if "train_loss" in header else 1
-                    idx_val = header.index("val_loss") if "val_loss" in header else None
-                    idx_ema_train = header.index("ema_train_loss") if "ema_train_loss" in header else None
-                    idx_ema_val = header.index("ema_val_loss") if "ema_val_loss" in header else None
-                else:
-                    lines = raw_lines
-                    idx_step = 0
-                    idx_train = 1
-                    idx_val = 2
-                    idx_ema_train = None
-                    idx_ema_val = None
-
-                steps = []
-                val_steps = []
-                train_losses = []
-                val_losses = []
-                ema_train_losses = []
-                ema_val_losses = []
-
-                for line in lines:
-                    parts = [p.strip() for p in line.split(',')]
-                    if len(parts) <= max(idx_step, idx_train):
-                        continue
-
-                    step = _safe_int(parts[idx_step])
-                    train_loss = _safe_float(parts[idx_train])
-                    if step is None or train_loss is None:
-                        continue
-
-                    steps.append(step)
-                    train_losses.append(train_loss)
-
-                    if idx_val is not None and idx_val < len(parts):
-                        val_loss = _safe_float(parts[idx_val])
-                        if val_loss is not None:
-                            val_steps.append(step)
-                            val_losses.append(val_loss)
-
-                    if idx_ema_train is not None and idx_ema_train < len(parts):
-                        ema_train = _safe_float(parts[idx_ema_train])
-                        if ema_train is not None:
-                            ema_train_losses.append(ema_train)
-
-                    if idx_ema_val is not None and idx_ema_val < len(parts):
-                        ema_val = _safe_float(parts[idx_ema_val])
-                        if ema_val is not None:
-                            ema_val_losses.append(ema_val)
-
-                if steps:
-                    if len(steps) >= 2 and (steps[-1] - steps[-2]) == 1:
-                        next_step = steps[-1] + 1
-                    else:
-                        next_step = steps[-1] + max(1, int(eval_every))
-
-                    training_state['starting_step'] = next_step
-                    training_state['steps'] = steps
-                    training_state['val_steps'] = val_steps
-                    training_state['train_losses'] = train_losses
-                    training_state['val_losses'] = val_losses
-                    training_state['ema_train_losses'] = ema_train_losses
-                    training_state['ema_val_losses'] = ema_val_losses
-
-                    if ema_train_losses and ema_val_losses:
-                        training_state['last_ema_train_loss'] = ema_train_losses[-1]
-                        training_state['last_ema_val_loss'] = ema_val_losses[-1]
-
-                    training_state['found_state'] = True
-
-                    print(f"Loaded training state. Continuing from step {training_state['starting_step']}")
-                    if training_state['last_ema_train_loss'] is not None:
-                        print(f"Previous EMA train loss: {training_state['last_ema_train_loss']:.6f}")
-                    if training_state['last_ema_val_loss'] is not None:
-                        print(f"Previous EMA val loss: {training_state['last_ema_val_loss']:.6f}")
-                else:
-                    print("No parsable state in loss log, starting from step 0")
-            else:
-                print("Loss log file is empty, starting from step 0")
-        except Exception as e:
-            print(f"Error loading training state: {e}")
-            print("Starting from step 0")
-    else:
-        print("No loss log found, starting from step 0")
-    
-    return training_state
+def get_num_classes_from_annotations(path, mode):
+    if mode in ("detect", "unit_detect"):
+        return 2
+    return len(get_class_id_map_from_annotations(path, mode)) + 1

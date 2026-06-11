@@ -1,32 +1,19 @@
 import argparse
-import json
-import sys
-from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.decomposition import PCA
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))
-
-from data_loader import normalize_spectrogram_numpy, normalize_spectrogram_tensor
-from audio2spec import compute_spectrogram
-import aves
-from individual_id.audio_augmentations import augment_audio_segment
-from utils import load_audio_params, load_model_from_checkpoint
-
+from data_loader import SpectrogramDatasetSupervised
+from utils import normalize_spectrogram
+from utils import load_audio_params, load_model_state
 
 def fit_feature_postprocess(features, mode="none", dim=256):
-    assert features.ndim == 2
     if mode == "none":
         return None
 
-    assert mode in {"pca_whiten_l2", "whiten_l2"}
     if mode == "whiten_l2":
-        assert features.shape[0] > 0
         std = features.std(axis=0)
         std = np.maximum(std, 1e-12)
         return {
@@ -36,9 +23,7 @@ def fit_feature_postprocess(features, mode="none", dim=256):
             "std": std.astype(np.float32, copy=False),
         }
 
-    assert features.shape[0] > 0
     n_components = min(int(dim), int(features.shape[0]), int(features.shape[1]))
-    assert n_components > 0
     pca = PCA(n_components=n_components, whiten=True, svd_solver="randomized", random_state=0)
     pca.fit(features)
     return {
@@ -60,7 +45,6 @@ def save_feature_postprocess(path, transform):
         payload["components"] = transform["components"]
         payload["explained_variance"] = transform["explained_variance"]
     else:
-        assert transform["kind"] == "whiten_l2"
         payload["std"] = transform["std"]
     np.savez(path, **payload)
 
@@ -68,7 +52,6 @@ def save_feature_postprocess(path, transform):
 def load_feature_postprocess(path):
     loaded = np.load(path)
     kind = str(loaded["kind"].item())
-    assert kind in {"pca_whiten_l2", "whiten_l2"}
     transform = {
         "kind": kind,
         "dim": int(loaded["dim"].item()),
@@ -92,13 +75,13 @@ def apply_feature_postprocess_transform(features, transform):
         scale = np.sqrt(np.maximum(transform["explained_variance"], 1e-12))
         whitened = (projected / scale).astype(np.float32, copy=False)
     else:
-        assert transform["kind"] == "whiten_l2"
         whitened = (centered / np.maximum(transform["std"], 1e-12)).astype(np.float32, copy=False)
     norms = np.linalg.norm(whitened, axis=1, keepdims=True)
     norms = np.maximum(norms, 1e-12)
     return (whitened / norms).astype(np.float32, copy=False)
 
 
+# Fit or load one whitening/PCA transform, apply it to one feature matrix, and optionally save it.
 def maybe_apply_feature_postprocess(
     features,
     mode="none",
@@ -109,7 +92,6 @@ def maybe_apply_feature_postprocess(
     if mode == "none":
         return features.astype(np.float32, copy=False), None
 
-    assert mode in {"pca_whiten_l2", "whiten_l2"}
     if load_path is not None:
         transform = load_feature_postprocess(load_path)
     else:
@@ -119,6 +101,7 @@ def maybe_apply_feature_postprocess(
     return apply_feature_postprocess_transform(features, transform), transform
 
 
+# Fit one transform across all segment features, then write transformed features back per segment.
 def maybe_postprocess_segments(
     segments,
     args,
@@ -136,7 +119,6 @@ def maybe_postprocess_segments(
     load_path = args.get("embedding_postprocess_load")
     if load_path is not None:
         transform = load_feature_postprocess(load_path)
-        assert transform["kind"] == mode
         for segment in segments:
             if segment[feature_key].shape[0] > 0:
                 segment[feature_key] = apply_feature_postprocess_transform(segment[feature_key], transform)
@@ -174,320 +156,59 @@ def maybe_postprocess_segments(
     }
 
 
-def ms_to_timebins(ms_value, audio_params):
-    sr = audio_params[0]
-    hop_size = audio_params[2]
-    return int((ms_value / 1000) * sr / hop_size)
-
-
-def load_json_events(json_path, audio_params, selected_bird=None):
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    event_map = {}
-    for rec in data.get("recordings", []):
-        recording = rec.get("recording", {})
-        bird_id = recording.get("bird_id", "")
-        filename = recording.get("filename", "")
-        stem = Path(filename).stem
-        if selected_bird is not None:
-            if bird_id != selected_bird:
-                continue
-
-        events = []
-        for event in rec.get("detected_events", []):
-            units = []
-            for unit in event.get("units", []):
-                units.append(
-                    (
-                        ms_to_timebins(unit["onset_ms"], audio_params),
-                        ms_to_timebins(unit["offset_ms"], audio_params),
-                        int(unit["id"]),
-                    )
-                )
-            events.append(
-                {
-                    "on_timebins": ms_to_timebins(event["onset_ms"], audio_params),
-                    "off_timebins": ms_to_timebins(event["offset_ms"], audio_params),
-                    "units": units,
-                }
-            )
-        event_map[stem] = events
-    return event_map
-
-
-def create_label_arr(event, start_timebin, end_timebin):
-    labels = np.full((end_timebin - start_timebin,), fill_value=-1, dtype=np.int64)
-    for start, end, unit_id in event["units"]:
-        lo = max(int(start_timebin), int(start))
-        hi = min(int(end) + 1, int(end_timebin))
-        if lo >= hi:
-            continue
-        labels[lo - start_timebin : hi - start_timebin] = int(unit_id)
-    return labels
-
-
-def _resolve_recording_mode(args):
-    mode = args.get("recording_mode")
-    if mode is None:
-        mode = "full_recordings" if args.get("full_recordings", False) else "events"
-    assert mode in {"events", "full_recordings"}
-    return mode
-
-
-def _resolve_single_spec_path(spec_dir, recording_stem):
-    spec_dir = Path(spec_dir)
-    path = spec_dir / f"{recording_stem}.npy"
-    if path.exists():
-        return path
-
-    paths = sorted(spec_dir.rglob(f"{recording_stem}.npy"))
-    assert paths, f"Recording not found: {recording_stem}"
-    assert len(paths) == 1, f"Multiple recordings found: {recording_stem}"
-    return paths[0]
-
-
-def _resolve_spec_paths(spec_dir, recording_stem, recording_stems=None):
-    spec_dir = Path(spec_dir)
-    if recording_stems is not None:
-        return [_resolve_single_spec_path(spec_dir, stem) for stem in recording_stems]
-    if recording_stem is None:
-        paths = sorted(spec_dir.glob("*.npy"))
-        if not paths:
-            paths = sorted(spec_dir.rglob("*.npy"))
-        assert paths
-        return paths
-    return [_resolve_single_spec_path(spec_dir, recording_stem)]
-
-
-def _build_segment_from_audio(raw_segment, audio_params, patch_width):
-    sr, n_mels, hop_size, fft = audio_params
-    wav = raw_segment["audio"].detach().cpu().numpy().astype(np.float32, copy=False)
-    spec = compute_spectrogram(
-        wav,
-        sr=sr,
-        n_fft=fft,
-        hop=hop_size,
-        mel=True,
-        n_mels=n_mels,
-    ).astype(np.float32, copy=False)
-    rounded_spec_length = spec.shape[1] - (spec.shape[1] % patch_width)
-    if rounded_spec_length == 0:
-        return None
-
-    units = []
-    for unit in raw_segment["labels_original"]:
-        units.append(
-            (
-                ms_to_timebins(unit["onset_ms"], audio_params),
-                ms_to_timebins(unit["offset_ms"], audio_params),
-                int(unit["id"]),
-            )
-        )
-
-    event = {
-        "on_timebins": 0,
-        "off_timebins": rounded_spec_length,
-        "units": units,
-    }
-    return {
-        "recording_stem": raw_segment["recording_stem"],
-        "spectrogram": spec[:, :rounded_spec_length],
-        "labels_original": create_label_arr(event, 0, rounded_spec_length),
-    }
-
-
-def load_recording_segments_from_audio(args, patch_width):
-    spec_dir = Path(args["spec_dir"])
-    audio = load_audio_params(spec_dir, require_stats=False)
-    audio_params = (
-        audio["sr"],
-        audio["mels"],
-        audio["hop_size"],
-        audio["fft"],
-    )
-    raw = aves.load_recording_audio_segments(
-        {
-            "wav_root": args.get("wav_root"),
-            "wav_manifest": args.get("wav_manifest"),
-            "wav_exts": args.get("wav_exts"),
-            "audio_sr": audio["sr"],
-            "json_path": args.get("json_path"),
-            "bird": args.get("bird"),
-            "recording_stem": args.get("recording_stem"),
-            "recording_stems": args.get("recording_stems"),
-            "recording_mode": args.get("recording_mode"),
-        }
-    )
-
-    segments = []
-    for segment_index, raw_segment in enumerate(raw["segments"]):
-        raw_segment = augment_audio_segment(raw_segment, args, segment_index)
-        built = _build_segment_from_audio(raw_segment, audio_params, patch_width)
-        if built is None:
-            continue
-        segments.append(built)
-
-    return {
-        "audio_params": audio_params,
-        "segments": segments,
-    }
-
-
-def load_recording_segments(args, patch_width):
-    spec_dir = Path(args["spec_dir"])
-    audio = load_audio_params(spec_dir, require_stats=False)
-    audio_params = (
-        audio["sr"],
-        audio["mels"],
-        audio["hop_size"],
-        audio["fft"],
-    )
-    event_map = {}
-    json_path = args.get("json_path")
-    if json_path:
-        event_map = load_json_events(
-            json_path,
-            audio_params=audio_params,
-            selected_bird=args.get("bird"),
-        )
-
-    recording_mode = _resolve_recording_mode(args)
-    recording_stem = args.get("recording_stem")
-    recording_stems = args.get("recording_stems")
+def load_recording_segments(args):
     max_timebins = args.get("num_timebins")
     if max_timebins is not None:
         max_timebins = int(max_timebins)
         if max_timebins <= 0:
             max_timebins = None
+
+    ds = SpectrogramDatasetSupervised(
+        args["spec_dir"],
+        args.get("json_path"),
+        n_timebins=None,
+        recording_mode=args.get("recording_mode", "events"),
+        recording_stem=args.get("recording_stem"),
+        recording_stems=args.get("recording_stems"),
+        selected_bird=args.get("bird"),
+        normalize=False,
+    )
     segments = []
     collected_timebins = 0
-
-    paths = _resolve_spec_paths(spec_dir, recording_stem, recording_stems=recording_stems)
-    if recording_stems is not None:
-        allowed_stems = set(recording_stems)
-        paths = [path for path in paths if path.stem in allowed_stems]
-    if recording_stem is None and event_map:
-        allowed_stems = set(event_map)
-        paths = [path for path in paths if path.stem in allowed_stems]
-
-    for path in paths:
+    for idx in range(len(ds)):
         if max_timebins is not None and collected_timebins >= max_timebins:
             break
-        stem = path.stem
-        spec = np.load(path, mmap_mode="r")
-        rounded_spec_length = spec.shape[1] - (spec.shape[1] % patch_width)
-        if rounded_spec_length == 0:
+        spec, labels, stem = ds[idx]
+        spec = spec.squeeze(0).numpy()
+        labels = labels.numpy()
+        if max_timebins is not None:
+            remaining = max_timebins - collected_timebins
+            spec = spec[:, :remaining]
+            labels = labels[:remaining]
+        if spec.shape[1] == 0:
             continue
-        spec = np.array(spec[:, :rounded_spec_length], dtype=np.float32, copy=True)
-        events = event_map.get(stem, [])
-
-        if recording_mode == "full_recordings":
-            units = []
-            for event in events:
-                units.extend(event["units"])
-            selected_events = [
-                {
-                    "on_timebins": 0,
-                    "off_timebins": rounded_spec_length,
-                    "units": units,
-                }
-            ]
-        else:
-            selected_events = events
-
-        if not selected_events:
-            continue
-
-        for event in selected_events:
-            start = max(0, min(int(event["on_timebins"]), rounded_spec_length))
-            end = max(start, min(int(event["off_timebins"]), rounded_spec_length))
-            if start == end:
-                continue
-            if max_timebins is not None:
-                remaining_timebins = max_timebins - collected_timebins
-                if remaining_timebins <= 0:
-                    break
-                end = min(end, start + remaining_timebins)
-                if start == end:
-                    continue
-            spec_segment = spec[:, start:end]
-            labels_segment = create_label_arr(event, start, end)
-            if spec_segment.shape[1] == 0:
-                continue
-            segments.append(
-                {
-                    "recording_stem": stem,
-                    "spectrogram": spec_segment,
-                    "labels_original": labels_segment,
-                }
-            )
-            collected_timebins += spec_segment.shape[1]
+        segments.append({"recording_stem": stem, "spectrogram": spec, "labels_original": labels})
+        collected_timebins += spec.shape[1]
 
     return {
-        "audio_params": audio_params,
+        "audio_params": (ds.params.sr, ds.params.mels, ds.params.hop_size, ds.params.fft),
         "segments": segments,
     }
 
 
-def _load_normalization_target_stats(args):
-    stats_dir = args.get("normalization_stats_dir")
-    if stats_dir is None:
-        stats_dir = args["spec_dir"]
+def _load_normalization_stats(args, model_state):
+    stats_dir = args.get("normalization_stats_dir") or model_state["run_dir"]
     audio = load_audio_params(stats_dir)
     return np.float32(audio["mean"]), np.float32(audio["std"])
 
 
-def normalize_recording_segments(segments, mode, target_stats=None):
-    if mode == "none":
-        return segments
-
-    assert mode in {
-        "audio_params",
-        "per_recording_cmvn",
-        "per_recording_cmvn_rescaled_to_target_stats",
-        "per_model_input_zscore",
-    }
-    if mode == "per_model_input_zscore":
-        return segments
-    if mode == "audio_params":
-        assert target_stats is not None
-        target_mean, target_std = target_stats
-        normalized = []
-        for segment in segments:
-            spectrogram = normalize_spectrogram_numpy(
-                segment["spectrogram"],
-                "audio_params",
-                mean=target_mean,
-                std=target_std,
-            )
-            normalized.append(
-                {
-                    "recording_stem": segment["recording_stem"],
-                    "spectrogram": spectrogram,
-                    "labels_original": segment["labels_original"],
-                }
-            )
-        return normalized
-    specs = [segment["spectrogram"] for segment in segments if segment["spectrogram"].shape[1] > 0]
-    if not specs:
-        return segments
-    recording = np.concatenate(specs, axis=1).astype(np.float32, copy=False)
-    mean = recording.mean(axis=1, keepdims=True)
-    std = recording.std(axis=1, keepdims=True)
-    std = np.maximum(std, 1e-6)
-
+def normalize_recording_segments(segments, mean, std):
     normalized = []
     for segment in segments:
-        spectrogram = ((segment["spectrogram"] - mean) / std).astype(np.float32, copy=False)
-        if mode == "per_recording_cmvn_rescaled_to_target_stats":
-            assert target_stats is not None
-            target_mean, target_std = target_stats
-            spectrogram = (spectrogram * target_std + target_mean).astype(np.float32, copy=False)
         normalized.append(
             {
                 "recording_stem": segment["recording_stem"],
-                "spectrogram": spectrogram,
+                "spectrogram": normalize_spectrogram(segment["spectrogram"], mean, std),
                 "labels_original": segment["labels_original"],
             }
         )
@@ -504,7 +225,6 @@ def _extract_segment_arrays(
     num_patches_height,
     num_patches_time,
     encoder_layer_idx,
-    input_normalization_mode="none",
     minimal_output=False,
 ):
     spec_tensor = torch.from_numpy(spec_segment).unsqueeze(0).to(device)
@@ -521,12 +241,6 @@ def _extract_segment_arrays(
 
     _, mel, _ = spec_tensor.shape
     batched_spec = spec_tensor.reshape(1, mel, batch_size, model_num_timebins).permute(2, 0, 1, 3)
-    if input_normalization_mode == "per_model_input_zscore":
-        batched_spec = normalize_spectrogram_tensor(
-            batched_spec,
-            "per_file_zscore",
-        )
-
     with torch.no_grad():
         patch_pre_pos = model.patch_projection(batched_spec)
         encoded, patch = model.forward_encoder_inference(
@@ -589,47 +303,6 @@ def _extract_segment_arrays(
     return out
 
 
-def load_model_state(args):
-    model, config = load_model_from_checkpoint(
-        run_dir=args["run_dir"],
-        checkpoint_file=args.get("checkpoint"),
-    )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    model.eval()
-
-    patch_height = int(config["patch_height"])
-    patch_width = int(config["patch_width"])
-    model_num_timebins = int(config["num_timebins"])
-    num_patches_time = int(model_num_timebins / patch_width)
-    num_patches_height = int(config["max_seq"] / num_patches_time)
-    return {
-        "model": model,
-        "config": config,
-        "run_dir": args["run_dir"],
-        "device": device,
-        "patch_height": patch_height,
-        "patch_width": patch_width,
-        "model_num_timebins": model_num_timebins,
-        "num_patches_time": num_patches_time,
-        "num_patches_height": num_patches_height,
-    }
-
-
-def get_native_input_normalization(model_state):
-    config = model_state["config"]
-    mode = config.get("input_normalization")
-    if mode is None:
-        has_audio_params = (Path(model_state["run_dir"]) / "audio_params.json").is_file()
-        mode = "audio_params" if has_audio_params else "none"
-    assert mode in {"none", "audio_params", "per_file_zscore"}
-    if mode == "per_file_zscore":
-        return "per_model_input_zscore", None
-    if mode == "audio_params":
-        return "audio_params", model_state["run_dir"]
-    return "none", None
-
-
 def extract_recording_embeddings_with_state(args, model_state):
     model = model_state["model"]
     config = model_state["config"]
@@ -640,18 +313,12 @@ def extract_recording_embeddings_with_state(args, model_state):
     num_patches_time = model_state["num_patches_time"]
     num_patches_height = model_state["num_patches_height"]
 
-    if float(args.get("train_audio_speed_max_pct", 0.0)) > 0.0:
-        raw = load_recording_segments_from_audio(args, patch_width=patch_width)
-    else:
-        raw = load_recording_segments(args, patch_width=patch_width)
-    normalization_mode = args.get("spec_normalization", "none")
-    target_stats = None
-    if normalization_mode in {"audio_params", "per_recording_cmvn_rescaled_to_target_stats"}:
-        target_stats = _load_normalization_target_stats(args)
+    raw = load_recording_segments(args)
+    mean, std = _load_normalization_stats(args, model_state)
     raw_segments = normalize_recording_segments(
         raw["segments"],
-        normalization_mode,
-        target_stats=target_stats,
+        mean,
+        std,
     )
     minimal_output = bool(args.get("minimal_output", False))
     segment_states = []
@@ -667,7 +334,6 @@ def extract_recording_embeddings_with_state(args, model_state):
             num_patches_height=num_patches_height,
             num_patches_time=num_patches_time,
             encoder_layer_idx=args.get("encoder_layer_idx"),
-            input_normalization_mode=normalization_mode,
             minimal_output=minimal_output,
         )
         if state is None:
@@ -778,7 +444,7 @@ def extract_recording_embeddings_with_state(args, model_state):
 
 
 def extract_recording_embeddings(args):
-    model_state = load_model_state(args)
+    model_state = load_model_state(args["run_dir"], args.get("checkpoint"))
     return extract_recording_embeddings_with_state(args, model_state)
 
 

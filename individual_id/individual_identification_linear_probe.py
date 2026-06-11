@@ -781,16 +781,9 @@ def main():
     args.songmae_input_normalization = None
     args.songmae_input_normalization_stats_dir = None
     if args.encoder == "SongMAE":
-        model_state = extract_embedding.load_model_state(
-            {
-                "run_dir": str(run_dir),
-                "checkpoint": args.checkpoint,
-            }
-        )
-        (
-            args.songmae_input_normalization,
-            args.songmae_input_normalization_stats_dir,
-        ) = extract_embedding.get_native_input_normalization(model_state)
+        model_state = extract_embedding.load_model_state(str(run_dir), args.checkpoint)
+        args.songmae_input_normalization = "audio_params"
+        args.songmae_input_normalization_stats_dir = model_state["run_dir"]
     elif args.encoder == "AVES":
         model_state = aves.load_model_state_for_inference(
             {

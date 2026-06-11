@@ -1,10 +1,9 @@
 import argparse
+import json
 import shutil
 from pathlib import Path
 
 import numpy as np
-
-from utils import load_audio_params
 
 
 def seconds_to_timebins(seconds, sr, hop_size):
@@ -13,6 +12,12 @@ def seconds_to_timebins(seconds, sr, hop_size):
 
 def timebins_to_ms(timebins, sr, hop_size):
     return int(round(timebins * hop_size / sr * 1000.0))
+
+
+def load_audio_params(spec_dir):
+    path = Path(spec_dir) / "audio_params.json"
+    assert path.exists(), f"audio_params.json not found: {path}"
+    return json.loads(path.read_text())
 
 
 def chunk_spectrogram_dir(

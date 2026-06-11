@@ -1,738 +1,123 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# audio2spec.py  ‑  simple .wav /.mp3/.ogg ➜ spectrogram (.npy) converter
-# ──────────────────────────────────────────────────────────────────────────────
-import os, json, time, gc, argparse, logging, random, psutil, signal, sys, shutil
-import multiprocessing as mp
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+"""Core audio -> spectrogram utilities.
+
+compute_spectrogram turns a waveform into a log-mel spectrogram array.
+write_audio_params writes the spectrogram shape/config metadata JSON.
+write_waveform_spectrogram saves one waveform as one spectrogram .npy file.
+audio_file_to_spec loads one audio file and writes its spectrogram.
+audio_dir_to_specs converts every supported audio file under a directory.
+compute_statistics computes mean/std over existing spectrogram .npy files.
+write_statistics writes those mean/std values into audio_params.json.
+"""
+
+import argparse
+import json
+import random
 from pathlib import Path
 
-import numpy as np
 import librosa
-import librosa.display                       # noqa: F401  (kept for future plots)
+import numpy as np
 from tqdm import tqdm
 
-
-class AudioEvent:
-    __slots__ = ("path", "start", "end", "name", "waveform", "sample_rate")
-
-    def __init__(self, path, start, end, name):
-        self.path = Path(path)
-        self.start = float(start)
-        self.end = float(end)
-        self.name = str(name)
-        self.waveform = None  # Will be set for BirdSet events
-        self.sample_rate = None  # Will be set for BirdSet events
-
-# ══════════════════════════════════════════════════════════════════════════════
-# helper: STFT → log‑magnitude
-# ══════════════════════════════════════════════════════════════════════════════
-def compute_spectrogram(wav, sr, n_fft, hop, *, mel, n_mels):
-    """
-    Returns log‑magnitude spectrogram in **dB**.
-    • linear STFT  → shape (n_fft//2 + 1, T)   (default 513 × T for n_fft=1024)  
-    • mel filter‑bank → shape (n_mels, T)
-    
-    Optimized version with minimal dtype conversions and efficient power calculation.
-    """
-    # wav uses default dtype from the loader
-    if mel:
-        # melspectrogram already computes power spectrum internally
-        S = librosa.feature.melspectrogram(y=wav, sr=sr, n_fft=n_fft, hop_length=hop, power=2.0, n_mels=n_mels, fmin=20, fmax=sr // 2)
-    else:
-        # More efficient power calculation for linear STFT
-        stft_complex = librosa.stft(wav, n_fft=n_fft, hop_length=hop, window="hann", dtype=np.complex64)
-        # Efficient power calculation using real and imaginary parts
-        S = stft_complex.real**2 + stft_complex.imag**2
-        # Using default dtype
-        del stft_complex  # free complex array memory immediately
-
-    # Convert to dB with efficient reference calculation
-    S_db = librosa.power_to_db(S, ref=np.max(S), top_db=None)
-    return S_db
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# standalone worker function (picklable)
-# ══════════════════════════════════════════════════════════════════════════════
-def process_audio_file(obj, dst_dir, sr, n_fft, step, use_mel, n_mels, min_len_ms, min_timebins, skipped_counter):
-    """
-    Standalone worker function that processes a single audio file.
-    Returns None on success, error message on failure.
-    """
-    try:
-        event = obj if isinstance(obj, AudioEvent) else None
-        fp = event.path if event else obj
-
-        stem = event.name if event else fp.stem
-        # ─── check if output already exists ─────────────────────────
-        out_path = dst_dir / (stem + ".npy")
-        
-        if out_path.exists():
-            return None  # Skip already processed files
-        
-        if event:
-            duration = max(event.end - event.start, 0.0)
-            if duration <= 0:
-                skipped_counter.value += 1
-                return None
-            
-            # Use pre-loaded waveform if available (BirdSet streaming)
-            if hasattr(event, 'waveform') and event.waveform is not None:
-                full_wav = event.waveform
-                actual_sr = event.sample_rate
-                # Extract the event segment
-                start_idx = int(max(event.start, 0.0) * actual_sr)
-                end_idx = int(event.end * actual_sr)
-                wav = full_wav[start_idx:end_idx]
-                # Resample if needed
-                if actual_sr != sr:
-                    wav = librosa.resample(wav, orig_sr=actual_sr, target_sr=sr)
-                    actual_sr = sr
-            else:
-                # Fallback to file loading for non-BirdSet events
-                wav, actual_sr = librosa.load(fp, sr=sr, mono=True, offset=max(event.start, 0.0), duration=duration)
-        else:
-            # ─── fast duration check before loading ─────────────────
-            try:
-                duration_sec = librosa.get_duration(path=fp)
-                if duration_sec * 1000 < min_len_ms:
-                    skipped_counter.value += 1
-                    return None
-            except Exception:
-                # Fallback: if duration check fails, proceed with loading
-                pass
-
-            # ─── smart loading with sample rate detection ───────────
-            try:
-                native_sr = librosa.get_samplerate(fp)
-                needs_resampling = (native_sr != sr)
-            except Exception:
-                needs_resampling = True
-                native_sr = None
-
-            if needs_resampling:
-                wav, actual_sr = librosa.load(fp, sr=sr, mono=True)
-            else:
-                wav, actual_sr = librosa.load(fp, sr=None, mono=True)
-                if actual_sr != sr:
-                    wav = librosa.resample(wav, orig_sr=actual_sr, target_sr=sr)
-                    actual_sr = sr
-
-        # Double-check length after loading (in case duration detection was inaccurate)
-        if len(wav) / actual_sr * 1000 < min_len_ms:
-            skipped_counter.value += 1
-            return None
-
-        # ─── spectrogram ─────────────────────────────────────────────
-        S = compute_spectrogram(wav, actual_sr, n_fft, step, mel=use_mel, n_mels=n_mels)
-
-        if S.shape[1] < min_timebins:
-            skipped_counter.value += 1
-            return None
-
-        # ─── optimized output with minimal conversions ───────────────
-        np.save(out_path, S.astype(np.float32))
-
-        # Let refcounting reclaim temporaries; per-file full GC is too expensive.
-        del wav, S
-        return None
-        
-    except Exception as e:
-        skipped_counter.value += 1
-        stem = obj.name if isinstance(obj, AudioEvent) else Path(obj).stem
-        return f"{stem}: {e}"
-
-
-def merge_overlapping_intervals(intervals):
-    """
-    Merge overlapping time intervals.
-    Args:
-        intervals: List of [start, end] pairs
-    Returns:
-        List of merged [start, end] pairs
-    """
-    if not intervals:
-        return []
-    
-    # Sort by start time
-    sorted_intervals = sorted(intervals, key=lambda x: x[0])
-    merged = [sorted_intervals[0]]
-    
-    for current in sorted_intervals[1:]:
-        last = merged[-1]
-        # If current overlaps with last, merge them
-        if current[0] <= last[1]:
-            merged[-1] = [last[0], max(last[1], current[1])]
-        else:
-            merged.append(current)
-    
-    return merged
-
-
-def calculate_optimal_workers(total_files, avg_file_size_mb=50):
-    """
-    Calculate optimal number of workers based on available memory and CPU cores.
-    Assumes each worker needs ~200MB + file_size for processing.
-    """
-    mem = psutil.virtual_memory()
-    available_gb = mem.available / (1024**3)
-    
-    # Reserve 2GB for system + main process
-    worker_memory_gb = available_gb - 2.0
-    if worker_memory_gb <= 0:
-        return 1
-    
-    # Estimate memory per worker (base overhead + file processing)
-    memory_per_worker_mb = 200 + avg_file_size_mb
-    max_workers_by_memory = int(worker_memory_gb * 1024 / memory_per_worker_mb)
-    
-    # Don't exceed CPU cores
-    max_workers_by_cpu = mp.cpu_count()
-    
-    # Use conservative approach
-    optimal = min(max_workers_by_memory, max_workers_by_cpu, total_files)
-    return max(1, optimal)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# main worker class
-# ══════════════════════════════════════════════════════════════════════════════
-class WavToSpec:
-    """Convert audio files into spectrogram .npy dumps."""
-
-    def __init__(self, src_dir, dst_dir, *, file_list=None, birdset=None, birdset_split="train", birdset_detections="human", step_size=160, n_fft=1024, sr=32_000, take_n_random=None, single_threaded=True, min_len_ms=25, min_timebins=25, mel=True, n_mels=128, max_workers=None):
-        self.src_dir = Path(src_dir) if src_dir is not None else None
-        self.dst_dir = Path(dst_dir)
-        self.dst_dir.mkdir(parents=True, exist_ok=True)
-
-        self.file_list = Path(file_list) if file_list else None
-        self.birdset = birdset
-        self.birdset_split = birdset_split
-        self.birdset_detections = birdset_detections
-        self.step = step_size
-        self.n_fft = n_fft
-        self.sr = sr
-        self.take_n_random = take_n_random
-        self.single = single_threaded
-        self.min_len_ms = min_len_ms
-        self.min_timebins = min_timebins
-        self.use_mel = mel
-        self.n_mels = n_mels
-        self.max_workers = max_workers
-        self.annotation_flush_every = 1000
-
-        self._setup_logging()
-        # Remove unpicklable Manager().Value - will create in run() if needed
-
-        # Save audio parameters to destination directory at the start
-        self._save_audio_params()
-        
-        self.audio_files = self._gather_files()
-
-    # ──────────────────────────────────────────────────────────────────────
-    # misc
-    # ──────────────────────────────────────────────────────────────────────
-    def _setup_logging(self):
-        log_dir = self.src_dir / "logs" if self.src_dir else Path("logs")
-        log_dir.mkdir(exist_ok=True)
-        logging.basicConfig(
-            filename=log_dir / "run.log",
-            level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s"
-        )
-
-    def _save_audio_params(self):
-        """Save audio processing parameters to JSON file in destination directory."""
-        params = {
-            "sr": self.sr,
-            "mels": self.n_mels,
-            "hop_size": self.step,
-            "fft": self.n_fft,
-        }
-        
-        params_file = self.dst_dir / "audio_params.json"
-        with open(params_file, 'w') as f:
-            json.dump(params, f, indent=2)
-
-    def _gather_files(self):
-        if self.birdset:
-            # For BirdSet, process samples immediately instead of collecting them
-            self._process_birdset_samples()
-            return []  # Return empty since we processed everything already
-        elif self.file_list:
-            files = [Path(line.strip()) for line in self.file_list.read_text().splitlines() if line.strip()]
-        else:
-            exts = (".wav", ".mp3", ".ogg", ".flac")
-            files = [
-                Path(root) / f
-                for root, _, fs in os.walk(self.src_dir)
-                for f in fs if f.lower().endswith(exts)
-            ]
-
-        if not files:
-            if self.birdset:
-                print(f"no detected events found in BirdSet {self.birdset} ({self.birdset_split}) - nothing to do.")
-            else:
-                print("no audio files matched ‑ nothing to do.")
-            return []
-
-        # For BirdSet streaming, we collect all files first, then sample if needed
-        if self.take_n_random and self.take_n_random < len(files):
-            files = random.sample(files, self.take_n_random)
-
-        return files
-
-    def _process_birdset_samples(self):
-        """Process BirdSet samples immediately, parsing detected events"""
-        try:
-            from datasets import load_dataset, Audio  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("Install the 'datasets' package to use --birdset") from exc
-
-        print(f"Loading BirdSet dataset: {self.birdset}, split: {self.birdset_split}")
-        ds = load_dataset("DBD-research-group/BirdSet", self.birdset, 
-                         split=self.birdset_split, streaming=True)
-        ds = ds.cast_column("audio", Audio(sampling_rate=self.sr))
-        
-        print("Starting to process samples...")
-        start_time = time.time()
-        processed_spectrograms = 0
-        processed_samples = 0
-        skipped_count = 0
-        completed_samples = 0
-        completed_since_flush = 0
-        
-        # Collect annotations for JSON output - group by filename
-        annotations_by_file = {}  # filename -> {recording: ..., detected_events: [...]}
-        num_workers = 1 if self.single else max(1, self.max_workers or mp.cpu_count())
-        max_in_flight = max(1, num_workers * 4)
-        if num_workers > 1:
-            print(f"BirdSet workers: {num_workers} threads, max in flight: {max_in_flight}")
-
-        def annotation_payload(sample, filepath):
-            if self.birdset_detections == "none":
-                return None
-
-            payload = {
-                "filepath": filepath,
-                "recording": {
-                    "filename": filepath,
-                    "ebird_code": sample.get("ebird_code", None),
-                    "ebird_code_multilabel": sample.get("ebird_code_multilabel", []),
-                    "lat": sample.get("lat", None),
-                    "long": sample.get("long", None),
-                    "source": sample.get("source", "xenocanto"),
-                    "quality": sample.get("quality", None),
-                    "recordist": sample.get("recordist", None),
-                    "license": sample.get("license", None),
-                },
-                "detected_events": [],
-            }
-
-            if self.birdset_detections == "human":
-                start_time_s = sample.get("start_time", None)
-                end_time_s = sample.get("end_time", None)
-                if start_time_s is not None and end_time_s is not None:
-                    payload["detected_events"].append({
-                        "onset_ms": float(start_time_s) * 1000.0,
-                        "offset_ms": float(end_time_s) * 1000.0,
-                    })
-            elif self.birdset_detections == "bambird":
-                detected_events = sample.get("detected_events", [])
-                if detected_events:
-                    for event in merge_overlapping_intervals(detected_events):
-                        payload["detected_events"].append({
-                            "onset_ms": float(event[0]) * 1000.0,
-                            "offset_ms": float(event[1]) * 1000.0,
-                        })
-
-            return payload
-
-        def record_annotation(payload):
-            if payload is None:
-                return
-            filepath = payload["filepath"]
-            if filepath not in annotations_by_file:
-                annotations_by_file[filepath] = {
-                    "recording": payload["recording"],
-                    "detected_events": [],
-                }
-            annotations_by_file[filepath]["detected_events"].extend(payload["detected_events"])
-
-        def flush_annotations(force=False):
-            nonlocal completed_since_flush
-            if self.birdset_detections == "none":
-                return
-            if not force and completed_since_flush < self.annotation_flush_every:
-                return
-
-            annotations = {
-                "metadata": {"units": "ms"},
-                "recordings": list(annotations_by_file.values()),
-            }
-            annotations_path = self.dst_dir / f"{self.birdset}_{self.birdset_split}_annotations.json"
-            tmp_path = annotations_path.with_name(annotations_path.name + ".tmp")
-            with open(tmp_path, "w") as f:
-                json.dump(annotations, f, indent=2)
-            tmp_path.replace(annotations_path)
-            completed_since_flush = 0
-
-        def log_progress():
-            elapsed = time.time() - start_time
-            print(
-                f"Processed {completed_samples} samples → "
-                f"{processed_spectrograms} spectrograms ({skipped_count} skipped) in {elapsed:.1f}s"
-            )
-
-        def build_audio_event(sample, idx):
-            nonlocal skipped_count, processed_samples
-            audio_info = sample.get("audio", {})
-            if not audio_info:
-                skipped_count += 1
-                return None, None
-
-            waveform = audio_info.get("array")
-            actual_sr = audio_info.get("sampling_rate", self.sr)
-            audio_path = audio_info.get("path")
-            if waveform is None:
-                skipped_count += 1
-                return None, None
-
-            processed_samples += 1
-            filepath = sample.get("filepath", "")
-            if filepath:
-                name = Path(filepath).stem
-            elif audio_path:
-                name = Path(audio_path).stem
-            else:
-                name = f"sample_{idx:06d}"
-
-            fp = Path(audio_path) if audio_path is not None else Path(f"{name}.wav")
-            duration = len(waveform) / actual_sr
-
-            audio_event = AudioEvent(path=fp, start=0.0, end=duration, name=name)
-            audio_event.waveform = waveform
-            audio_event.sample_rate = actual_sr
-            return audio_event, annotation_payload(sample, filepath)
-
-        def consume_completed(done, pending):
-            nonlocal processed_spectrograms, skipped_count, completed_samples, completed_since_flush
-            for future in done:
-                payload = pending.pop(future)
-                result = future.result()
-                completed_samples += 1
-                if result is None:
-                    processed_spectrograms += 1
-                    record_annotation(payload)
-                    completed_since_flush += 1
-                else:
-                    skipped_count += 1
-                    logging.error(result)
-
-                if completed_samples % 250 == 0:
-                    log_progress()
-
-            flush_annotations()
-
-        if num_workers == 1:
-            for idx, sample in enumerate(ds, start=1):
-                if self.take_n_random and idx > self.take_n_random:
-                    print(f"Reached take_n_random limit: examined {idx - 1} samples")
-                    break
-
-                audio_event, payload = build_audio_event(sample, idx)
-                if audio_event is None:
-                    continue
-
-                result = self._safe_process(audio_event)
-                completed_samples += 1
-                if result is None:
-                    processed_spectrograms += 1
-                    record_annotation(payload)
-                    completed_since_flush += 1
-                else:
-                    skipped_count += 1
-                    logging.error(result)
-
-                if completed_samples % 250 == 0:
-                    log_progress()
-                flush_annotations()
-        else:
-            pending = {}
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                for idx, sample in enumerate(ds, start=1):
-                    if self.take_n_random and idx > self.take_n_random:
-                        print(f"Reached take_n_random limit: examined {idx - 1} samples")
-                        break
-
-                    audio_event, payload = build_audio_event(sample, idx)
-                    if audio_event is None:
-                        continue
-
-                    future = executor.submit(self._safe_process, audio_event)
-                    pending[future] = payload
-
-                    if len(pending) >= max_in_flight:
-                        done, _ = wait(set(pending), return_when=FIRST_COMPLETED)
-                        consume_completed(done, pending)
-
-                while pending:
-                    done, _ = wait(set(pending), return_when=FIRST_COMPLETED)
-                    consume_completed(done, pending)
-
-        flush_annotations(force=True)
-        
-        # Final statistics
-        elapsed = time.time() - start_time
-        total_examined = processed_spectrograms + skipped_count
-        print(f"BirdSet processing complete: {processed_spectrograms} spectrograms created, {skipped_count} skipped (examined {total_examined} samples) in {elapsed:.1f}s")
-
-
-
-    # ──────────────────────────────────────────────────────────────────────
-    # public entry
-    # ──────────────────────────────────────────────────────────────────────
-    def run(self):
-        if not self.audio_files:
-            # For BirdSet, processing is already done in _process_birdset_samples
-            if self.birdset:
-                print("BirdSet processing completed.")
-            return                       # exit 0, no fuss
-        
-        # Set up signal handler for graceful shutdown
-        original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler)
-        
-        skipped_count = 0
-        pbar = tqdm(total=len(self.audio_files), desc="processing files")
-
-        try:
-            if self.single:
-                # ───── single threaded ─────
-                for fp in self.audio_files:
-                    result = self._safe_process(fp)
-                    if result is not None:  # error occurred
-                        skipped_count += 1
-                        logging.error(result)
-                    pbar.update()
-
-            else:
-                # ───── multi‑process pool with memory-aware workers ─────
-                optimal_workers = calculate_optimal_workers(len(self.audio_files))
-                if self.max_workers is not None:
-                    num_workers = min(self.max_workers, optimal_workers)
-                    print(f"Using {num_workers} workers (limited by max_workers={self.max_workers}, optimal would be {optimal_workers})")
-                else:
-                    num_workers = optimal_workers
-                print(f"Workers: {num_workers} (CPU cores: {mp.cpu_count()}, Available RAM: {psutil.virtual_memory().available // (1024**3):.1f}GB)")
-                
-                ctx = mp.get_context('spawn')  # Use spawn for better isolation
-                mgr = ctx.Manager()
-                skipped_counter = mgr.Value('i', 0)
-                
-                # Prepare worker arguments
-                worker_args = (
-                    self.dst_dir, self.sr, self.n_fft, self.step,
-                    self.use_mel, self.n_mels, self.min_len_ms,
-                    self.min_timebins, skipped_counter
-                )
-                
-                failed_files = []
-                
-                with ctx.Pool(processes=num_workers, maxtasksperchild=10, initargs=()) as pool:
-                    
-                    # Use imap_unordered for better memory control
-                    task_args = [(fp,) + worker_args for fp in self.audio_files]
-                    
-                    try:
-                        for i, result in enumerate(pool.imap_unordered(self._worker_wrapper, task_args, chunksize=1)):
-                            if result is not None:  # error occurred
-                                failed_files.append(result)
-                                logging.error(result)
-                            
-                            pbar.update()
-                            
-                            # Memory monitoring during processing
-                            if (i + 1) % 50 == 0:  # Check every 50 files
-                                mem = psutil.virtual_memory()
-                                if mem.available < 1.0 * 1024**3:  # Less than 1GB available
-                                    print(f"\nLow memory warning: {mem.available // (1024**2)}MB available")
-                                    gc.collect()  # Force garbage collection in main process
-                                    time.sleep(2)  # Brief pause to let system recover
-                    
-                    except KeyboardInterrupt:
-                        print("\nReceived interrupt signal, shutting down workers...")
-                        pool.terminate()
-                        pool.join()
-                        raise
-                
-                skipped_count = skipped_counter.value
-                
-                # Retry failed files single-threaded
-                if failed_files:
-                    print(f"\nRetrying {len(failed_files)} failed files single-threaded...")
-                    for error_msg in failed_files:
-                        # Extract file path from error message
-                        fp_str = error_msg.split(": ")[0]
-                        fp = Path(fp_str)
-                        if fp.exists():
-                            result = self._safe_process(fp)
-                            if result is None:
-                                skipped_count -= 1  # Successfully processed on retry
-
-        except KeyboardInterrupt:
-            print("\nOperation interrupted by user")
-            sys.exit(1)
-        finally:
-            # Restore original signal handler
-            signal.signal(signal.SIGINT, original_sigint_handler)
-            pbar.close()
-            
-        processed_count = len(self.audio_files) - skipped_count
-        print(f"Total processed: {processed_count}")
-        print(f"Total skipped  : {skipped_count}")
-    
-    def _signal_handler(self, signum, frame):
-        """Handle graceful shutdown on interrupt signals"""
-        print(f"\nReceived signal {signum}, initiating graceful shutdown...")
-        # The actual cleanup will be handled in the run() method
-        raise KeyboardInterrupt()
-    
-    @staticmethod
-    def _worker_wrapper(args):
-        """Wrapper function to call the standalone worker function"""
-        return process_audio_file(*args)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # helpers
-    # ──────────────────────────────────────────────────────────────────────
-    def _safe_process(self, obj):
-        """
-        Single-threaded processing wrapper with optimizations.
-        Returns None on success, error message on failure.
-        """
-        try:
-            event = obj if isinstance(obj, AudioEvent) else None
-            fp = event.path if event else obj
-            stem = event.name if event else fp.stem
-            # ─── check if output already exists ─────────────────────────
-            out_path = self.dst_dir / (stem + ".npy")
-            
-            if out_path.exists():
-                return None  # Skip already processed files
-            
-            if event:
-                duration = max(event.end - event.start, 0.0)
-                if duration <= 0:
-                    return None
-                
-                # Use pre-loaded waveform if available (BirdSet streaming)
-                if hasattr(event, 'waveform') and event.waveform is not None:
-                    full_wav = event.waveform
-                    actual_sr = event.sample_rate
-                    # Extract the event segment
-                    start_idx = int(max(event.start, 0.0) * actual_sr)
-                    end_idx = int(event.end * actual_sr)
-                    wav = full_wav[start_idx:end_idx]
-                    # Resample if needed
-                    if actual_sr != self.sr:
-                        wav = librosa.resample(wav, orig_sr=actual_sr, target_sr=self.sr)
-                        actual_sr = self.sr
-                else:
-                    # Fallback to file loading for non-BirdSet events
-                    wav, actual_sr = librosa.load(fp, sr=self.sr, mono=True, offset=max(event.start, 0.0), duration=duration)
-            else:
-                # ─── fast duration check before loading ────────────────
-                try:
-                    duration_sec = librosa.get_duration(path=fp)
-                    if duration_sec * 1000 < self.min_len_ms:
-                        return None  # Skip, but not an error
-                except Exception:
-                    pass
-
-                # ─── smart loading with sample rate detection ──────────
-                try:
-                    native_sr = librosa.get_samplerate(fp)
-                    needs_resampling = (native_sr != self.sr)
-                except Exception:
-                    needs_resampling = True
-                    native_sr = None
-
-                if needs_resampling:
-                    wav, actual_sr = librosa.load(fp, sr=self.sr, mono=True)
-                else:
-                    wav, actual_sr = librosa.load(fp, sr=None, mono=True)
-                    if actual_sr != self.sr:
-                        wav = librosa.resample(wav, orig_sr=actual_sr, target_sr=self.sr)
-                        actual_sr = self.sr
-
-            # Double-check length after loading (in case duration detection was inaccurate)
-            if len(wav) / actual_sr * 1000 < self.min_len_ms:
-                return None  # Skip, but not an error
-
-            # ─── spectrogram ─────────────────────────────────────────────
-            S = compute_spectrogram(wav, actual_sr, self.n_fft, self.step, mel=self.use_mel, n_mels=self.n_mels)
-
-            if S.shape[1] < self.min_timebins:
-                return None  # Skip, but not an error
-
-            # ─── optimized output with minimal conversions ───────────────
-            np.save(out_path, S.astype(np.float32))
-
-            # Let refcounting reclaim temporaries; per-file full GC is too expensive.
-            del wav, S
-            return None
-            
-        except Exception as e:
-            return f"{stem}: {e}"
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CLI
-# ══════════════════════════════════════════════════════════════════════════════
-def cli():
-    p = argparse.ArgumentParser(
-        description="Convert audio → log‑spectrogram files (.npy).")
-    grp = p.add_mutually_exclusive_group(required=True)
-    grp.add_argument("--src_dir",   type=str,
-                     help="Root folder with wav/mp3/ogg files (searched recursively).")
-    grp.add_argument("--file_list", type=str,
-                     help="Text file with absolute/relative paths, one per line.")
-    grp.add_argument("--birdset", type=str,
-                     help="BirdSet configuration name (e.g. HSN or HSN_xc) to load via Hugging Face.")
-    p.add_argument("--dst_dir",  type=str, required=True,
-                   help="Where outputs go.")
-    p.add_argument("--birdset_split", type=str, default="train",
-                   help="Dataset split to use with --birdset (default: train) for XCL that is the only one")
-    p.add_argument("--birdset_detections", type=str, default="human", choices=["none", "human", "bambird"],
-                   help="BirdSet detection mode: none (no annotations), human (start_time/end_time), bambird (detected_events with merging)")
-    p.add_argument("--sr", type=int, default=32_000,
-                   help="Sample rate in Hz (default: 32000).")
-    p.add_argument("--step_size", type=int, default=64,
-                   help="STFT hop length (samples at target sample rate).")
-    p.add_argument("--nfft",      type=int, default=1024,
-                   help="FFT size.")
-    p.add_argument("--take_n_random", type=int, default=None,
-                   help="Pick N random files instead of the full set.")
-    p.add_argument("--single_threaded",
-                   choices=["true", "false", "1", "0", "yes", "no"],
-                   default="true",
-                   help="Force single‑thread. Default true.")
-    mel_grp = p.add_mutually_exclusive_group()
-    mel_grp.add_argument("--mel", action="store_true",
-                         help="Output log‑mel (default).")
-    mel_grp.add_argument("--linear", action="store_true",
-                         help="Output linear‑frequency STFT bins.")
-    p.add_argument("--n_mels", type=int, default=128,
-                   help="Number of mel bands (default: 128)")
-    p.add_argument("--max_workers", type=int, default=None,
-                   help="Maximum number of worker processes (default: auto-detect)")
-    args = p.parse_args()
-
-    single = args.single_threaded.lower() in {"true", "1", "yes"}
-
-    converter = WavToSpec(src_dir=args.src_dir, dst_dir=args.dst_dir, file_list=args.file_list, birdset=args.birdset, birdset_split=args.birdset_split, birdset_detections=args.birdset_detections, step_size=args.step_size, n_fft=args.nfft, sr=args.sr, take_n_random=args.take_n_random, single_threaded=single, mel=not args.linear, n_mels=args.n_mels, max_workers=args.max_workers)
-    converter.run()
+AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".flac")
+
+def compute_spectrogram(wav, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+    spec = librosa.feature.melspectrogram(
+        y=wav,
+        sr=sr,
+        n_fft=n_fft,
+        hop_length=hop_size,
+        power=2.0,
+        n_mels=n_mels,
+        fmin=20,
+        fmax=sr // 2,
+    )
+    return librosa.power_to_db(spec, ref=np.max, top_db=None).astype(np.float32)
+
+
+def write_audio_params(out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    params = {"sr": sr, "mels": n_mels, "hop_size": hop_size, "fft": n_fft}
+    (out_dir / "audio_params.json").write_text(json.dumps(params, indent=2) + "\n")
+
+
+def write_waveform_spectrogram(wav, out_path, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    spec = compute_spectrogram(wav, sr, n_fft, hop_size, n_mels)
+    np.save(out_path, spec)
+    return out_path
+
+
+def audio_file_to_spec(path, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+    path = Path(path)
+    wav, _ = librosa.load(path, sr=sr, mono=True)
+    return write_waveform_spectrogram(
+        wav,
+        Path(out_dir) / f"{path.stem}.npy",
+        sr,
+        n_fft,
+        hop_size,
+        n_mels,
+    )
+
+
+def audio_dir_to_specs(src_dir, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+    src_dir = Path(src_dir)
+    out_dir = Path(out_dir)
+    write_audio_params(out_dir, sr, n_fft, hop_size, n_mels)
+    paths = sorted(path for path in src_dir.rglob("*") if path.suffix.lower() in AUDIO_EXTS)
+    for path in tqdm(paths, desc="audio2spec"):
+        audio_file_to_spec(path, out_dir, sr, n_fft, hop_size, n_mels)
+    return paths
+
+
+def compute_statistics(spec_dir, sample_fraction=0.1, seed=0):
+    rng = random.Random(seed)
+    files = [path for path in Path(spec_dir).glob("*.npy") if rng.random() < sample_fraction]
+    if not files:
+        files = list(Path(spec_dir).glob("*.npy"))
+
+    total_sum = 0.0
+    total_sq_sum = 0.0
+    total_values = 0
+    for path in tqdm(files, desc="computing stats"):
+        spec = np.load(path).astype(np.float32, copy=False)
+        total_sum += spec.sum().item()
+        total_sq_sum += np.square(spec).sum().item()
+        total_values += spec.size
+
+    mean = total_sum / total_values
+    variance = total_sq_sum / total_values - mean * mean
+    return mean, max(variance, 0.0) ** 0.5, len(files)
+
+
+def write_statistics(spec_dir, sample_fraction=0.1, seed=0):
+    spec_dir = Path(spec_dir)
+    mean, std, num_files = compute_statistics(spec_dir, sample_fraction, seed)
+    path = spec_dir / "audio_params.json"
+    params = json.loads(path.read_text()) if path.exists() else {}
+    params["mean"] = float(mean)
+    params["std"] = float(std)
+    path.write_text(json.dumps(params, indent=2, sort_keys=True) + "\n")
+    return mean, std, num_files
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Convert audio files to spectrogram .npy files.")
+    parser.add_argument("--src_dir", required=True)
+    parser.add_argument("--dst_dir", required=True)
+    parser.add_argument("--sr", type=int, default=32_000)
+    parser.add_argument("--hop_size", type=int, default=64)
+    parser.add_argument("--n_fft", type=int, default=1024)
+    parser.add_argument("--n_mels", type=int, default=128)
+    parser.add_argument("--stats", action="store_true")
+    args = parser.parse_args()
+
+    audio_dir_to_specs(args.src_dir, args.dst_dir, args.sr, args.n_fft, args.hop_size, args.n_mels)
+    if args.stats:
+        write_statistics(args.dst_dir)
 
 
 if __name__ == "__main__":
-    cli()
+    main()

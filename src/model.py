@@ -1,81 +1,12 @@
-import torch, math 
+import torch
 import torch.nn.functional as F
-from torch import nn, zero_
-
-class LoRALinear(nn.Module):
-    def __init__(self, base_layer, rank, alpha=1.0, dropout=0.0):
-        super().__init__()
-        if not isinstance(base_layer, nn.Linear):
-            raise TypeError("LoRALinear expects a nn.Linear base layer")
-        rank = int(rank)
-        if rank <= 0:
-            raise ValueError(f"LoRA rank must be > 0, got {rank}")
-
-        self.base = base_layer
-        self.in_features = self.base.in_features
-        self.out_features = self.base.out_features
-        self.rank = rank
-        self.alpha = float(alpha)
-        self.scaling = self.alpha / float(self.rank)
-        self.lora_dropout = nn.Dropout(float(dropout)) if float(dropout) > 0.0 else nn.Identity()
-
-        self.lora_A = nn.Linear(self.base.in_features, self.rank, bias=False)
-        self.lora_B = nn.Linear(self.rank, self.base.out_features, bias=False)
-
-        nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.lora_B.weight)
-
-    @property
-    def weight(self):
-        return self.base.weight + (self.lora_B.weight @ self.lora_A.weight) * self.scaling
-
-    @property
-    def bias(self):
-        return self.base.bias
-
-    def forward(self, x):
-        out = self.base(x)
-        lora_out = self.lora_B(self.lora_A(self.lora_dropout(x))) * self.scaling
-        return out + lora_out
-
-    def lora_parameters(self):
-        return (self.lora_A.weight, self.lora_B.weight)
-
-
-def apply_lora_to_encoder(model, rank, alpha=1.0, dropout=0.0, target_modules=("linear1", "linear2")):
-    """
-    Replace specified FFN Linear layers inside Transformer encoder layers with LoRA adapters.
-    Returns the number of layers replaced.
-    """
-    rank = int(rank)
-    if rank <= 0:
-        return 0
-
-    layers = getattr(model.encoder, "layers", None)
-    if layers is None:
-        raise RuntimeError("TinyBird.encoder does not expose .layers; cannot apply LoRA.")
-
-    replaced = 0
-    for layer in layers:
-        for name in target_modules:
-            mod = getattr(layer, name, None)
-            if mod is None:
-                continue
-            if isinstance(mod, LoRALinear):
-                continue
-            if not isinstance(mod, nn.Linear):
-                continue
-            setattr(layer, name, LoRALinear(mod, rank=rank, alpha=alpha, dropout=dropout))
-            replaced += 1
-
-    return replaced
+from torch import nn
 
 class TinyBird(nn.Module):
     def __init__(self, config):
         super().__init__()
 
         self.patch_size = config["patch_size"]
-        self.max_seq = config["max_seq"]
         self.mask_p = config["mask_p"]
         self.mask_c = config["mask_c"]
         self.mask_type = config.get("mask_type", "voronoi")
@@ -114,58 +45,33 @@ class TinyBird(nn.Module):
         
         self.pos_enc = nn.Parameter(torch.randn(1, config["enc_hidden_d"], max_h, max_w))
 
-        # Optional homeostatic regularization bookkeeping.
-        # We collect FFN pre-activations from Transformer linear1 modules via forward hooks.
-        self._homeo_pre_acts = []
-        self._homeo_hook_handles = []
+        # GPT-style initialization
+        self.apply(self._init_weights)
+        # GPT-2 scaled init for residual output projections: std = 0.02 / sqrt(2 * n_layer)
+        for layers, n_layer in (
+            (self.encoder.layers, config["enc_n_layer"]),
+            (self.decoder.layers, config["dec_n_layer"]),
+        ):
+            std = 0.02 / (2 * n_layer) ** 0.5
+            for layer in layers:
+                nn.init.normal_(layer.self_attn.out_proj.weight, std=std)
+                nn.init.normal_(layer.linear2.weight, std=std)
+        # learned positions / mask token
+        nn.init.normal_(self.pos_enc, std=0.02)
+        nn.init.normal_(self.mask_token, std=0.02)
 
-    def _iter_homeo_target_modules(self):
-        """Yield modules whose outputs are treated as pre-activations for homeostatic loss."""
-        enc_layers = getattr(self.encoder, "layers", [])
-        dec_layers = getattr(self.decoder, "layers", [])
-        for layer in enc_layers:
-            mod = getattr(layer, "linear1", None)
-            if mod is not None:
-                yield mod
-        for layer in dec_layers:
-            mod = getattr(layer, "linear1", None)
-            if mod is not None:
-                yield mod
-
-    def _homeo_hook(self, module, inputs, output):
-        if isinstance(output, torch.Tensor):
-            self._homeo_pre_acts.append(output)
-
-    def set_homeostatic_tracking(self, enabled: bool):
-        """Enable/disable forward-hook collection for homeostatic pre-activations."""
-        enabled = bool(enabled)
-        if enabled and not self._homeo_hook_handles:
-            for mod in self._iter_homeo_target_modules():
-                self._homeo_hook_handles.append(mod.register_forward_hook(self._homeo_hook))
-        elif not enabled and self._homeo_hook_handles:
-            for handle in self._homeo_hook_handles:
-                handle.remove()
-            self._homeo_hook_handles.clear()
-            self._homeo_pre_acts.clear()
-
-    def clear_homeostatic_pre_activations(self):
-        self._homeo_pre_acts.clear()
-
-    def homeostatic_pre_activation_loss(self):
-        """
-        Compute L_homeo = (1 / (2B)) * ||Y_pre||_F^2 over collected pre-activations.
-        """
-        if not self._homeo_pre_acts:
-            return self.mask_token.new_zeros(())
-
-        batch_size = self._homeo_pre_acts[0].shape[0]
-        sq_sum = None
-        for y_pre in self._homeo_pre_acts:
-            # Compute in FP32 to avoid overflow when AMP stores activations in FP16/BF16.
-            y_pre_f32 = y_pre.float()
-            term = y_pre_f32.pow(2).sum()
-            sq_sum = term if sq_sum is None else (sq_sum + term)
-        return 0.5 * sq_sum / float(batch_size)
+    @staticmethod
+    def _init_weights(module):
+        if isinstance(module, (nn.Linear, nn.Conv2d)):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.MultiheadAttention):
+            # combined QKV projection is a raw Parameter, not an nn.Linear
+            if module.in_proj_weight is not None:
+                nn.init.normal_(module.in_proj_weight, mean=0.0, std=0.02)
+            if module.in_proj_bias is not None:
+                nn.init.zeros_(module.in_proj_bias)
 
     def voronoi_mask(self, hw, p=0.75, c=0.1, device=None):
         """
@@ -176,8 +82,7 @@ class TinyBird(nn.Module):
         H, W = hw
         n_patches = H * W
         n_masked_patches = round(n_patches * p)
-        n_seeds = round(n_masked_patches * c)
-        
+
         # Step 1: Create seeds
         # create matrix with 0.1 values, bernoulli creates coin flip on each position, each pos has 10 precent chance being seed 
         mask = torch.bernoulli(torch.full((H, W), c, device=device)).bool() 
