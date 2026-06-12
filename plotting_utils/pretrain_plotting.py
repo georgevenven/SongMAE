@@ -1,5 +1,6 @@
 """Masked reconstruction plots for SongMAE pretraining."""
 
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,27 @@ from plotting_utils.plotting_utils import (
 
 
 RECON_FIGSIZE = (10.0, 8.0)
+LOSS_FIGSIZE = (8.0, 5.0)
+
+
+def save_loss_curve(losses_path, output_path):
+    with Path(losses_path).open() as f:
+        rows = list(csv.DictReader(f))
+    fig, ax = plt.subplots(figsize=LOSS_FIGSIZE)
+    for split, color in (("train", "tab:blue"), ("val", "tab:orange")):
+        points = [row for row in rows if row["split"] == split]
+        ax.plot(
+            [int(row["step"]) for row in points],
+            [float(row["loss"]) for row in points],
+            label=split,
+            linewidth=1.5,
+            color=color,
+        )
+    ax.set_xlabel("step")
+    ax.set_ylabel("loss")
+    ax.legend()
+    ax.grid(alpha=0.25)
+    return save_fig(fig, output_path)
 
 
 def depatchify(patches, mels, timebins, patch_size):

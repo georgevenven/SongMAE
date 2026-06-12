@@ -1,17 +1,21 @@
 import argparse
 import json
+import os
 import shutil
 from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from model import TinyBird
 from data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
 from data_structures import AudioParams, ModelConfig, TrainConfig
-from plotting_utils.pretrain_plotting import save_masked_reconstruction_plot
+from plotting_utils.pretrain_plotting import save_loss_curve, save_masked_reconstruction_plot
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +58,7 @@ DEFAULT_CONFIG = {
 #   model.json          model architecture and input contract
 #   train.json          training recipe for this run
 #   logs.txt            TUI training log and refactor notes
+#   losses.csv          every train step and validation loss
 #   weights/            model_step_000000.pth, ...
 #   imgs/               optional visualizations
 
@@ -61,18 +66,34 @@ DEFAULT_CONFIG = {
 class Trainer:
     def __init__(self, config):
         self.config = config
+        self.rank = int(os.environ.get("RANK", 0))
+        self.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        self.world_size = int(os.environ.get("WORLD_SIZE", 1))
+        self.distributed = self.world_size > 1
+        if self.distributed:
+            assert torch.cuda.is_available(), "DDP training expects CUDA/NCCL"
+            dist.init_process_group(backend="nccl")
+            torch.cuda.set_device(self.local_rank)
+        self.is_main = self.rank == 0
         self.run_dir = self.setup_run()
         self.logs_path = self.run_dir / "logs.txt"
+        self.losses_path = self.run_dir / "losses.csv"
         self.weights_dir = self.run_dir / "weights"
         self.imgs_dir = self.run_dir / "imgs"
-        self.weights_dir.mkdir(exist_ok=True)
-        self.imgs_dir.mkdir(exist_ok=True)
+        if self.is_main:
+            self.weights_dir.mkdir(exist_ok=True)
+            self.imgs_dir.mkdir(exist_ok=True)
+            if not self.losses_path.exists():
+                self.losses_path.write_text("step,split,loss\n")
+        self.barrier()
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(f"cuda:{self.local_rank}" if self.distributed else "cuda" if torch.cuda.is_available() else "cpu")
         self.use_amp = config.get("amp", False) and self.device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         self.model = self.build_model().to(self.device)
         self.start_step = self.load_checkpoint() if config.get("continue_from") else 0
+        if self.distributed:
+            self.model = DistributedDataParallel(self.model, device_ids=[self.local_rank])
         self.optimizer = AdamW(
             [p for p in self.model.parameters() if p.requires_grad],
             lr=config["lr"],
@@ -83,7 +104,11 @@ class Trainer:
         self.eval_every = config.get("eval_every", 500)
         n_params = sum(p.numel() for p in self.model.parameters())
         self.write_log(f"run={self.run_dir}")
-        self.write_log(f"device={self.device} | params={n_params:,} | steps={self.steps}")
+        self.write_log(f"device={self.device} | ddp={self.world_size} | params={n_params:,} | steps={self.steps}")
+
+    def barrier(self):
+        if self.distributed:
+            dist.barrier()
 
     def setup_run(self):
         if self.config.get("continue_from"):
@@ -93,14 +118,16 @@ class Trainer:
 
         RUNS_ROOT.mkdir(exist_ok=True)
         run_dir = RUNS_ROOT / self.config["run_name"]
-        if run_dir.exists():
-            archive_dir = RUNS_ROOT / "archive"
-            archive_dir.mkdir(exist_ok=True)
-            stamped_name = f"{run_dir.name}_{datetime.now():%Y%m%d_%H%M%S}"
-            shutil.move(run_dir, archive_dir / stamped_name)
+        if self.is_main:
+            if run_dir.exists():
+                archive_dir = RUNS_ROOT / "archive"
+                archive_dir.mkdir(exist_ok=True)
+                stamped_name = f"{run_dir.name}_{datetime.now():%Y%m%d_%H%M%S}"
+                shutil.move(run_dir, archive_dir / stamped_name)
 
-        run_dir.mkdir()
-        self.save_run_files(run_dir)
+            run_dir.mkdir()
+            self.save_run_files(run_dir)
+        self.barrier()
         return run_dir
 
     def save_run_files(self, run_dir):
@@ -132,19 +159,33 @@ class Trainer:
         return step + 1
 
     def save_checkpoint(self, step):
+        if not self.is_main:
+            return
         path = self.weights_dir / f"model_step_{step:06d}.pth"
-        torch.save(self.model.state_dict(), path)
+        model = self.model.module if self.distributed else self.model
+        torch.save(model.state_dict(), path)
 
     def save_reconstruction(self, batch, step):
         pass
 
     def write_log(self, msg):
+        if not self.is_main:
+            return
         print(msg)
         with self.logs_path.open("a") as f:
             f.write(msg + "\n")
 
+    def write_loss(self, step, split, loss):
+        if not self.is_main:
+            return
+        with self.losses_path.open("a") as f:
+            f.write(f"{step},{split},{loss:.8f}\n")
+
     def build_model(self):
         return TinyBird(self.config)
+
+    def raw_model(self):
+        return self.model.module if self.distributed else self.model
 
     def build_datasets(self):
         raise NotImplementedError
@@ -152,17 +193,25 @@ class Trainer:
     def forward_loss(self, batch):
         raise NotImplementedError
 
+    def mean_loss(self, loss):
+        value = loss.detach()
+        if self.distributed:
+            dist.all_reduce(value, op=dist.ReduceOp.SUM)
+            value /= self.world_size
+        return value.item()
+
     def step(self, batch, train=True):
         self.model.train() if train else self.model.eval()
         with torch.set_grad_enabled(train):
             with torch.amp.autocast("cuda", enabled=self.use_amp):
                 loss = self.forward_loss(batch)
+        mean_loss = self.mean_loss(loss)
         if train:
             self.optimizer.zero_grad(set_to_none=True)
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-        return loss.item()
+        return mean_loss
 
     def log(self, step, train_loss, val_loss=None):
         msg = f"step {step:>7}/{self.end_step} | train {train_loss:.4f}"
@@ -172,19 +221,24 @@ class Trainer:
 
     def train(self):
         train_ds, val_ds = self.build_datasets()
+        train_sampler = DistributedSampler(train_ds) if self.distributed else None
+        val_sampler = DistributedSampler(val_ds, shuffle=False) if self.distributed else None
         kw = dict(batch_size=self.config["batch_size"],
                   num_workers=self.config.get("num_workers", 4), pin_memory=True)
-        train_loader = DataLoader(train_ds, shuffle=True, **kw)
-        val_loader = DataLoader(val_ds, shuffle=False, **kw)
+        train_loader = DataLoader(train_ds, shuffle=train_sampler is None, sampler=train_sampler, **kw)
+        val_loader = DataLoader(val_ds, shuffle=False, sampler=val_sampler, **kw)
         train_iter, val_iter = iter(train_loader), iter(val_loader)
 
         for step in range(self.start_step, self.end_step + 1):
+            if train_sampler and step % len(train_loader) == 0:
+                train_sampler.set_epoch(step // len(train_loader))
             try:
                 batch = next(train_iter)
             except StopIteration:
                 train_iter = iter(train_loader)
                 batch = next(train_iter)
             train_loss = self.step(batch, train=True)
+            self.write_loss(step, "train", train_loss)
 
             if step % self.eval_every == 0:
                 try:
@@ -192,11 +246,19 @@ class Trainer:
                 except StopIteration:
                     val_iter = iter(val_loader)
                     val_batch = next(val_iter)
-                self.log(step, train_loss, self.step(val_batch, train=False))
+                val_loss = self.step(val_batch, train=False)
+                self.write_loss(step, "val", val_loss)
+                self.log(step, train_loss, val_loss)
                 self.save_checkpoint(step)
-                self.save_reconstruction(val_batch, step)
+                if self.is_main:
+                    self.save_reconstruction(val_batch, step)
 
         self.save_checkpoint(self.end_step)
+        if self.is_main:
+            self.write_log(f"saved loss curve: {save_loss_curve(self.losses_path, self.imgs_dir / 'loss_curve.png')}")
+        self.barrier()
+        if self.distributed:
+            dist.destroy_process_group()
 
 
 class UnsupervisedTrainer(Trainer):
@@ -207,14 +269,12 @@ class UnsupervisedTrainer(Trainer):
 
     def forward_loss(self, batch):
         x = batch[0].to(self.device, non_blocking=True)
-        h, idx_restore, bool_mask, T = self.model.forward_encoder(x)
-        pred = self.model.forward_decoder(h, idx_restore, T)
-        return self.model.loss_mse(x, pred, bool_mask)
+        return self.model(x)
 
     def save_reconstruction(self, batch, step):
         sample_idx = (step // self.eval_every) % batch[0].shape[0]
         path = save_masked_reconstruction_plot(
-            self.model,
+            self.raw_model(),
             batch,
             self.config,
             self.device,

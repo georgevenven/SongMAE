@@ -283,6 +283,11 @@ class TinyBird(nn.Module):
         pred = self.decoder_to_pixel(d)                               # (B, T, P)
         return pred
 
+    def forward(self, x):
+        h, idx_restore, bool_mask, T = self.forward_encoder(x)
+        pred = self.forward_decoder(h, idx_restore, T)
+        return self.loss_mse(x, pred, bool_mask)
+
     def loss_mse(self, x, pred, bool_mask):
         """
         Compute MSE on masked patches only.
