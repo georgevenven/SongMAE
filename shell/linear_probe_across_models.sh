@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+ROOT="$(pwd)"
+
+PYTHON_BIN="${PYTHON_BIN:-python}"
+OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_linear_probe}"
+MODELS="${MODELS:-songmae songmae_random aves hubert}"
+PROBE_MODEL="${PROBE_MODEL:-logreg}"
+VAL_FRACTION="${VAL_FRACTION:-0.2}"
+SEED="${SEED:-42}"
+OVERWRITE="${OVERWRITE:-0}"
+SAVE_PLOTS="${SAVE_PLOTS:-0}"
+
+SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/xcm_bambird_5s_ddp_100k}"
+AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
+AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
+AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
+HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
+HUBERT_AUDIO_SR="${HUBERT_AUDIO_SR:-16000}"
+WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
+
+# Hardcoded for now because these evals need matching annotation, spec, and wav roots.
+# Positional args filter this list, e.g. `bash shell/linear_probe_across_models.sh zf canary`.
+DATASETS=(
+  "zf|files/zf_annotations.json|/media/george-vengrovski/disk2/specs/zf_64hop_32khz|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "bf|files/bf_annotations.json|/media/george-vengrovski/disk2/specs/bf_64hop_32khz|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "canary|files/canary_annotations_for_individual_id.json|/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz|/media/george-vengrovski/disk2/raw_data/canary/individual_identification|events"
+)
+
+usage() {
+  echo "Usage: $0 [zf|bf|canary ...]" 1>&2
+}
+
+selected_dataset() {
+  local dataset="$1"
+  if [[ "$#" -eq 1 && "${#TARGETS[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  for target in "${TARGETS[@]}"; do
+    [[ "$dataset" == "$target" ]] && return 0
+  done
+  return 1
+}
+
+birds_in_json() {
+  "$PYTHON_BIN" - "$1" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text())
+birds = {
+    recording.get("recording", {}).get("bird_id", "")
+    for recording in data["recordings"]
+}
+for bird in sorted(bird for bird in birds if bird):
+    print(bird)
+PY
+}
+
+extract_embeddings() {
+  local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7"
+  case "$model" in
+    songmae|songmae_random)
+      cmd=(
+        "$PYTHON_BIN" -m src.core.extract_embedding
+        --run_dir "$SONGMAE_RUN_DIR" \
+        --spec_dir "$spec_dir" \
+        --json_path "$json" \
+        --bird "$bird" \
+        --recording_mode "$mode" \
+        --npz_dir "$out_dir/embeddings.npz" \
+        --num_timebins 0
+      )
+      if [[ -n "${SONGMAE_CHECKPOINT:-}" ]]; then cmd+=(--checkpoint "$SONGMAE_CHECKPOINT"); fi
+      if [[ "$model" == "songmae_random" ]]; then cmd+=(--random_init); fi
+      "${cmd[@]}"
+      ;;
+    aves)
+      "$PYTHON_BIN" src/external_models/aves.py \
+        --spec_dir "$spec_dir" \
+        --wav_dir "$wav_dir" \
+        --annotation_file "$json" \
+        --out_dir "$out_dir" \
+        --bird "$bird" \
+        --recording_mode "$mode" \
+        --aves_model_path "$AVES_MODEL_PATH" \
+        --aves_config_path "$AVES_CONFIG_PATH" \
+        --audio_sr "$AVES_AUDIO_SR" \
+        --wav_exts "$WAV_EXTS"
+      ;;
+    hubert)
+      "$PYTHON_BIN" src/external_models/hubert.py \
+        --spec_dir "$spec_dir" \
+        --wav_dir "$wav_dir" \
+        --annotation_file "$json" \
+        --out_dir "$out_dir" \
+        --bird "$bird" \
+        --recording_mode "$mode" \
+        --model_name "$HUBERT_MODEL_NAME" \
+        --audio_sr "$HUBERT_AUDIO_SR" \
+        --wav_exts "$WAV_EXTS"
+      ;;
+    *)
+      echo "Unknown model: $model" 1>&2
+      return 1
+      ;;
+  esac
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+TARGETS=("$@")
+read -r -a MODEL_LIST <<< "$MODELS"
+mkdir -p "$OUT_ROOT"
+
+for row in "${DATASETS[@]}"; do
+  IFS="|" read -r dataset json spec_dir wav_dir recording_mode <<< "$row"
+  selected_dataset "$dataset" || continue
+
+  while IFS= read -r bird; do
+    for model in "${MODEL_LIST[@]}"; do
+      run_dir="$OUT_ROOT/$dataset/$bird/$model"
+      embed_dir="$run_dir/embeddings"
+      metrics_path="$run_dir/metrics.json"
+      metrics_tmp="$run_dir/metrics.tmp"
+      if [[ -f "$metrics_path" && "$OVERWRITE" != "1" ]]; then
+        echo "exists: $metrics_path"
+        continue
+      fi
+
+      rm -rf "$run_dir"
+      mkdir -p "$embed_dir"
+      echo "running: dataset=$dataset bird=$bird model=$model"
+      if ! extract_embeddings "$model" "$json" "$spec_dir" "$wav_dir" "$recording_mode" "$bird" "$embed_dir"; then
+        echo "extract failed: dataset=$dataset bird=$bird model=$model" 1>&2
+        continue
+      fi
+      plot_args=()
+      if [[ "$SAVE_PLOTS" == "1" ]]; then
+        plot_args=(--plot_dir "$run_dir/prediction_plots")
+      fi
+      if ! "$PYTHON_BIN" src/evals/syllable_classification.py \
+        --embeddings "$embed_dir/embeddings.npz" \
+        --annotations "$json" \
+        --model "$PROBE_MODEL" \
+        --val_fraction "$VAL_FRACTION" \
+        --seed "$SEED" \
+        "${plot_args[@]}" > "$metrics_tmp"; then
+        rm -f "$metrics_tmp"
+        echo "probe failed: dataset=$dataset bird=$bird model=$model" 1>&2
+      else
+        mv "$metrics_tmp" "$metrics_path"
+      fi
+    done
+  done < <(birds_in_json "$json")
+done

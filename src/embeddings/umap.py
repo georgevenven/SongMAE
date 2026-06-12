@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -116,27 +115,21 @@ def extract(model, args, model_dir):
             run(songmae_command(args, out_path))
         return out_path
 
-    out_dir = model_dir / "embeddings"
+    out_path = model_dir / "embeddings.npz"
     if not args.reuse:
-        shutil.rmtree(out_dir, ignore_errors=True)
-    if not (args.reuse and list(out_dir.glob("*.npz"))):
-        out_dir.mkdir(parents=True, exist_ok=True)
-        run(raw_command(model, args, out_dir), env=model_env(model, args))
-    return out_dir
+        out_path.unlink(missing_ok=True)
+    if not (args.reuse and out_path.exists()):
+        model_dir.mkdir(parents=True, exist_ok=True)
+        run(raw_command(model, args, model_dir), env=model_env(model, args))
+    return out_path
 
 
 def load_arrays(path):
-    files = [path] if path.is_file() else sorted(path.glob("*.npz"))
-    assert files, f"no npz files found: {path}"
-    features, labels = [], []
-    for file in files:
-        npz = np.load(file)
-        x = npz["encoded_embeddings"].astype(np.float32, copy=False)
-        y = npz["labels_downsampled"].astype(np.int64, copy=False)
-        assert x.shape[0] == y.shape[0], file
-        features.append(x)
-        labels.append(y)
-    return np.concatenate(features, axis=0), np.concatenate(labels, axis=0)
+    npz = np.load(path)
+    features = npz["encoded_embeddings"].astype(np.float32, copy=False)
+    labels = npz["labels_downsampled"].astype(np.int64, copy=False)
+    assert features.shape[0] == labels.shape[0], path
+    return features, labels
 
 
 def sample(features, labels, max_points, seed):

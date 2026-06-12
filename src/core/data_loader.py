@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import random
 import numpy as np
-from .utils import create_label_arr, load_json_events, normalize_spectrogram
+from .utils import create_label_arr, load_json_events, load_spec, normalize_spectrogram
 from .data_structures import AudioParams
 
 """ Goal is to stay ~100 LoC here """
@@ -52,10 +52,9 @@ class SpectrogramDataset(Dataset):
     def __getitem__(self, index):
         path = self.file_dirs[index]
         fname = path.stem
-        arr = np.load(path, mmap_mode="r")
+        arr = load_spec(path)
 
         arr, _, _ = self._crop_pad(arr)
-        arr = np.array(arr, dtype=np.float32, copy=True)
 
         if self.normalize:
             arr = normalize_spectrogram(arr, self.mean, self.std)
@@ -130,9 +129,8 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
 
     def __getitem__(self, index):
         path, event = self.samples[index]
-        arr = np.load(path, mmap_mode="r")
+        arr = load_spec(path)
         arr, start, _ = self._event_crop(arr, event) if event else self._crop_pad(arr)
-        arr = np.array(arr, dtype=np.float32, copy=True)
         events = self.events_by_file[path.stem]
         units = [unit for event in events for unit in event["units"]]
         labels = create_label_arr({"units": units}, start, start + arr.shape[1])

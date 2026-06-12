@@ -13,7 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 
-from src.core.data_loader import decode_storage_to_raw, load_quantization_manifest  # noqa: E402
+from src.core.utils import load_spec  # noqa: E402
 from plotting_utils import SPEC_DPI, SPEC_IMSHOW_KW, SPEC_TITLE_KW, SPEC_TITLE_Y  # noqa: E402
 
 
@@ -122,16 +122,10 @@ def events_by_bird(annotation_json):
     return grouped
 
 
-def read_clip(path, start, width, audio, manifest):
-    arr = np.load(path, mmap_mode="r")
+def read_clip(path, start, width):
+    arr = load_spec(path)
     stop = min(start + width, arr.shape[1])
     clip = arr[:, start:stop]
-    clip = decode_storage_to_raw(
-        clip,
-        audio.get("storage_dtype", "float32"),
-        audio.get("storage_normalization", "none"),
-        manifest.get(path.name),
-    )
     if clip.shape[1] < width:
         pad_value = float(clip.min()) if clip.size else 0.0
         clip = np.pad(
@@ -143,28 +137,16 @@ def read_clip(path, start, width, audio, manifest):
     return clip
 
 
-def read_full_song(path, audio, manifest):
-    clip = np.load(path, mmap_mode="r")
-    return decode_storage_to_raw(
-        clip,
-        audio.get("storage_dtype", "float32"),
-        audio.get("storage_normalization", "none"),
-        manifest.get(path.name),
-    )
+def read_full_song(path):
+    return load_spec(path)
 
 
-def read_span(path, start_ms, stop_ms, audio, manifest):
-    arr = np.load(path, mmap_mode="r")
+def read_span(path, start_ms, stop_ms, audio):
+    arr = load_spec(path)
     start = ms_to_timebin(start_ms, audio)
     stop = min(ms_to_timebin(stop_ms, audio), arr.shape[1])
     assert stop > start, f"empty spectrogram span: {path} {start_ms}-{stop_ms} ms"
-    clip = arr[:, start:stop]
-    return decode_storage_to_raw(
-        clip,
-        audio.get("storage_dtype", "float32"),
-        audio.get("storage_normalization", "none"),
-        manifest.get(path.name),
-    )
+    return arr[:, start:stop]
 
 
 def plot_examples(examples, out_path, seconds):
@@ -263,14 +245,13 @@ def event_candidates(data):
 
 
 def read_full_song_example(job, collage_index):
-    manifest = load_quantization_manifest(job["spec_dir"], job["audio"])
     row, event_index, event = job["rows"][collage_index]
     stem = Path(row["recording"]["filename"]).stem
     path = resolve_spec_path(job["spec_dir"], stem)
     if event is None:
-        clip = read_full_song(path, job["audio"], manifest)
+        clip = read_full_song(path)
     else:
-        clip = read_span(path, event["onset_ms"], event["offset_ms"], job["audio"], manifest)
+        clip = read_span(path, event["onset_ms"], event["offset_ms"], job["audio"])
     seconds = clip.shape[1] * job["audio"]["hop_size"] / job["audio"]["sr"]
     return {
         "label": job["label"],
@@ -345,7 +326,6 @@ def render_species(key, label, spec_dir, annotation_json, args):
         return 0
 
     audio = load_audio_params(spec_dir)
-    manifest = load_quantization_manifest(spec_dir, audio)
     clip_width = int(round(args.seconds * audio["sr"] / audio["hop_size"]))
     species_dir = args.out_dir / clean_name(key)
     species_dir.mkdir(parents=True, exist_ok=True)
@@ -362,7 +342,7 @@ def render_species(key, label, spec_dir, annotation_json, args):
             stem, event_index, event = events[index]
             path = resolve_spec_path(spec_dir, stem)
             start = ms_to_timebin(event["onset_ms"], audio)
-            clip = read_clip(path, start, clip_width, audio, manifest)
+            clip = read_clip(path, start, clip_width)
             title = f"{label} | {bird_id} | song {len(examples) + 1} event {event_index + 1}"
             examples.append({"clip": clip, "title": title})
         if not examples:

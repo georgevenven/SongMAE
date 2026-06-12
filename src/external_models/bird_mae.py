@@ -9,7 +9,7 @@ import torchaudio
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from src.external_models.data_loader import WavFromSpectrogramDataset
+from src.external_models.data_loader import WavFromSpectrogramDataset, save_concatenated_embeddings
 from src.core.utils import downsample_labels
 
 
@@ -66,12 +66,9 @@ def save_embeddings(args):
     feature_extractor, model, freq_patches, time_patches = load_model(args.model_name)
     model = model.to(device)
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
+    rows = []
     for index in range(len(dataset)):
         item = dataset[index]
-        name = f"{index:06d}_{item['recording_stem']}.npz"
         embeddings, grid = extract_features(
             feature_extractor,
             model,
@@ -82,22 +79,22 @@ def save_embeddings(args):
         )
         labels = downsample_labels(item["labels"], embeddings.shape[0])
         assert embeddings.shape[0] == labels.shape[0]
-        np.savez(
-            out_dir / name,
-            encoded_embeddings=embeddings,
-            encoded_embeddings_grid=grid,
-            labels_downsampled=labels,
-            labels_original=labels,
-            recording_stem=np.array(item["recording_stem"]),
-            spec_path=np.array(str(item["spec_path"])),
-            wav_path=np.array(str(item["wav_path"])),
-            start_ms=np.array(item["start_ms"]),
-            end_ms=np.array(item["end_ms"]),
-            model_name=np.array(args.model_name),
-            audio_sr=np.array(args.audio_sr),
-            num_patches_height=np.array(freq_patches),
-            num_patches_time=np.array(time_patches),
+        rows.append(
+            {
+                "item": item,
+                "encoded_embeddings": embeddings,
+                "encoded_embeddings_grid": grid,
+                "labels_downsampled": labels,
+            }
         )
+    save_concatenated_embeddings(
+        args.out_dir,
+        rows,
+        model_name=args.model_name,
+        audio_sr=args.audio_sr,
+        num_patches_height=freq_patches,
+        num_patches_time=time_patches,
+    )
 
 
 def parse_args():

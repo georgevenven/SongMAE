@@ -7,11 +7,10 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from src.core.audio2spec import compute_spectrogram, write_audio_params, write_waveform_spectrogram
+from src.core.utils import write_spec
 
 def merge_intervals(intervals):
     intervals = sorted(intervals)
@@ -63,7 +62,7 @@ def ms_to_bin(ms, sr, hop_size):
     return int(ms * sr / (1000.0 * hop_size))
 
 
-def write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_mels):
+def write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_mels, storage_dtype):
     spec = compute_spectrogram(wav, sr, n_fft, hop_size, n_mels)
     for event in events:
         start_ms = int(round(event["onset_ms"]))
@@ -74,15 +73,15 @@ def write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_
         end_bin = max(0, min(end_bin, spec.shape[1]))
         if start_bin >= end_bin:
             continue
-        np.save(out_dir / f"{name}__ms_{start_ms}_{end_ms}.npy", spec[:, start_bin:end_bin])
+        write_spec(out_dir / f"{name}__ms_{start_ms}_{end_ms}.npy", spec[:, start_bin:end_bin], storage_dtype)
 
 
 def write_sample_spectrogram(task):
-    index, wav, out_dir, name, detection_mode, events, record, sr, n_fft, hop_size, n_mels = task
+    index, wav, out_dir, name, detection_mode, events, record, sr, n_fft, hop_size, n_mels, storage_dtype = task
     if detection_mode == "bambird":
-        write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_mels)
+        write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_mels, storage_dtype)
     else:
-        write_waveform_spectrogram(wav, out_dir / f"{name}.npy", sr, n_fft, hop_size, n_mels)
+        write_waveform_spectrogram(wav, out_dir / f"{name}.npy", sr, n_fft, hop_size, n_mels, storage_dtype)
     return index, record
 
 
@@ -112,12 +111,13 @@ def birdset_to_specs(
     n_mels=128,
     take_n=None,
     workers=1,
+    storage_dtype="float32",
 ):
     from datasets import Audio, load_dataset
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_audio_params(out_dir, sr, n_fft, hop_size, n_mels)
+    write_audio_params(out_dir, sr, n_fft, hop_size, n_mels, storage_dtype)
 
     dataset = load_dataset("DBD-research-group/BirdSet", birdset, split=split, streaming=True)
     dataset = dataset.cast_column("audio", Audio(sampling_rate=sr))
@@ -148,6 +148,7 @@ def birdset_to_specs(
                 n_fft,
                 hop_size,
                 n_mels,
+                storage_dtype,
             )
             pending.add(pool.submit(write_sample_spectrogram, task))
             if len(pending) >= workers * 2:
@@ -177,6 +178,7 @@ def main():
     parser.add_argument("--n_mels", type=int, default=128)
     parser.add_argument("--take_n", type=int)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--storage_dtype", choices=["float32", "int8_affine"], default="float32")
     args = parser.parse_args()
 
     birdset_to_specs(
@@ -190,6 +192,7 @@ def main():
         args.n_mels,
         args.take_n,
         args.workers,
+        args.storage_dtype,
     )
 
 

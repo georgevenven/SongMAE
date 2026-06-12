@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from .data_loader import SpectrogramDatasetSupervised
-from .utils import downsample_labels, normalize_spectrogram
+from .utils import downsample_labels, normalize_spectrogram, timebins_to_ms
 from .utils import load_audio_params, load_model_state
 
 def load_recording_segments(args):
@@ -27,23 +27,36 @@ def load_recording_segments(args):
     )
     segments = []
     collected_timebins = 0
+    audio_params = (ds.params.sr, ds.params.mels, ds.params.hop_size, ds.params.fft)
     for idx in range(len(ds)):
         if max_timebins is not None and collected_timebins >= max_timebins:
             break
+        _, event = ds.samples[idx]
         spec, labels, stem = ds[idx]
         spec = spec.squeeze(0).numpy()
         labels = labels.numpy()
+        start_timebin = 0 if event is None else int(event["on_timebins"])
         if max_timebins is not None:
             remaining = max_timebins - collected_timebins
             spec = spec[:, :remaining]
             labels = labels[:remaining]
         if spec.shape[1] == 0:
             continue
-        segments.append({"recording_stem": stem, "spectrogram": spec, "labels_original": labels})
+        end_timebin = start_timebin + spec.shape[1]
+        segments.append(
+            {
+                "recording_stem": stem,
+                "song_id": idx,
+                "start_ms": timebins_to_ms(start_timebin, audio_params),
+                "end_ms": timebins_to_ms(end_timebin, audio_params),
+                "spectrogram": spec,
+                "labels_original": labels,
+            }
+        )
         collected_timebins += spec.shape[1]
 
     return {
-        "audio_params": (ds.params.sr, ds.params.mels, ds.params.hop_size, ds.params.fft),
+        "audio_params": audio_params,
         "segments": segments,
     }
 
@@ -60,6 +73,9 @@ def normalize_recording_segments(segments, mean, std):
         normalized.append(
             {
                 "recording_stem": segment["recording_stem"],
+                "song_id": segment["song_id"],
+                "start_ms": segment["start_ms"],
+                "end_ms": segment["end_ms"],
                 "spectrogram": normalize_spectrogram(segment["spectrogram"], mean, std),
                 "labels_original": segment["labels_original"],
             }
@@ -162,6 +178,9 @@ def extract_recording_embeddings_with_state(args, model_state):
         if state is None:
             continue
         state["recording_stem"] = raw_segment["recording_stem"]
+        state["song_id"] = raw_segment["song_id"]
+        state["start_ms"] = raw_segment["start_ms"]
+        state["end_ms"] = raw_segment["end_ms"]
         segment_states.append(state)
 
     if not segment_states:
@@ -172,6 +191,9 @@ def extract_recording_embeddings_with_state(args, model_state):
         segments.append(
             {
                 "recording_stem": segment["recording_stem"],
+                "song_id": segment["song_id"],
+                "start_ms": segment["start_ms"],
+                "end_ms": segment["end_ms"],
                 "encoded_embeddings": segment["encoded_embeddings"],
                 "encoded_embeddings_grid": segment["encoded_embeddings_grid"],
                 "labels_original": segment["labels_original"],
@@ -194,7 +216,7 @@ def extract_recording_embeddings_with_state(args, model_state):
 
 
 def extract_recording_embeddings(args):
-    model_state = load_model_state(args["run_dir"], args.get("checkpoint"))
+    model_state = load_model_state(args["run_dir"], args.get("checkpoint"), random_init=args.get("random_init", False))
     return extract_recording_embeddings_with_state(args, model_state)
 
 
@@ -204,6 +226,18 @@ def _concatenate_segments(segments, key):
     return np.concatenate(arrays, axis=0)
 
 
+def _token_metadata(segments):
+    stems, song_ids, starts, ends = [], [], [], []
+    for segment in segments:
+        count = segment["encoded_embeddings"].shape[0]
+        edges = np.linspace(segment["start_ms"], segment["end_ms"], count + 1)
+        stems.append(np.full(count, segment["recording_stem"]))
+        song_ids.append(np.full(count, segment["song_id"], dtype=np.int64))
+        starts.append(edges[:-1])
+        ends.append(edges[1:])
+    return np.concatenate(stems), np.concatenate(song_ids), np.concatenate(starts), np.concatenate(ends)
+
+
 def main(args):
     extracted = extract_recording_embeddings(args)
     npz_path = args.get("npz_dir")
@@ -211,6 +245,7 @@ def main(args):
         return extracted
 
     segments = extracted["segments"]
+    recording_stem, song_id, token_start_ms, token_end_ms = _token_metadata(segments)
     np.savez(
         npz_path,
         spectrograms=_concatenate_segments(segments, "spectrograms"),
@@ -218,6 +253,10 @@ def main(args):
         labels_downsampled=_concatenate_segments(segments, "labels_downsampled"),
         encoded_embeddings=_concatenate_segments(segments, "encoded_embeddings"),
         encoded_embeddings_grid=_concatenate_segments(segments, "encoded_embeddings_grid"),
+        recording_stem=recording_stem,
+        song_id=song_id,
+        token_start_ms=token_start_ms,
+        token_end_ms=token_end_ms,
         audio_sr=np.array(extracted["audio_params"][0]),
         audio_n_mels=np.array(extracted["audio_params"][1]),
         audio_hop_size=np.array(extracted["audio_params"][2]),
@@ -243,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--npz_dir", type=str, default=None)
     parser.add_argument("--json_path", type=str, default=None)
     parser.add_argument("--bird", type=str, default=None)
+    parser.add_argument("--random_init", action="store_true")
     parser.add_argument("--recording_stem", type=str, default=None)
     parser.add_argument(
         "--recording_mode",

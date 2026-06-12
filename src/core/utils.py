@@ -11,6 +11,37 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = PROJECT_ROOT / "runs"
 CHUNK_MS_RE = re.compile(r"^(?P<base>.+)__ms_(?P<start>\d+)_(?P<end>\d+)$")
 
+def write_spec(path, spec, storage_dtype="float32"):
+    assert storage_dtype in ("float32", "int8_affine")
+    path = Path(path)
+    spec = np.asarray(spec, dtype=np.float32)
+    if storage_dtype == "float32":
+        np.save(path, spec)
+        return path
+
+    low = spec.min(axis=1)
+    high = spec.max(axis=1)
+    scale = np.maximum((high - low) / 255.0, np.float32(1e-6))
+    offset = low + 128.0 * scale
+    codes = np.clip(np.rint((spec - offset[:, None]) / scale[:, None]), -128, 127)
+    np.save(path, codes.astype(np.int8))
+    np.savetxt(path.with_suffix(".txt"), np.column_stack([scale, offset]), fmt="%.9g")
+    return path
+
+
+def load_int8_spec(path):
+    codes = np.load(path, mmap_mode="r")
+    affine = np.loadtxt(Path(path).with_suffix(".txt"), dtype=np.float32)
+    affine = np.atleast_2d(affine)
+    return codes.astype(np.float32) * affine[:, 0, None] + affine[:, 1, None]
+
+
+def load_spec(path):
+    arr = np.load(path, mmap_mode="r")
+    if arr.dtype == np.int8:
+        return load_int8_spec(path)
+    return np.array(arr, dtype=np.float32, copy=True)
+
 def normalize_spectrogram(arr, mean, std):
     arr = np.asarray(arr, dtype=np.float32)
     return ((arr - np.float32(mean)) / np.float32(std)).astype(np.float32)
@@ -111,6 +142,9 @@ def load_model_from_checkpoint(run_dir, checkpoint_file=None, fallback_to_random
     run_dir = resolve_run_dir(run_dir)
     config = json.loads((run_dir / "config.json").read_text())
     model = SongMAE(config)
+    if fallback_to_random:
+        print(f"random initialized model from config: {run_dir}")
+        return model, config
 
     if checkpoint_file is None:
         checkpoint = sorted((run_dir / "weights").glob("model_step_*.pth"))[-1]
@@ -124,11 +158,11 @@ def load_model_from_checkpoint(run_dir, checkpoint_file=None, fallback_to_random
     return model, config
 
 
-def load_model_state(run_dir, checkpoint_file=None):
+def load_model_state(run_dir, checkpoint_file=None, random_init=False):
     from .data_structures import ModelConfig
 
     run_dir = resolve_run_dir(run_dir)
-    model, config = load_model_from_checkpoint(run_dir, checkpoint_file)
+    model, config = load_model_from_checkpoint(run_dir, checkpoint_file, fallback_to_random=random_init)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model.eval()

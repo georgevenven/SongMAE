@@ -12,7 +12,7 @@ from torchaudio.models import wav2vec2_model
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from src.external_models.data_loader import WavFromSpectrogramDataset
+from src.external_models.data_loader import WavFromSpectrogramDataset, save_concatenated_embeddings
 from src.core.utils import downsample_labels
 
 
@@ -72,12 +72,9 @@ def save_embeddings(args):
     model = load_model(args.aves_config_path, args.aves_model_path).to(device)
     min_samples = min_input_samples(model)
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
+    rows = []
     for index in range(len(dataset)):
         item = dataset[index]
-        name = f"{index:06d}_{item['recording_stem']}.npz"
         embeddings = extract_features(
             model,
             load_audio(item, args.audio_sr),
@@ -87,17 +84,14 @@ def save_embeddings(args):
         )
         labels = downsample_labels(item["labels"], embeddings.shape[0])
         assert embeddings.shape[0] == labels.shape[0]
-        np.savez(
-            out_dir / name,
-            encoded_embeddings=embeddings,
-            labels_downsampled=labels,
-            labels_original=labels,
-            recording_stem=np.array(item["recording_stem"]),
-            spec_path=np.array(str(item["spec_path"])),
-            wav_path=np.array(str(item["wav_path"])),
-            start_ms=np.array(item["start_ms"]),
-            end_ms=np.array(item["end_ms"]),
+        rows.append(
+            {
+                "item": item,
+                "encoded_embeddings": embeddings,
+                "labels_downsampled": labels,
+            }
         )
+    save_concatenated_embeddings(args.out_dir, rows, model_name="aves", audio_sr=args.audio_sr)
 
 
 def parse_args():

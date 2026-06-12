@@ -19,6 +19,11 @@ import librosa
 import numpy as np
 from tqdm import tqdm
 
+try:
+    from .utils import load_spec, write_spec
+except ImportError:
+    from src.core.utils import load_spec, write_spec
+
 AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".flac")
 
 def compute_spectrogram(wav, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
@@ -35,22 +40,24 @@ def compute_spectrogram(wav, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
     return librosa.power_to_db(spec, ref=np.max, top_db=None).astype(np.float32)
 
 
-def write_audio_params(out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+def write_audio_params(out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128, storage_dtype="float32"):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     params = {"sr": sr, "mels": n_mels, "hop_size": hop_size, "fft": n_fft}
+    if storage_dtype != "float32":
+        params["storage_dtype"] = storage_dtype
     (out_dir / "audio_params.json").write_text(json.dumps(params, indent=2) + "\n")
 
 
-def write_waveform_spectrogram(wav, out_path, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+def write_waveform_spectrogram(wav, out_path, sr=32_000, n_fft=1024, hop_size=64, n_mels=128, storage_dtype="float32"):
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     spec = compute_spectrogram(wav, sr, n_fft, hop_size, n_mels)
-    np.save(out_path, spec)
+    write_spec(out_path, spec, storage_dtype)
     return out_path
 
 
-def audio_file_to_spec(path, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128):
+def audio_file_to_spec(path, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128, storage_dtype="float32"):
     path = Path(path)
     wav, _ = librosa.load(path, sr=sr, mono=True)
     return write_waveform_spectrogram(
@@ -60,6 +67,7 @@ def audio_file_to_spec(path, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels
         n_fft,
         hop_size,
         n_mels,
+        storage_dtype,
     )
 
 
@@ -67,12 +75,12 @@ def audio_file_to_spec_from_args(args):
     return audio_file_to_spec(*args)
 
 
-def audio_dir_to_specs(src_dir, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128, workers=1):
+def audio_dir_to_specs(src_dir, out_dir, sr=32_000, n_fft=1024, hop_size=64, n_mels=128, workers=1, storage_dtype="float32"):
     src_dir = Path(src_dir)
     out_dir = Path(out_dir)
-    write_audio_params(out_dir, sr, n_fft, hop_size, n_mels)
+    write_audio_params(out_dir, sr, n_fft, hop_size, n_mels, storage_dtype)
     paths = sorted(path for path in src_dir.rglob("*") if path.suffix.lower() in AUDIO_EXTS)
-    tasks = [(path, out_dir, sr, n_fft, hop_size, n_mels) for path in paths]
+    tasks = [(path, out_dir, sr, n_fft, hop_size, n_mels, storage_dtype) for path in paths]
     assert workers > 0
     if workers == 1:
         for task in tqdm(tasks, desc="audio2spec"):
@@ -94,7 +102,7 @@ def compute_statistics(spec_dir, sample_fraction=0.1, seed=0):
     total_sq_sum = 0.0
     total_values = 0
     for path in tqdm(files, desc="computing stats"):
-        spec = np.load(path).astype(np.float32, copy=False)
+        spec = load_spec(path)
         total_sum += spec.sum().item()
         total_sq_sum += np.square(spec).sum().item()
         total_values += spec.size
@@ -124,10 +132,20 @@ def main():
     parser.add_argument("--n_fft", type=int, default=1024)
     parser.add_argument("--n_mels", type=int, default=128)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--storage_dtype", choices=["float32", "int8_affine"], default="float32")
     parser.add_argument("--stats", action="store_true")
     args = parser.parse_args()
 
-    audio_dir_to_specs(args.src_dir, args.dst_dir, args.sr, args.n_fft, args.hop_size, args.n_mels, args.workers)
+    audio_dir_to_specs(
+        args.src_dir,
+        args.dst_dir,
+        args.sr,
+        args.n_fft,
+        args.hop_size,
+        args.n_mels,
+        args.workers,
+        args.storage_dtype,
+    )
     if args.stats:
         write_statistics(args.dst_dir)
 

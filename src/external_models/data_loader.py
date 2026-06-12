@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 
+import numpy as np
 from torch.utils.data import Dataset
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +69,7 @@ class WavFromSpectrogramDataset(Dataset):
             "spec_path": spec_path,
             "wav_path": self.wav_paths[wav_stem],
             "recording_stem": stem,
+            "song_id": index,
             "start_ms": timebins_to_ms(start, self.audio_params),
             "end_ms": timebins_to_ms(end, self.audio_params),
             "labels": labels,
@@ -75,3 +77,65 @@ class WavFromSpectrogramDataset(Dataset):
 
     def __len__(self):
         return len(self.spec_dataset)
+
+
+def save_concatenated_embeddings(out_dir, rows, **metadata):
+    assert rows
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    features, labels, stems, song_ids, starts, ends = [], [], [], [], [], []
+    segment_stems, segment_song_ids, segment_starts, segment_ends = [], [], [], []
+    spec_paths, wav_paths = [], []
+    grids = []
+
+    for row in rows:
+        item = row["item"]
+        x = row["encoded_embeddings"]
+        y = row["labels_downsampled"]
+        assert x.shape[0] == y.shape[0]
+        count = x.shape[0]
+        edges = np.linspace(item["start_ms"], item["end_ms"], count + 1)
+
+        features.append(x.astype(np.float32, copy=False))
+        labels.append(y.astype(np.int64, copy=False))
+        stems.append(np.full(count, item["recording_stem"]))
+        song_ids.append(np.full(count, item["song_id"], dtype=np.int64))
+        starts.append(edges[:-1].astype(np.float32, copy=False))
+        ends.append(edges[1:].astype(np.float32, copy=False))
+
+        segment_stems.append(item["recording_stem"])
+        segment_song_ids.append(item["song_id"])
+        segment_starts.append(item["start_ms"])
+        segment_ends.append(item["end_ms"])
+        spec_paths.append(str(item["spec_path"]))
+        wav_paths.append(str(item["wav_path"]))
+        if "encoded_embeddings_grid" in row:
+            grids.append(row["encoded_embeddings_grid"].astype(np.float32, copy=False))
+
+    payload = {
+        "encoded_embeddings": np.concatenate(features, axis=0),
+        "labels_downsampled": np.concatenate(labels, axis=0),
+        "labels_original": np.concatenate(labels, axis=0),
+        "recording_stem": np.concatenate(stems, axis=0),
+        "song_id": np.concatenate(song_ids, axis=0),
+        "token_start_ms": np.concatenate(starts, axis=0),
+        "token_end_ms": np.concatenate(ends, axis=0),
+        "segment_recording_stem": np.asarray(segment_stems),
+        "segment_song_id": np.asarray(segment_song_ids, dtype=np.int64),
+        "segment_start_ms": np.asarray(segment_starts, dtype=np.float32),
+        "segment_end_ms": np.asarray(segment_ends, dtype=np.float32),
+        "segment_spec_path": np.asarray(spec_paths),
+        "segment_wav_path": np.asarray(wav_paths),
+    }
+    if grids:
+        assert len(grids) == len(rows)
+        payload["encoded_embeddings_grid"] = np.concatenate(grids, axis=0)
+    for key, value in metadata.items():
+        payload[key] = np.asarray(value)
+
+    tmp_path = out_dir / "embeddings.tmp.npz"
+    out_path = out_dir / "embeddings.npz"
+    np.savez(tmp_path, **payload)
+    tmp_path.replace(out_path)
+    print(f"NPZ saved to {out_path}")

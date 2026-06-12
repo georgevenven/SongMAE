@@ -4,6 +4,10 @@ SongMAE is the refactored TinyBird core for training masked autoencoders on
 birdsong spectrograms, extracting encoder embeddings, and keeping the run
 metadata legible. The old project README is archived as `oldreadme.md`.
 
+> **Note:** Only `src/` and `shell/` reflect the current refactor. Everything
+> outside of those two directories is old and in the process of being
+> refactored.
+
 The current core is intentionally small. `src/core/` is reserved for the model,
 data structures, dataloaders, training, extraction, and small shared utilities.
 Dataset converters, embedding runners, external model wrappers, and plotting
@@ -20,6 +24,28 @@ helpers live in sibling folders under `src/`.
   create that run.
 - `labels.json` or `*_annotations.json`: stored in `files/`, sometimes beside a
   corresponding spec folder, and copied into supervised run folders.
+
+## Embedding NPZ Contract
+
+Embedding extractors write one concatenated `embeddings.npz` per requested
+dataset slice, usually under an output directory for one model and one bird.
+This is the sharing and eval format for SongMAE and external models.
+
+Required arrays:
+
+- `encoded_embeddings`: token embeddings, shape `(tokens, dim)`.
+- `labels_downsampled`: token labels, shape `(tokens,)`; `-1` is background.
+- `recording_stem`: per-token recording stem, shape `(tokens,)`.
+- `song_id`: per-token segment id, shape `(tokens,)`.
+- `token_start_ms` and `token_end_ms`: per-token time spans in the source
+  recording, shape `(tokens,)`.
+
+Optional arrays include `encoded_embeddings_grid` for patch-grid models and
+segment-level provenance such as `segment_spec_path`, `segment_wav_path`,
+`segment_start_ms`, and `segment_end_ms`.
+
+Downstream tools should load this single file directly. Do not write or depend
+on one `.npz` per event.
 
 ## Run Folder Layout
 
@@ -46,6 +72,11 @@ Training writes runs under `runs/<run_name>/`:
 - Writes the structural `audio_params.json` metadata for generated spec folders.
 - Computes dataset-level mean/std and writes those stats back into
   `audio_params.json`.
+- For large datasets, `--storage_dtype int8_affine` writes int8 specs with a
+  companion text file per spec that stores per-mel-bin affine scale and offset.
+- Int8 affine is preferred over fp8 here: per-mel scaling already handles range,
+  so int8 gives 256 uniform levels per mel band instead of fp8's nonuniform
+  exponent spacing.
 - Can be used as a CLI for full directory conversion with optional stats.
 
 ## `src/core/data_structures.py`
@@ -96,6 +127,15 @@ Training writes runs under `runs/<run_name>/`:
   arrays into `.npz` files.
 - Supports optional whitening or PCA-whitening postprocessing for downstream
   UMAP/probe workflows.
+
+## `src/external_models/*.py`
+
+- Wrap AVES, HuBERT, Bird-MAE, and Perch so they use the same recording/event
+  windows and JSON labels as SongMAE.
+- Save one concatenated `embeddings.npz` per run through
+  `src/external_models/data_loader.py`.
+- Use `embeddings.tmp.npz` during writes and rename only after extraction
+  completes.
 
 ## `src/core/utils.py`
 
