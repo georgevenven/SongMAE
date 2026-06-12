@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CSV = Path("/home/george-vengrovski/Downloads/lekking_labels.csv")
 DEFAULT_DST = ROOT / "files" / "tetrao_urogallus_lekking_annotations.json"
 REQUIRED_COLUMNS = {

@@ -17,13 +17,12 @@ from scipy.sparse.linalg import svds
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
-sys.path.append(str(ROOT / "src"))
 
-import extract_embedding  # noqa: E402
-import aves  # noqa: E402
-import bird_mae  # noqa: E402
-import hubert  # noqa: E402
-import perch  # noqa: E402
+from src.core import extract_embedding  # noqa: E402
+from src.external_models import aves  # noqa: E402
+from src.external_models import bird_mae  # noqa: E402
+from src.external_models import hubert  # noqa: E402
+from src.external_models import old_perch as perch  # noqa: E402
 from individual_identification_linear_probe import (  # noqa: E402
     _apply_spec_normalization_preset,
     _pool_recording,

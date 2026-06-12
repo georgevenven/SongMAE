@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = PROJECT_ROOT / "runs"
 CHUNK_MS_RE = re.compile(r"^(?P<base>.+)__ms_(?P<start>\d+)_(?P<end>\d+)$")
 
@@ -81,6 +81,21 @@ def create_label_arr(event, start_timebin, end_timebin):
     return labels
 
 
+def downsample_labels(labels, output_length):
+    if torch.is_tensor(labels):
+        labels = labels.detach().cpu().numpy()
+    labels = np.asarray(labels, dtype=np.int64)
+    assert labels.ndim == 1
+    assert output_length > 0
+    assert labels.size >= output_length
+    out = np.full((output_length,), -1, dtype=np.int64)
+    for index, chunk in enumerate(np.array_split(labels, output_length)):
+        values = chunk[chunk >= 0]
+        if values.size:
+            out[index] = int(values.max())
+    return out
+
+
 def resolve_run_dir(run_dir):
     path = Path(run_dir)
     if path.is_absolute():
@@ -91,11 +106,11 @@ def resolve_run_dir(run_dir):
 
 
 def load_model_from_checkpoint(run_dir, checkpoint_file=None, fallback_to_random=False):
-    from model import TinyBird
+    from .model import SongMAE
 
     run_dir = resolve_run_dir(run_dir)
     config = json.loads((run_dir / "config.json").read_text())
-    model = TinyBird(config)
+    model = SongMAE(config)
 
     if checkpoint_file is None:
         checkpoint = sorted((run_dir / "weights").glob("model_step_*.pth"))[-1]
@@ -110,7 +125,7 @@ def load_model_from_checkpoint(run_dir, checkpoint_file=None, fallback_to_random
 
 
 def load_model_state(run_dir, checkpoint_file=None):
-    from data_structures import ModelConfig
+    from .data_structures import ModelConfig
 
     run_dir = resolve_run_dir(run_dir)
     model, config = load_model_from_checkpoint(run_dir, checkpoint_file)

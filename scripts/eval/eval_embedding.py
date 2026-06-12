@@ -9,9 +9,9 @@ import umap
 from matplotlib import cm
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.append(str(ROOT / "src"))
+sys.path.append(str(ROOT))
 
-import extract_embedding  # noqa: E402
+from src.core import extract_embedding  # noqa: E402
 
 MAX_PLOT_TIMEBINS = 1000
 

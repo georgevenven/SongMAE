@@ -34,7 +34,7 @@ if str(SRC_DIR) not in sys.path:
 
 from aves import AvesClassifier  # noqa: E402
 from supervised_train import SupervisedTinyBird  # noqa: E402
-from utils import load_model_from_checkpoint  # noqa: E402
+from src.core.utils import load_model_from_checkpoint  # noqa: E402
 
 
 def _load_json(path: Path) -> Dict:

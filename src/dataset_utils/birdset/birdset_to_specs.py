@@ -9,9 +9,9 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from audio2spec import compute_spectrogram, write_audio_params, write_waveform_spectrogram
+from src.core.audio2spec import compute_spectrogram, write_audio_params, write_waveform_spectrogram
 
 def merge_intervals(intervals):
     intervals = sorted(intervals)

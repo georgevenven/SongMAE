@@ -37,7 +37,7 @@ if [ "$workers" -lt 1 ]; then workers=1; fi
 
 cd "$HOME/TinyBird"
 
-SPLIT_SCRIPT="dataset_utils/split_train_test.py"
+SPLIT_SCRIPT="src/dataset_utils/split_train_test.py"
 if [ ! -f "$SPLIT_SCRIPT" ]; then
   echo "Could not find $SPLIT_SCRIPT" >&2
   exit 1

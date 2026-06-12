@@ -12,9 +12,9 @@ from matplotlib.colors import ListedColormap
 SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 sys.path.insert(0, SRC_DIR)
 
-from data_loader import SupervisedSpectogramDataset
+from src.core.data_loader import SupervisedSpectogramDataset
 from supervised_train import SupervisedTinyBird
-from utils import load_model_from_checkpoint
+from src.core.utils import load_model_from_checkpoint
 from torch.utils.data import DataLoader
 
 def sliding_window_max_vote(predictions, window_size=100):

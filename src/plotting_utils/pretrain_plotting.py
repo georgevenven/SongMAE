@@ -8,13 +8,11 @@ import torch
 import matplotlib.pyplot as plt
 from torch import nn
 
-from plotting_utils.plotting_utils import (
-    imshow_spec,
+from src.plotting_utils.plotting_utils import (
     masked_cmap,
+    plot_spec,
     save_fig,
-    style_spec_ax,
 )
-
 
 RECON_FIGSIZE = (10.0, 8.0)
 LOSS_FIGSIZE = (8.0, 5.0)
@@ -96,7 +94,6 @@ def save_masked_reconstruction_plot(
         (overlay_img, None, "Reconstruction Overlay"),
     ]
     for ax, (image, cmap, title) in zip(axes, images):
-        imshow_spec(ax, image, spec_shape, cmap=cmap)
-        style_spec_ax(ax, title)
+        plot_spec(ax, image, spec_shape, title, cmap=cmap)
 
     return save_fig(fig, Path(output_dir) / f"recon_step_{step:06d}.png")

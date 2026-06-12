@@ -16,8 +16,8 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")
 _SRC_ROOT = os.path.join(_REPO_ROOT, "src")
 sys.path.insert(0, _SRC_ROOT)
 
-from data_loader import SpectogramDataset
-from utils import load_model_from_checkpoint
+from src.core.data_loader import SpectogramDataset
+from src.core.utils import load_model_from_checkpoint
 
 
 def _sanitize(name: str) -> str:
@@ -55,7 +55,7 @@ def _final_layer_attention_inference(model, x):
 
     last = layers[-1]
 
-    # TransformerEncoderLayer was created with norm_first=True in src/model.py
+    # TransformerEncoderLayer was created with norm_first=True in src/core/model.py
     if getattr(last, "norm_first", False):
         y_attn_in = last.norm1(y)
     else:
@@ -432,4 +432,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

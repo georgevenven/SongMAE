@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # Local deps
-from data_loader import SpectogramDataset
-from utils import load_model_from_checkpoint
+from src.core.data_loader import SpectogramDataset
+from src.core.utils import load_model_from_checkpoint
 
 
 def depatchify(pred_patches, H, W, patch_size):

@@ -19,13 +19,12 @@ from sklearn.utils import check_random_state
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
-sys.path.append(str(ROOT / "src"))
 
-import aves  # noqa: E402
-import bird_mae  # noqa: E402
-import extract_embedding  # noqa: E402
-import hubert  # noqa: E402
-import perch  # noqa: E402
+from src.external_models import aves  # noqa: E402
+from src.external_models import bird_mae  # noqa: E402
+from src.core import extract_embedding  # noqa: E402
+from src.external_models import hubert  # noqa: E402
+from src.external_models import old_perch as perch  # noqa: E402
 
 
 def _default_recording_svd(path):

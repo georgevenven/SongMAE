@@ -12,10 +12,9 @@ from sklearn.metrics import adjusted_rand_score
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
-sys.path.append(str(ROOT / "src"))
 
-import extract_embedding  # noqa: E402
-from utils import load_audio_params, load_json_events, resolve_single_spec_path  # noqa: E402
+from src.core import extract_embedding  # noqa: E402
+from src.core.utils import load_audio_params, load_json_events, resolve_single_spec_path  # noqa: E402
 from individual_id.run_individual_id_umap import (  # noqa: E402
     _build_embedding_representation,
     _fit_umap,

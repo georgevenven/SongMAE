@@ -3,8 +3,8 @@ from pathlib import Path
 import torch
 import random
 import numpy as np
-from utils import create_label_arr, load_json_events, normalize_spectrogram
-from data_structures import AudioParams
+from .utils import create_label_arr, load_json_events, normalize_spectrogram
+from .data_structures import AudioParams
 
 """ Goal is to stay ~100 LoC here """
 

@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT / "src"))
+sys.path.append(str(ROOT))
 
-from data_loader import decode_storage_to_raw, load_quantization_manifest  # noqa: E402
+from src.core.data_loader import decode_storage_to_raw, load_quantization_manifest  # noqa: E402
 from plotting_utils import SPEC_DPI, SPEC_IMSHOW_KW, SPEC_TITLE_KW, SPEC_TITLE_Y  # noqa: E402
 
 

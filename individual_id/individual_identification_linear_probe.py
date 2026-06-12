@@ -18,9 +18,8 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
-sys.path.append(str(ROOT / "src"))
 
-import extract_embedding
+from src.core import extract_embedding
 from run_individual_id_umap import (
     _load_aves_segments,
     _load_bird_mae_segments,
@@ -33,10 +32,10 @@ from run_individual_id_umap import (
     _pool_embeddings,
     _resolve_run_dir,
 )
-import aves
-import bird_mae
-import hubert
-import perch
+from src.external_models import aves
+from src.external_models import bird_mae
+from src.external_models import hubert
+from src.external_models import old_perch as perch
 
 # Perch uses a separate TensorFlow stack. Run this script with:
 # /home/george-vengrovski/anaconda3/envs/perch/bin/python

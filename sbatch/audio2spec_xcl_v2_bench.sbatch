@@ -29,7 +29,7 @@ if [ "$workers" -lt 1 ]; then workers=1; fi
 
 cd "$HOME/TinyBird"
 
-python -u src/audio2spec.py \
+python -u -m src.core.audio2spec \
 --birdset "XCL" \
 --birdset_split "train" \
 --birdset_detections "human" \

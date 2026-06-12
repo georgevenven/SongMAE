@@ -139,7 +139,7 @@ process_one_bird() {
     echo "=== ${species}:${bird_id} ==="
     rm -rf "$prep_out_dir"
     echo "Preparing pool (copy only)..."
-    python "$PROJECT_ROOT/src/bench_utils/copy_bird_pool.py" \
+    python "$PROJECT_ROOT/bench_utils/copy_bird_pool.py" \
         --annotation_file "$annotation_file" \
         --spec_dir "$spec_dir" \
         --out_dir "$pool_dir" \
@@ -238,7 +238,7 @@ PY
     fi
 
     echo "Sampling test/train with solver split..."
-    if ! python "$PROJECT_ROOT/src/bench_utils/solver_split_by_seconds.py" \
+    if ! python "$PROJECT_ROOT/bench_utils/solver_split_by_seconds.py" \
         --pool_dir "$pool_dir" \
         --annotation_json "$filtered_annotation" \
         --test_dir "$test_dir" \
@@ -385,7 +385,7 @@ try:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    sys.path.insert(0, str(Path.cwd() / "src"))
+    sys.path.insert(0, str(Path.cwd()))
     from plotting_utils import save_supervised_prediction_plot
 except Exception as exc:
     print(f"Skipping previews: matplotlib/numpy unavailable ({exc})")

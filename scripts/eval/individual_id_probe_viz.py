@@ -15,10 +15,9 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
-sys.path.append(str(ROOT / "src"))
 sys.path.append(str(ROOT / "individual_id"))
 
-import extract_embedding
+from src.core import extract_embedding
 from individual_identification_linear_probe import (
     _apply_train_feature_postprocess,
     _build_recording_splits,

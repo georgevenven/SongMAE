@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-class TinyBird(nn.Module):
+class SongMAE(nn.Module):
     def __init__(self, config):
         super().__init__()
 
@@ -186,7 +186,7 @@ class TinyBird(nn.Module):
     
     def _forward_encoder_layer(self, layer, x, target_feature_type="end_of_block"):
         if not layer.norm_first:
-            raise RuntimeError("TinyBird teacher feature extraction expects norm_first=True transformer layers.")
+            raise RuntimeError("SongMAE teacher feature extraction expects norm_first=True transformer layers.")
 
         attn_input = layer.norm1(x)
         attn_out = layer.self_attn(attn_input, attn_input, attn_input, need_weights=False)[0]
@@ -226,7 +226,7 @@ class TinyBird(nn.Module):
 
         layers = getattr(self.encoder, "layers", None)
         if layers is None:
-            raise RuntimeError("TinyBird.encoder does not expose .layers; cannot run encoder inference.")
+            raise RuntimeError("SongMAE.encoder does not expose .layers; cannot run encoder inference.")
 
         layer_features = []
         out = z_seq

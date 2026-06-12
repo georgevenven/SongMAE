@@ -208,7 +208,7 @@ echo "  POOL_DIR: $POOL_DIR"
 echo "  TEST_DIR: $TEST_SAMPLE_DIR"
 
 if [ "$USE_PREPARED" -eq 0 ]; then
-    python "$PROJECT_ROOT/src/bench_utils/copy_bird_pool.py" \
+    python "$PROJECT_ROOT/bench_utils/copy_bird_pool.py" \
         --annotation_file "$ANNOTATION_FILE" \
         --spec_dir "$SPEC_DIR" \
         --out_dir "$POOL_DIR" \
@@ -220,7 +220,7 @@ if [ "$USE_PREPARED" -eq 0 ]; then
     TRAIN_SECONDS_TAG="${TRAIN_SECONDS//./p}"
     TRAIN_DIR="$OUT_DIR/$MODE/$BIRD_ID/train_${TRAIN_SECONDS_TAG}s"
 
-    python "$PROJECT_ROOT/src/bench_utils/solver_split_by_seconds.py" \
+    python "$PROJECT_ROOT/bench_utils/solver_split_by_seconds.py" \
         --pool_dir "$POOL_DIR" \
         --annotation_json "$POOL_DIR/annotations_filtered.json" \
         --test_dir "$TEST_SAMPLE_DIR" \

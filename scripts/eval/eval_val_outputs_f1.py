@@ -28,7 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
-from utils import parse_chunk_ms, clip_labels_to_chunk, get_class_id_map_from_annotations
+from src.core.utils import parse_chunk_ms, clip_labels_to_chunk, get_class_id_map_from_annotations
 
 
 def _round_ms(x: float) -> int:

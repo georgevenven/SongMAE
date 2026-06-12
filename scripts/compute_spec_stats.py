@@ -4,9 +4,9 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from audio2spec import write_statistics
+from src.core.audio2spec import write_statistics
 
 
 def main():

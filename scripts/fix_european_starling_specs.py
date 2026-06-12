@@ -16,7 +16,7 @@ from tqdm import tqdm
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.audio2spec import AudioEvent, process_audio_file
+from src.core.audio2spec import AudioEvent, process_audio_file
 
 
 def parse_args() -> argparse.Namespace:

@@ -267,7 +267,7 @@ TEST_SAMPLE_DIR="$OUT_DIR/test"
 if [ "$USE_PREPARED" -eq 0 ]; then
     rm -rf "$OUT_DIR"
 
-    python "$PROJECT_ROOT/src/bench_utils/copy_bird_pool.py" \
+    python "$PROJECT_ROOT/bench_utils/copy_bird_pool.py" \
         --annotation_file "$ANNOTATION_FILE" \
         --spec_dir "$SPEC_DIR" \
         --out_dir "$POOL_DIR" \
@@ -281,7 +281,7 @@ if [ "$USE_PREPARED" -eq 0 ]; then
     TRAIN_DIR="$OUT_DIR/$MODE/$BIRD_ID/train_${TRAIN_SECONDS_TAG}s"
     TEST_SAMPLE_DIR="$OUT_DIR/$MODE/$BIRD_ID/test"
 
-    python "$PROJECT_ROOT/src/bench_utils/solver_split_by_seconds.py" \
+    python "$PROJECT_ROOT/bench_utils/solver_split_by_seconds.py" \
         --pool_dir "$POOL_DIR" \
         --annotation_json "$POOL_DIR/annotations_filtered.json" \
         --test_dir "$TEST_SAMPLE_DIR" \
@@ -317,7 +317,7 @@ if [ ! -f "$ANNOTATION_TRAIN" ]; then
 fi
 
 WAV_MANIFEST="$OUT_DIR/$MODE/$BIRD_ID/wav_manifest.json"
-python "$PROJECT_ROOT/src/bench_utils/build_wav_manifest.py" \
+python "$PROJECT_ROOT/bench_utils/build_wav_manifest.py" \
     --train_dir "$TRAIN_DIR" \
     --val_dir "$TEST_SAMPLE_DIR" \
     --wav_root "$WAV_ROOT" \
@@ -340,7 +340,7 @@ if [ "$CLASS_WEIGHTING" -eq 1 ]; then
 fi
 
 if [ -z "$MS_PER_TIMEBIN" ] && [ -f "$SPEC_DIR/audio_params.json" ]; then
-    MS_PER_TIMEBIN=$(python "$PROJECT_ROOT/src/bench_utils/get_ms_per_timebin.py" \
+    MS_PER_TIMEBIN=$(python "$PROJECT_ROOT/bench_utils/get_ms_per_timebin.py" \
         --spec_dir "$SPEC_DIR")
 fi
 

@@ -12,13 +12,13 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from model import TinyBird
-from data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
-from data_structures import AudioParams, ModelConfig, TrainConfig
-from plotting_utils.pretrain_plotting import save_loss_curve, save_masked_reconstruction_plot
+from .model import SongMAE
+from .data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
+from .data_structures import AudioParams, ModelConfig, TrainConfig
+from src.plotting_utils.pretrain_plotting import save_loss_curve, save_masked_reconstruction_plot
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = PROJECT_ROOT / "runs"
 DEFAULT_CONFIG = {
     "task": "unsupervised",
@@ -182,7 +182,7 @@ class Trainer:
             f.write(f"{step},{split},{loss:.8f}\n")
 
     def build_model(self):
-        return TinyBird(self.config)
+        return SongMAE(self.config)
 
     def raw_model(self):
         return self.model.module if self.distributed else self.model
@@ -288,7 +288,7 @@ class UnsupervisedTrainer(Trainer):
 
 class SupervisedTrainer(Trainer):
     def build_model(self):
-        return TinyBird(self.config)  # TODO: SupervisedTinyBird (encoder backbone + head)
+        return SongMAE(self.config)  # TODO: supervised SongMAE head
 
     def build_datasets(self):
         c = self.config
