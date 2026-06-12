@@ -134,9 +134,7 @@ def birdset_to_specs(
             audio = sample["audio"]
             name = sample_name(sample, index)
             events = annotation_events(sample, detection_mode)
-            record = None
-            if detection_mode != "none":
-                record = recording_payload(sample, f"{name}.wav", events)
+            record = recording_payload(sample, f"{name}.wav", events)
 
             task = (
                 index,
@@ -161,11 +159,10 @@ def birdset_to_specs(
 
         collect_records(pending, records)
 
-    if detection_mode != "none":
-        records = [record for _, record in sorted(records)]
-        annotations = {"metadata": {"units": "ms"}, "recordings": records}
-        path = out_dir / f"{birdset}_{split}_annotations.json"
-        path.write_text(json.dumps(annotations, indent=2) + "\n")
+    records = [record for _, record in sorted(records)]
+    annotations = {"metadata": {"units": "ms"}, "recordings": records}
+    path = out_dir / f"{birdset}_{split}_annotations.json"
+    path.write_text(json.dumps(annotations, indent=2) + "\n")
 
 
 def main():
