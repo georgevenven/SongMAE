@@ -132,12 +132,10 @@ def load_arrays(path):
     return features, labels
 
 
-def sample(features, labels, max_points, seed):
+def limit_points(features, labels, max_points):
     if max_points <= 0 or features.shape[0] <= max_points:
         return features, labels
-    rng = np.random.default_rng(seed)
-    keep = np.sort(rng.choice(features.shape[0], size=max_points, replace=False))
-    return features[keep], labels[keep]
+    return features[:max_points], labels[:max_points]
 
 
 def fit_umap(features, args):
@@ -183,7 +181,7 @@ def run_model(model, args):
     model_dir = Path(args.out_dir) / model
     source = extract(model, args, model_dir)
     features, labels = load_arrays(source)
-    features, labels = sample(features, labels, args.max_points, args.seed)
+    features, labels = limit_points(features, labels, args.max_points)
     xy = fit_umap(features, args)
     np.save(model_dir / "umap_points.npy", xy)
     np.save(model_dir / "labels.npy", labels)
