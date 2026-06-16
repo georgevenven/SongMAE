@@ -25,7 +25,7 @@ def split_models(models):
     out = [model.strip() for model in models.split(",") if model.strip()]
     assert out
     for model in out:
-        assert model in {"songmae", *RAW_MODELS}, f"unknown model: {model}"
+        assert model in {"songmae", "songmae_random", *RAW_MODELS}, f"unknown model: {model}"
     return out
 
 
@@ -47,7 +47,7 @@ def model_env(model, args):
     return env
 
 
-def songmae_command(args, out_path):
+def songmae_command(model, args, out_path):
     assert args.songmae_run_dir, "--songmae_run_dir is required for model=songmae"
     cmd = [
         sys.executable,
@@ -70,6 +70,8 @@ def songmae_command(args, out_path):
     add_arg(cmd, "--bird", args.bird)
     add_arg(cmd, "--recording_stem", args.recording_stem)
     add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
+    if model == "songmae_random":
+        cmd.append("--random_init")
     return cmd
 
 
@@ -108,11 +110,11 @@ def raw_command(model, args, out_dir):
 
 
 def extract(model, args, model_dir):
-    if model == "songmae":
+    if model in {"songmae", "songmae_random"}:
         out_path = model_dir / "embeddings.npz"
         if not (args.reuse and out_path.exists()):
             model_dir.mkdir(parents=True, exist_ok=True)
-            run(songmae_command(args, out_path))
+            run(songmae_command(model, args, out_path))
         return out_path
 
     out_path = model_dir / "embeddings.npz"
@@ -139,10 +141,9 @@ def limit_points(features, labels, max_points):
 
 
 def fit_umap(features, args):
-    assert features.shape[0] >= 2, "need at least two points for UMAP"
     reducer = umap.UMAP(
         n_components=2,
-        n_neighbors=min(args.umap_neighbors, features.shape[0] - 1),
+        n_neighbors=args.umap_neighbors,
         min_dist=args.umap_min_dist,
         metric=args.umap_metric,
         random_state=args.seed if args.deterministic else None,
@@ -190,7 +191,7 @@ def run_model(model, args):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Extract embeddings and make label-colored UMAPs.")
+    parser = argparse.ArgumentParser(description="Extract embeddings and make one-bird syllable UMAPs.")
     parser.add_argument("--spec_dir", required=True)
     parser.add_argument("--annotation_file", required=True)
     parser.add_argument("--out_dir", required=True)
@@ -198,7 +199,7 @@ def parse_args():
     parser.add_argument("--wav_dir")
     parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
     parser.add_argument("--recording_stem")
-    parser.add_argument("--bird")
+    parser.add_argument("--bird", required=True)
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--max_points", type=int, default=100000)
     parser.add_argument("--seed", type=int, default=42)

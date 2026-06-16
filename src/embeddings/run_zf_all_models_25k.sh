@@ -7,7 +7,6 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 SPEC_DIR="${SPEC_DIR:-/media/george-vengrovski/disk2/specs/zf_64hop_32khz}"
 WAV_DIR="${WAV_DIR:-/media/george-vengrovski/disk2/raw_data/avn_zf_data}"
 ANNOTATION_FILE="${ANNOTATION_FILE:-$ROOT/files/zf_annotations.json}"
-OUT_DIR="${OUT_DIR:-$ROOT/results/embeddings/zf_all_models_25k}"
 SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/zf_songmae_32h10_bs128_10k_e2e}"
 
 MODELS="${MODELS:-songmae,aves,bird_mae,hubert,perch2}"
@@ -24,8 +23,15 @@ PERCH_PYTHON="${PERCH_PYTHON:-/home/george-vengrovski/anaconda3/envs/perch/bin/p
 PERCH_CUDNN_DIR="${PERCH_CUDNN_DIR:-/home/george-vengrovski/anaconda3/envs/perch/lib/python3.11/site-packages/nvidia/cudnn/lib}"
 
 cd "$ROOT"
+if [[ -z "$BIRD" ]]; then
+  echo "BIRD is required, e.g. BIRD=B145 $0" 1>&2
+  exit 1
+fi
+
+OUT_DIR="${OUT_DIR:-$ROOT/results/embeddings/zf_${BIRD}_all_models_25k}"
+
 cmd=(
-  "$PYTHON_BIN" -m src.embeddings.umap
+  "$PYTHON_BIN" -m src.embeddings.syllable_umap
   --spec_dir "$SPEC_DIR"
   --wav_dir "$WAV_DIR"
   --annotation_file "$ANNOTATION_FILE"
@@ -44,7 +50,7 @@ cmd=(
 )
 
 if [[ -n "$RECORDING_STEM" ]]; then cmd+=(--recording_stem "$RECORDING_STEM"); fi
-if [[ -n "$BIRD" ]]; then cmd+=(--bird "$BIRD"); fi
+cmd+=(--bird "$BIRD")
 if [[ "$REUSE" == "1" ]]; then cmd+=(--reuse); fi
 
 PYTHONPATH="$ROOT" "${cmd[@]}"
