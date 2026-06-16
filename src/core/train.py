@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
     "min_lr": 1e-5,
     "patch_height": 32,
     "patch_width": 1,
-    "num_timebins": 1024,
+    "num_timebins": 1000,
     "dropout": 0.1,
     "mask_p": 0.75,
     "mask_c": 0.1,

@@ -102,7 +102,7 @@ def birdset_to_specs(
     out_dir,
     detection_mode="none",
     sr=32_000,
-    hop_size=64,
+    hop_size=160,
     n_fft=1024,
     n_mels=128,
     take_n=None,
@@ -195,7 +195,7 @@ def main():
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--detections", choices=["none", "human", "bambird"], default="none")
     parser.add_argument("--sr", type=int, default=32_000)
-    parser.add_argument("--hop_size", type=int, default=64)
+    parser.add_argument("--hop_size", type=int, default=160)
     parser.add_argument("--n_fft", type=int, default=1024)
     parser.add_argument("--n_mels", type=int, default=128)
     parser.add_argument("--take_n", type=int)

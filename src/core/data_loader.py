@@ -69,7 +69,7 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
         self,
         dir,
         annotation_file=None,
-        n_timebins=1024,
+        n_timebins=1000,
         recording_mode="full_recordings",
         recording_stem=None,
         recording_stems=None,
