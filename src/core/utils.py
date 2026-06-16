@@ -42,6 +42,40 @@ def load_spec(path):
         return load_int8_spec(path)
     return np.array(arr, dtype=np.float32, copy=True)
 
+
+def load_spec_slice(path, start, end):
+    arr = np.load(path, mmap_mode="r")
+    sliced = arr[:, start:end]
+    if arr.dtype == np.int8:
+        affine = np.loadtxt(Path(path).with_suffix(".txt"), dtype=np.float32)
+        affine = np.atleast_2d(affine)
+        return sliced.astype(np.float32) * affine[:, 0, None] + affine[:, 1, None]
+    return np.array(sliced, dtype=np.float32, copy=True)
+
+
+def list_spec_items(data_dir):
+    data_dir = Path(data_dir)
+    paths = sorted(data_dir.glob("*.npy"))
+    if paths:
+        return paths
+
+    index = data_dir / "shards" / "index.tsv"
+    if not index.exists():
+        return []
+
+    items = []
+    for line in index.read_text().splitlines()[1:]:
+        name, shard, start, end = line.split("\t")
+        items.append((data_dir / "shards" / shard, int(start), int(end), name))
+    return items
+
+
+def load_spec_item(item):
+    if isinstance(item, Path):
+        return load_spec(item), item.stem
+    path, start, end, name = item
+    return load_spec_slice(path, start, end), name
+
 def normalize_spectrogram(arr, mean, std):
     arr = np.asarray(arr, dtype=np.float32)
     return ((arr - np.float32(mean)) / np.float32(std)).astype(np.float32)

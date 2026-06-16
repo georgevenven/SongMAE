@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import shutil
 from dataclasses import asdict, fields
@@ -46,7 +47,7 @@ DEFAULT_CONFIG = {
     "dec_n_head": 6,
     "dec_n_layer": 2,
     "dec_dim_ff": 768,
-    "amp": False,
+    "amp": True,
     "wandb": False,
     "recording_mode": "full_recordings",
 }
@@ -102,9 +103,11 @@ class Trainer:
         self.steps = config["steps"]
         self.end_step = self.start_step + self.steps - 1
         self.eval_every = config.get("eval_every", 500)
+        assert config["batch_size"] % self.world_size == 0
+        self.batch_size = config["batch_size"] // self.world_size
         n_params = sum(p.numel() for p in self.model.parameters())
         self.write_log(f"run={self.run_dir}")
-        self.write_log(f"device={self.device} | ddp={self.world_size} | params={n_params:,} | steps={self.steps}")
+        self.write_log(f"device={self.device} | ddp={self.world_size} | params={n_params:,} | steps={self.steps} | batch={config['batch_size']}")
 
     def barrier(self):
         if self.distributed:
@@ -200,13 +203,28 @@ class Trainer:
             value /= self.world_size
         return value.item()
 
-    def step(self, batch, train=True):
+    def learning_rate(self, step):
+        warmup = self.config.get("warmup_steps", 0)
+        lr = self.config["lr"]
+        min_lr = self.config.get("min_lr", 0.0)
+        if warmup and step < warmup:
+            return lr * (step + 1) / warmup
+        progress = (step - warmup) / max(1, self.end_step + 1 - warmup)
+        return min_lr + 0.5 * (lr - min_lr) * (1 + math.cos(math.pi * progress))
+
+    def set_learning_rate(self, step):
+        lr = self.learning_rate(step)
+        for group in self.optimizer.param_groups:
+            group["lr"] = lr
+
+    def step(self, batch, train=True, step=0):
         self.model.train() if train else self.model.eval()
         with torch.set_grad_enabled(train):
             with torch.amp.autocast("cuda", enabled=self.use_amp):
                 loss = self.forward_loss(batch)
         mean_loss = self.mean_loss(loss)
         if train:
+            self.set_learning_rate(step)
             self.optimizer.zero_grad(set_to_none=True)
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
@@ -223,8 +241,7 @@ class Trainer:
         train_ds, val_ds = self.build_datasets()
         train_sampler = DistributedSampler(train_ds) if self.distributed else None
         val_sampler = DistributedSampler(val_ds, shuffle=False) if self.distributed else None
-        kw = dict(batch_size=self.config["batch_size"],
-                  num_workers=self.config.get("num_workers", 4), pin_memory=True)
+        kw = dict(batch_size=self.batch_size, num_workers=self.config.get("num_workers", 4), pin_memory=True)
         train_loader = DataLoader(train_ds, shuffle=train_sampler is None, sampler=train_sampler, **kw)
         val_loader = DataLoader(val_ds, shuffle=False, sampler=val_sampler, **kw)
         train_iter, val_iter = iter(train_loader), iter(val_loader)
@@ -237,7 +254,7 @@ class Trainer:
             except StopIteration:
                 train_iter = iter(train_loader)
                 batch = next(train_iter)
-            train_loss = self.step(batch, train=True)
+            train_loss = self.step(batch, train=True, step=step)
             self.write_loss(step, "train", train_loss)
 
             if step % self.eval_every == 0:
@@ -269,7 +286,8 @@ class UnsupervisedTrainer(Trainer):
 
     def forward_loss(self, batch):
         x = batch[0].to(self.device, non_blocking=True)
-        return self.model(x)
+        valid_timebins = batch[2].to(self.device, non_blocking=True)
+        return self.model(x, valid_timebins=valid_timebins)
 
     def save_reconstruction(self, batch, step):
         sample_idx = (step // self.eval_every) % batch[0].shape[0]

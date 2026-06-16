@@ -3,18 +3,18 @@ from pathlib import Path
 import torch
 import random
 import numpy as np
-from .utils import create_label_arr, load_json_events, load_spec, normalize_spectrogram
+from .utils import create_label_arr, list_spec_items, load_json_events, load_spec, load_spec_item, normalize_spectrogram
 from .data_structures import AudioParams
 
 """ Goal is to stay ~100 LoC here """
 
 # loading files
 class SpectrogramDataset(Dataset):
-    def __init__(self, dir, n_timebins=1024, normalize=True):
+    def __init__(self, dir, n_timebins=1000, normalize=True):
         """
         n_timebins = None means no cropping
         """
-        self.file_dirs = sorted(list(Path(dir).glob("*.npy")))
+        self.file_dirs = list_spec_items(dir)
         if not len(self.file_dirs): raise SystemExit("no files!")
 
         self.params = AudioParams.from_dir(dir)
@@ -50,17 +50,15 @@ class SpectrogramDataset(Dataset):
         return arr, 0, t
 
     def __getitem__(self, index):
-        path = self.file_dirs[index]
-        fname = path.stem
-        arr = load_spec(path)
+        arr, fname = load_spec_item(self.file_dirs[index])
 
-        arr, _, _ = self._crop_pad(arr)
+        arr, start, end = self._crop_pad(arr)
 
         if self.normalize:
             arr = normalize_spectrogram(arr, self.mean, self.std)
         spec = torch.from_numpy(arr).unsqueeze(0)
 
-        return spec, fname
+        return spec, fname, end - start
 
     def __len__(self):
         return len(self.file_dirs)
@@ -79,6 +77,8 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
         normalize=True,
     ):
         super().__init__(dir, n_timebins=n_timebins, normalize=normalize)
+        if not all(isinstance(path, Path) for path in self.file_dirs):
+            raise SystemExit("supervised datasets need single-file spectrograms")
         self.recording_mode = recording_mode
         if recording_stems is not None:
             wanted = set(recording_stems)

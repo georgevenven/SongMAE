@@ -144,7 +144,18 @@ class SongMAE(nn.Module):
         H, W = hw
         return torch.rand((H, W), device=device) < p
 
-    def forward_encoder(self, x, inference_mode: bool = False):
+    def valid_token_mask(self, valid_timebins, H, W, device):
+        if valid_timebins is None:
+            return None
+        valid_cols = torch.div(
+            valid_timebins.to(device) + self.patch_size[1] - 1,
+            self.patch_size[1],
+            rounding_mode="floor",
+        ).clamp(max=W)
+        cols = torch.arange(W, device=device).repeat(H)
+        return cols.unsqueeze(0) < valid_cols.unsqueeze(1)
+
+    def forward_encoder(self, x, inference_mode: bool = False, valid_timebins=None):
         """
         Patchify → add pos enc → mask → Transformer encoder.
         Returns:
@@ -158,11 +169,13 @@ class SongMAE(nn.Module):
         z = z + pos_enc
         z_seq = z.flatten(2).transpose(1, 2)        # (B, T, D_enc)
         T = z_seq.size(1)
+        valid_tokens = self.valid_token_mask(valid_timebins, H, W, z.device)
 
         if inference_mode:
             bool_mask = torch.zeros((B, T), dtype=torch.bool, device=z.device)
             idx_restore = torch.arange(T, device=z.device).unsqueeze(0).expand(B, -1)
-            h = self.encoder(z_seq)  # (B, T, D_enc)
+            key_padding_mask = None if valid_tokens is None else ~valid_tokens
+            h = self.encoder(z_seq, src_key_padding_mask=key_padding_mask)  # (B, T, D_enc)
             return h, idx_restore, bool_mask, T
 
         mask_type = getattr(self, "mask_type", "voronoi")
@@ -172,24 +185,33 @@ class SongMAE(nn.Module):
             mask_grid = self.voronoi_mask((H, W), p=self.mask_p, c=self.mask_c, device=z.device)
         bool_mask_flat = mask_grid.flatten()
         bool_mask = bool_mask_flat.unsqueeze(0).expand(B, -1)               # (B, T)
+        if valid_tokens is not None:
+            bool_mask = bool_mask & valid_tokens
 
         keep_indices = torch.nonzero(~bool_mask_flat, as_tuple=False).squeeze(1)
         mask_indices = torch.nonzero(bool_mask_flat, as_tuple=False).squeeze(1)
 
         z_keep = torch.index_select(z_seq, 1, keep_indices)                 # (B, keep, D_enc)
+        keep_padding_mask = None if valid_tokens is None else ~valid_tokens[:, keep_indices]
 
         perm = torch.cat([keep_indices, mask_indices], dim=0)               # kept-first layout
         idx_restore = perm.argsort().unsqueeze(0).expand(B, -1)             # (B, T)
 
-        h = self.encoder(z_keep)                   # (B, keep, D_enc)
+        h = self.encoder(z_keep, src_key_padding_mask=keep_padding_mask)    # (B, keep, D_enc)
         return h, idx_restore, bool_mask, T
     
-    def _forward_encoder_layer(self, layer, x, target_feature_type="end_of_block"):
+    def _forward_encoder_layer(self, layer, x, target_feature_type="end_of_block", key_padding_mask=None):
         if not layer.norm_first:
             raise RuntimeError("SongMAE teacher feature extraction expects norm_first=True transformer layers.")
 
         attn_input = layer.norm1(x)
-        attn_out = layer.self_attn(attn_input, attn_input, attn_input, need_weights=False)[0]
+        attn_out = layer.self_attn(
+            attn_input,
+            attn_input,
+            attn_input,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )[0]
         attn_out = layer.dropout1(attn_out)
         x = x + attn_out
 
@@ -216,6 +238,7 @@ class SongMAE(nn.Module):
         encoder_layer_idx=None,
         average_top_k=None,
         target_feature_type="end_of_block",
+        valid_timebins=None,
     ):
         z = self.patch_projection(x)               # (B, D_enc, H', W')
         B, D, H, W = z.shape
@@ -223,6 +246,8 @@ class SongMAE(nn.Module):
         pos_enc = self.pos_enc[:, :, :H, :W]
         z = z + pos_enc
         z_seq = z.flatten(2).transpose(1, 2)        # (B, T, D_enc)
+        valid_tokens = self.valid_token_mask(valid_timebins, H, W, z.device)
+        key_padding_mask = None if valid_tokens is None else ~valid_tokens
 
         layers = getattr(self.encoder, "layers", None)
         if layers is None:
@@ -231,7 +256,12 @@ class SongMAE(nn.Module):
         layer_features = []
         out = z_seq
         for layer in layers:
-            out, feature = self._forward_encoder_layer(layer, out, target_feature_type=target_feature_type)
+            out, feature = self._forward_encoder_layer(
+                layer,
+                out,
+                target_feature_type=target_feature_type,
+                key_padding_mask=key_padding_mask,
+            )
             layer_features.append(feature)
 
         if average_top_k is not None:
@@ -254,7 +284,7 @@ class SongMAE(nn.Module):
             h = layer_features[idx]
         return h, z_seq # z seq is encoded patches + pos enc 
 
-    def forward_decoder(self, h, idx_restore, T):
+    def forward_decoder(self, h, idx_restore, T, valid_timebins=None):
         """
         Project to decoder dim → insert mask tokens → unshuffle → add pos → decode → predict pixels.
         Returns:
@@ -273,19 +303,22 @@ class SongMAE(nn.Module):
 
         # Convert 2D pos enc to 1D sequence format for decoder
         # We need to determine H, W from T and the original patch grid dimensions
-        H_max, W_max = self.pos_enc.size(2), self.pos_enc.size(3)
+        H_max = self.pos_enc.size(2)
+        W = T // H_max
         # Assume the patches fill the grid in row-major order
-        pos_enc_seq = self.pos_enc.flatten(2, 3).transpose(1, 2)[:, :T, :]  # (1, T, D_enc)
+        pos_enc_seq = self.pos_enc[:, :, :, :W].flatten(2, 3).transpose(1, 2)  # (1, T, D_enc)
         pos_dec = self.encoder_to_decoder(pos_enc_seq)    # (1, T, D_dec)
         y_full = y_full + pos_dec
 
-        d = self.decoder(y_full)                                     # (B, T, D_dec)
+        valid_tokens = self.valid_token_mask(valid_timebins, H_max, W, y_full.device)
+        key_padding_mask = None if valid_tokens is None else ~valid_tokens
+        d = self.decoder(y_full, src_key_padding_mask=key_padding_mask)     # (B, T, D_dec)
         pred = self.decoder_to_pixel(d)                               # (B, T, P)
         return pred
 
-    def forward(self, x):
-        h, idx_restore, bool_mask, T = self.forward_encoder(x)
-        pred = self.forward_decoder(h, idx_restore, T)
+    def forward(self, x, valid_timebins=None):
+        h, idx_restore, bool_mask, T = self.forward_encoder(x, valid_timebins=valid_timebins)
+        pred = self.forward_decoder(h, idx_restore, T, valid_timebins=valid_timebins)
         return self.loss_mse(x, pred, bool_mask)
 
     def loss_mse(self, x, pred, bool_mask):

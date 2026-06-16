@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from src.core.audio2spec import compute_spectrogram, write_audio_params, write_waveform_spectrogram
+from src.core.audio2spec import DEFAULT_SHARD_SIZE, compute_spectrogram, write_audio_params, write_shard_index, write_spec_shard, write_waveform_spectrogram
 from src.core.utils import write_spec
 
 def merge_intervals(intervals):
@@ -77,19 +77,15 @@ def write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_
 
 
 def write_sample_spectrogram(task):
-    index, wav, out_dir, name, detection_mode, events, record, sr, n_fft, hop_size, n_mels, storage_dtype = task
+    index, wav, out_dir, name, detection_mode, events, record, sr, n_fft, hop_size, n_mels, storage_dtype, shard_size = task
+    if shard_size:
+        spec = compute_spectrogram(wav, sr, n_fft, hop_size, n_mels)
+        return index, record, name, spec
     if detection_mode == "bambird":
         write_event_spectrograms(wav, out_dir, name, events, sr, n_fft, hop_size, n_mels, storage_dtype)
     else:
         write_waveform_spectrogram(wav, out_dir / f"{name}.npy", sr, n_fft, hop_size, n_mels, storage_dtype)
-    return index, record
-
-
-def collect_records(done, records):
-    for future in done:
-        index, record = future.result()
-        if record is not None:
-            records.append((index, record))
+    return index, record, None, None
 
 
 def sample_name(sample, index):
@@ -112,19 +108,39 @@ def birdset_to_specs(
     take_n=None,
     workers=1,
     storage_dtype="float32",
+    shard_size=DEFAULT_SHARD_SIZE,
 ):
     from datasets import Audio, load_dataset
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     write_audio_params(out_dir, sr, n_fft, hop_size, n_mels, storage_dtype)
+    assert shard_size >= 0
+    assert detection_mode != "bambird" or shard_size == 0
 
-    dataset = load_dataset("DBD-research-group/BirdSet", birdset, split=split, streaming=True)
+    dataset = load_dataset("DBD-research-group/BirdSet", birdset, split=split, streaming=True, trust_remote_code=True)
     dataset = dataset.cast_column("audio", Audio(sampling_rate=sr))
 
     assert workers > 0
     records = []
+    shard_rows = []
+    index_rows = []
+    shard_index = 0
     pending = set()
+
+    def collect(done):
+        nonlocal shard_index, shard_rows
+        for future in done:
+            index, record, name, spec = future.result()
+            if record is not None:
+                records.append((index, record))
+            if not shard_size:
+                continue
+            shard_rows.append((name, spec))
+            if len(shard_rows) == shard_size:
+                index_rows.extend(write_spec_shard(out_dir, shard_index, shard_rows, storage_dtype))
+                shard_index += 1
+                shard_rows = []
 
     with futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for index, sample in enumerate(dataset, start=1):
@@ -149,16 +165,22 @@ def birdset_to_specs(
                 hop_size,
                 n_mels,
                 storage_dtype,
+                shard_size,
             )
             pending.add(pool.submit(write_sample_spectrogram, task))
             if len(pending) >= workers * 2:
                 done, pending = futures.wait(pending, return_when=futures.FIRST_COMPLETED)
-                collect_records(done, records)
+                collect(done)
 
             if index % 250 == 0:
                 print(f"processed {index} samples")
 
-        collect_records(pending, records)
+        collect(pending)
+
+    if shard_rows:
+        index_rows.extend(write_spec_shard(out_dir, shard_index, shard_rows, storage_dtype))
+    if shard_size:
+        write_shard_index(out_dir, index_rows)
 
     records = [record for _, record in sorted(records)]
     annotations = {"metadata": {"units": "ms"}, "recordings": records}
@@ -179,6 +201,7 @@ def main():
     parser.add_argument("--take_n", type=int)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--storage_dtype", choices=["float32", "int8_affine"], default="float32")
+    parser.add_argument("--shard_size", type=int, default=DEFAULT_SHARD_SIZE)
     args = parser.parse_args()
 
     birdset_to_specs(
@@ -193,6 +216,7 @@ def main():
         args.take_n,
         args.workers,
         args.storage_dtype,
+        args.shard_size,
     )
 
 

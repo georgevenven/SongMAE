@@ -62,10 +62,11 @@ def save_masked_reconstruction_plot(
     sample_idx=0,
 ):
     x = batch[0].to(device, non_blocking=True)
+    valid_timebins = batch[2].to(device, non_blocking=True) if len(batch) > 2 else None
     model.eval()
     with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp):
-        h, idx_restore, bool_mask, token_count = model.forward_encoder(x)
-        pred = model.forward_decoder(h, idx_restore, token_count)
+        h, idx_restore, bool_mask, token_count = model.forward_encoder(x, valid_timebins=valid_timebins)
+        pred = model.forward_decoder(h, idx_restore, token_count, valid_timebins=valid_timebins)
 
     patch_size = config["patch_size"]
     spec_shape = (config["mels"], config["num_timebins"])

@@ -81,10 +81,14 @@ def _extract_segment_arrays(
 
     _, mel, _ = spec_tensor.shape
     batched_spec = spec_tensor.reshape(1, mel, batch_size, model_num_timebins).permute(2, 0, 1, 3)
+    valid_timebins = torch.full((batch_size,), model_num_timebins, dtype=torch.long, device=device)
+    if pad_amount > 0:
+        valid_timebins[-1] = model_num_timebins - pad_amount
     with torch.no_grad():
         encoded, _ = model.forward_encoder_inference(
             batched_spec,
             encoder_layer_idx=encoder_layer_idx,
+            valid_timebins=valid_timebins,
         )
 
     hidden_dim = encoded.shape[2]

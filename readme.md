@@ -13,6 +13,10 @@ data structures, dataloaders, training, extraction, and small shared utilities.
 Dataset converters, embedding runners, external model wrappers, and plotting
 helpers live in sibling folders under `src/`.
 
+**Goal: keep `src/core/` under 1500 LoC.** This is a hard ceiling to prevent
+slop — if a change pushes core over the limit, simplify or move code into a
+sibling folder instead of growing core.
+
 ## Core Data Files
 
 - `audio_params.json`: stored beside every spectrogram dataset and copied into
