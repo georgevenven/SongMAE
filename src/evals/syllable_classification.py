@@ -32,8 +32,11 @@ def token_groups(data, stems, count):
 def load_embeddings(path, feature_key):
     data = np.load(path, allow_pickle=True)
     x = data[feature_key].astype(np.float32, copy=False)
-    x = x.reshape(x.shape[0], -1)
     y = class_labels(data["labels_downsampled"])
+    if x.shape[0] != y.shape[0]:
+        assert feature_key == "spectrograms", f"{feature_key} rows do not match labels"
+        x = np.asarray([chunk.mean(axis=0) for chunk in np.array_split(x, y.shape[0])], dtype=np.float32)
+    x = x.reshape(x.shape[0], -1)
     assert x.shape[0] == y.shape[0], path
     stems, starts, ends = token_spans(data, x.shape[0])
     spans = list(zip(stems.tolist(), starts.tolist(), ends.tolist()))

@@ -5,15 +5,11 @@ import torch
 import torch.nn.functional as F
 
 from .data_loader import SpectrogramDatasetSupervised
-from .utils import downsample_labels, normalize_spectrogram, timebins_to_ms
-from .utils import load_audio_params, load_model_state
+from .utils import downsample_labels, timebins_to_ms
+from .utils import load_model_state
 
 def load_recording_segments(args):
-    max_timebins = args.get("num_timebins")
-    if max_timebins is not None:
-        max_timebins = int(max_timebins)
-        if max_timebins <= 0:
-            max_timebins = None
+    max_timebins = int(args.get("num_timebins") or 0)
 
     ds = SpectrogramDatasetSupervised(
         args["spec_dir"],
@@ -23,20 +19,19 @@ def load_recording_segments(args):
         recording_stem=args.get("recording_stem"),
         recording_stems=args.get("recording_stems"),
         selected_bird=args.get("bird"),
-        normalize=False,
     )
     segments = []
     collected_timebins = 0
     audio_params = (ds.params.sr, ds.params.mels, ds.params.hop_size, ds.params.fft)
     for idx in range(len(ds)):
-        if max_timebins is not None and collected_timebins >= max_timebins:
+        if max_timebins > 0 and collected_timebins >= max_timebins:
             break
         _, event = ds.samples[idx]
         spec, labels, stem = ds[idx]
         spec = spec.squeeze(0).numpy()
         labels = labels.numpy()
         start_timebin = 0 if event is None else int(event["on_timebins"])
-        if max_timebins is not None:
+        if max_timebins > 0:
             remaining = max_timebins - collected_timebins
             spec = spec[:, :remaining]
             labels = labels[:remaining]
@@ -59,28 +54,6 @@ def load_recording_segments(args):
         "audio_params": audio_params,
         "segments": segments,
     }
-
-
-def _load_normalization_stats(args, model_state):
-    stats_dir = args.get("normalization_stats_dir") or model_state["run_dir"]
-    audio = load_audio_params(stats_dir)
-    return np.float32(audio["mean"]), np.float32(audio["std"])
-
-
-def normalize_recording_segments(segments, mean, std):
-    normalized = []
-    for segment in segments:
-        normalized.append(
-            {
-                "recording_stem": segment["recording_stem"],
-                "song_id": segment["song_id"],
-                "start_ms": segment["start_ms"],
-                "end_ms": segment["end_ms"],
-                "spectrogram": normalize_spectrogram(segment["spectrogram"], mean, std),
-                "labels_original": segment["labels_original"],
-            }
-        )
-    return normalized
 
 
 def _extract_segment_arrays(
@@ -155,15 +128,9 @@ def extract_recording_embeddings_with_state(args, model_state):
     num_patches_height = model_state["num_patches_height"]
 
     raw = load_recording_segments(args)
-    mean, std = _load_normalization_stats(args, model_state)
-    raw_segments = normalize_recording_segments(
-        raw["segments"],
-        mean,
-        std,
-    )
     segment_states = []
 
-    for raw_segment in raw_segments:
+    for raw_segment in raw["segments"]:
         state = _extract_segment_arrays(
             spec_segment=raw_segment["spectrogram"],
             labels_segment=raw_segment["labels_original"],
