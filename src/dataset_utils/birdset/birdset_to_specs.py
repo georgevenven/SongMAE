@@ -193,7 +193,7 @@ def main():
     parser.add_argument("--birdset", required=True)  # like XCM or XCL
     parser.add_argument("--split", default="train")
     parser.add_argument("--out_dir", required=True)
-    parser.add_argument("--detections", choices=["none", "human", "bambird"], default="none")
+    parser.add_argument("--detections", choices=["none", "human", "bambird"], default="none") # not sure what human is, prolly can nuke this 
     parser.add_argument("--sr", type=int, default=32_000)
     parser.add_argument("--hop_size", type=int, default=160)
     parser.add_argument("--n_fft", type=int, default=1024)
