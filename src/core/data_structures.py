@@ -109,6 +109,7 @@ class TrainConfig(JsonDataclass):
     warmup_steps: int = 0
     min_lr: float = 0.0
     amp: bool = False
+    amp_dtype: str = "bf16"
     wandb: bool = False
     annotation_file: str | None = None
     recording_mode: str = "full_recordings"
@@ -116,6 +117,7 @@ class TrainConfig(JsonDataclass):
     def __post_init__(self):
         assert self.task in ("unsupervised", "supervised")
         assert self.recording_mode in ("events", "full_recordings")
+        assert self.amp_dtype in ("bf16", "fp16")
         assert self.task == "unsupervised" or self.annotation_file
 
 

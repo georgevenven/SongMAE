@@ -2,6 +2,70 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+
+class SDPABlock(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward, dropout):
+        super().__init__()
+        assert d_model % nhead == 0
+        self.nhead = nhead
+        self.head_dim = d_model // nhead
+        self.attn_dropout = dropout
+        self.norm1 = nn.LayerNorm(d_model)
+        self.qkv = nn.Linear(d_model, 3 * d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+    def attention(self, x, key_padding_mask=None):
+        B, T, D = x.shape
+        q, k, v = self.qkv(x).view(B, T, 3, self.nhead, self.head_dim).unbind(2)
+        q, k, v = [t.transpose(1, 2) for t in (q, k, v)]
+        attn_mask = None
+        if key_padding_mask is not None and key_padding_mask.any():
+            attn_mask = ~key_padding_mask[:, None, None, :]
+        x = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attn_mask,
+            dropout_p=self.attn_dropout if self.training else 0.0,
+            is_causal=False,
+        )
+        return x.transpose(1, 2).reshape(B, T, D)
+
+    def forward_features(self, x, key_padding_mask=None, target_feature_type="end_of_block"):
+        x = x + self.dropout1(self.out_proj(self.attention(self.norm1(x), key_padding_mask)))
+        ffn_out = self.linear2(self.dropout(F.relu(self.linear1(self.norm2(x)))))
+        ffn_out = self.dropout2(ffn_out)
+        if target_feature_type == "ffn":
+            feature = ffn_out
+        elif target_feature_type == "end_of_block":
+            feature = x + ffn_out
+        else:
+            raise ValueError(f"Unsupported target_feature_type: {target_feature_type}")
+        return x + ffn_out, feature
+
+    def forward(self, x, src_key_padding_mask=None):
+        return self.forward_features(x, src_key_padding_mask)[0]
+
+
+class SDPAStack(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward, dropout, n_layer):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [SDPABlock(d_model, nhead, dim_feedforward, dropout) for _ in range(n_layer)]
+        )
+
+    def forward(self, x, src_key_padding_mask=None):
+        for layer in self.layers:
+            x = layer(x, src_key_padding_mask)
+        return x
+
+
 class SongMAE(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -11,6 +75,7 @@ class SongMAE(nn.Module):
         self.mask_c = config["mask_c"]
         self.mask_type = config.get("mask_type", "voronoi")
         self.normalize_patches = config.get("normalize_patches", True)
+        self._grid_cache = {}
 
         self.patch_projection = nn.Conv2d(
             in_channels = 1,
@@ -19,20 +84,20 @@ class SongMAE(nn.Module):
             stride = self.patch_size 
         )
 
-        encoder_transformer_block = nn.TransformerEncoderLayer(
-            d_model=config["enc_hidden_d"], nhead=config["enc_n_head"],
-            dim_feedforward=config["enc_dim_ff"], dropout=config["dropout"],
-            batch_first=True, norm_first=True 
+        self.encoder = SDPAStack(
+            config["enc_hidden_d"],
+            config["enc_n_head"],
+            config["enc_dim_ff"],
+            config["dropout"],
+            config["enc_n_layer"],
         )
-
-        decoder_transformer_block = nn.TransformerEncoderLayer(
-            d_model=config["dec_hidden_d"], nhead=config["dec_n_head"],
-            dim_feedforward=config["dec_dim_ff"], dropout=config["dropout"],
-            batch_first=True, norm_first=True  
+        self.decoder = SDPAStack(
+            config["dec_hidden_d"],
+            config["dec_n_head"],
+            config["dec_dim_ff"],
+            config["dropout"],
+            config["dec_n_layer"],
         )
-
-        self.encoder = nn.TransformerEncoder(encoder_transformer_block, num_layers=config["enc_n_layer"])
-        self.decoder = nn.TransformerEncoder(decoder_transformer_block, num_layers=config["dec_n_layer"])
 
         self.encoder_to_decoder = nn.Linear(config["enc_hidden_d"], config["dec_hidden_d"])
         self.decoder_to_pixel = nn.Linear(config["dec_hidden_d"], self.patch_size[0] * self.patch_size[1])
@@ -54,11 +119,20 @@ class SongMAE(nn.Module):
         ):
             std = 0.02 / (2 * n_layer) ** 0.5
             for layer in layers:
-                nn.init.normal_(layer.self_attn.out_proj.weight, std=std)
+                nn.init.normal_(layer.out_proj.weight, std=std)
                 nn.init.normal_(layer.linear2.weight, std=std)
         # learned positions / mask token
         nn.init.normal_(self.pos_enc, std=0.02)
         nn.init.normal_(self.mask_token, std=0.02)
+
+    def load_state_dict(self, state_dict, strict=True, assign=False):
+        mapped = {}
+        for key, value in state_dict.items():
+            key = key.replace(".self_attn.in_proj_weight", ".qkv.weight")
+            key = key.replace(".self_attn.in_proj_bias", ".qkv.bias")
+            key = key.replace(".self_attn.out_proj.", ".out_proj.")
+            mapped[key] = value
+        return super().load_state_dict(mapped, strict=strict, assign=assign)
 
     @staticmethod
     def _init_weights(module):
@@ -95,32 +169,28 @@ class SongMAE(nn.Module):
         if seed_coords.shape[0] == 0:
             seed_coords = torch.tensor([[H // 2, W // 2]], dtype=torch.float, device=device) # set a seed cord in the middle 
         
-        # the three lines below generate a coordinate grid the size of the patch grid 
-        y_coords = torch.arange(H, device=device).unsqueeze(1).expand(-1, W)
-        x_coords = torch.arange(W, device=device).unsqueeze(0).expand(H, -1)
-        grid_coords = torch.stack([y_coords, x_coords], dim=-1).float()
+        cache_key = (H, W, device)
+        if cache_key not in self._grid_cache:
+            y_coords = torch.arange(H, device=device).unsqueeze(1).expand(-1, W)
+            x_coords = torch.arange(W, device=device).unsqueeze(0).expand(H, -1)
+            self._grid_cache[cache_key] = torch.stack([y_coords, x_coords], dim=-1).float().reshape(-1, 1, 2)
         
         # Scale coordinates by actual patch dimensions for proper Euclidean distance
         patch_height = self.patch_size[0]
         patch_width = self.patch_size[1]
         
-        # efficent distance calculation, we flatten the distances 
-        grid_flat = grid_coords.reshape(-1, 1, 2)
+        grid_flat = self._grid_cache[cache_key]
         seeds_flat = seed_coords.unsqueeze(0)
         
-        # Scale the coordinate differences by patch dimensions
-        coord_diff = grid_flat - seeds_flat  # (n_patches, n_seeds, 2)
-        coord_diff[..., 0] *= patch_height   # Scale y differences
-        coord_diff[..., 1] *= patch_width    # Scale x differences
-        dists = torch.norm(coord_diff, dim=2)
+        scale = torch.tensor((patch_height, patch_width), device=device)
+        dists = torch.linalg.vector_norm((grid_flat - seeds_flat) * scale, dim=2)
         
         min_distances, _ = torch.min(dists, dim=1)
         distances = min_distances.reshape(H, W)
         
         # Step 3: Find threshold
         distances_flat = distances.flatten()
-        sorted_distances, _ = torch.sort(distances_flat)
-        threshold = sorted_distances[min(n_masked_patches - 1, len(sorted_distances) - 1)]
+        threshold = torch.kthvalue(distances_flat, min(n_masked_patches, distances_flat.numel())).values
         
         # Step 4: Create final mask
         final_mask = distances < threshold
@@ -201,36 +271,7 @@ class SongMAE(nn.Module):
         return h, idx_restore, bool_mask, T
     
     def _forward_encoder_layer(self, layer, x, target_feature_type="end_of_block", key_padding_mask=None):
-        if not layer.norm_first:
-            raise RuntimeError("SongMAE teacher feature extraction expects norm_first=True transformer layers.")
-
-        attn_input = layer.norm1(x)
-        attn_out = layer.self_attn(
-            attn_input,
-            attn_input,
-            attn_input,
-            key_padding_mask=key_padding_mask,
-            need_weights=False,
-        )[0]
-        attn_out = layer.dropout1(attn_out)
-        x = x + attn_out
-
-        ffn_input = layer.norm2(x)
-        ffn_out = layer.linear1(ffn_input)
-        ffn_out = layer.activation(ffn_out)
-        ffn_out = layer.dropout(ffn_out)
-        ffn_out = layer.linear2(ffn_out)
-        ffn_out = layer.dropout2(ffn_out)
-
-        if target_feature_type == "ffn":
-            feature = ffn_out
-        elif target_feature_type == "end_of_block":
-            feature = x + ffn_out
-        else:
-            raise ValueError(f"Unsupported target_feature_type: {target_feature_type}")
-
-        x = x + ffn_out
-        return x, feature
+        return layer.forward_features(x, key_padding_mask, target_feature_type)
 
     def forward_encoder_inference(
         self,

@@ -48,6 +48,7 @@ DEFAULT_CONFIG = {
     "dec_n_layer": 2,
     "dec_dim_ff": 768,
     "amp": True,
+    "amp_dtype": "bf16",
     "wandb": False,
     "recording_mode": "full_recordings",
 }
@@ -90,7 +91,8 @@ class Trainer:
 
         self.device = torch.device(f"cuda:{self.local_rank}" if self.distributed else "cuda" if torch.cuda.is_available() else "cpu")
         self.use_amp = config.get("amp", False) and self.device.type == "cuda"
-        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
+        self.amp_dtype = torch.bfloat16 if config.get("amp_dtype", "bf16") == "bf16" else torch.float16
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp and self.amp_dtype is torch.float16)
         self.model = self.build_model().to(self.device)
         self.start_step = self.load_checkpoint() if config.get("continue_from") else 0
         if self.distributed:
@@ -220,7 +222,7 @@ class Trainer:
     def step(self, batch, train=True, step=0):
         self.model.train() if train else self.model.eval()
         with torch.set_grad_enabled(train):
-            with torch.amp.autocast("cuda", enabled=self.use_amp):
+            with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
                 loss = self.forward_loss(batch)
         mean_loss = self.mean_loss(loss)
         if train:
@@ -300,6 +302,7 @@ class UnsupervisedTrainer(Trainer):
             self.imgs_dir,
             step,
             sample_idx=sample_idx,
+            amp_dtype=self.amp_dtype,
         )
         self.write_log(f"saved reconstruction: {path}")
 
@@ -346,6 +349,7 @@ def add_train_args(parser):
     parser.add_argument("--warmup_steps", type=int)
     parser.add_argument("--min_lr", type=float)
     parser.add_argument("--amp", action="store_true", default=None)
+    parser.add_argument("--amp_dtype", choices=["bf16", "fp16"])
     parser.add_argument("--wandb", action="store_true", default=None)
 
 
