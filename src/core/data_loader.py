@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import random
 import numpy as np
-from .utils import create_label_arr, list_spec_items, load_json_events, load_spec, load_spec_item, normalize_spectrogram
+from .utils import create_label_arr, list_spec_items, load_json_events, load_spec, load_spec_slice, normalize_spectrogram, spec_timebins
 from .data_structures import AudioParams
 
 """ Goal is to stay ~100 LoC here """
@@ -49,16 +49,29 @@ class SpectrogramDataset(Dataset):
         arr = np.pad(arr[:, :], ((0, 0), (0, pad_amount)), mode="constant")
         return arr, 0, t
 
-    def __getitem__(self, index):
-        arr, fname = load_spec_item(self.file_dirs[index])
+    def _load_item(self, item):
+        if isinstance(item, Path):
+            path, item_start, item_end, name = item, 0, spec_timebins(item), item.stem
+        else:
+            path, item_start, item_end, name = item
 
+        if self.n_timebins is not None and item_end - item_start > self.n_timebins:
+            item_start = random.randint(item_start, item_end - self.n_timebins)
+            item_end = item_start + self.n_timebins
+            return load_spec_slice(path, item_start, item_end), name, self.n_timebins
+
+        arr = load_spec_slice(path, item_start, item_end)
         arr, start, end = self._crop_pad(arr)
+        return arr, name, end - start
+
+    def __getitem__(self, index):
+        arr, fname, valid_timebins = self._load_item(self.file_dirs[index])
 
         if self.normalize:
             arr = normalize_spectrogram(arr, self.mean, self.std)
         spec = torch.from_numpy(arr).unsqueeze(0)
 
-        return spec, fname, end - start
+        return spec, fname, valid_timebins
 
     def __len__(self):
         return len(self.file_dirs)

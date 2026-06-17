@@ -106,11 +106,11 @@ def write_spec_shard(out_dir, shard_index, rows, storage_dtype="float32"):
     index_rows = []
 
     if storage_dtype == "float32":
-        arr = np.lib.format.open_memmap(path, mode="w+", dtype=np.float32, shape=(mels, total))
+        arr = np.lib.format.open_memmap(path, mode="w+", dtype=np.float32, shape=(total, mels))
         start = 0
         for name, spec in rows:
             end = start + spec.shape[1]
-            arr[:, start:end] = spec
+            arr[start:end] = spec.T
             index_rows.append((name, shard, start, end))
             start = end
         del arr
@@ -124,12 +124,12 @@ def write_spec_shard(out_dir, shard_index, rows, storage_dtype="float32"):
     scale = np.maximum((high - low) / 255.0, np.float32(1e-6))
     offset = low + 128.0 * scale
 
-    codes = np.lib.format.open_memmap(path, mode="w+", dtype=np.int8, shape=(mels, total))
+    codes = np.lib.format.open_memmap(path, mode="w+", dtype=np.int8, shape=(total, mels))
     start = 0
     for name, spec in rows:
         end = start + spec.shape[1]
         quantized = np.clip(np.rint((spec - offset[:, None]) / scale[:, None]), -128, 127)
-        codes[:, start:end] = quantized.astype(np.int8)
+        codes[start:end] = quantized.T.astype(np.int8)
         index_rows.append((name, shard, start, end))
         start = end
     del codes

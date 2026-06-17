@@ -16,7 +16,7 @@ def write_spec(path, spec, storage_dtype="float32"):
     path = Path(path)
     spec = np.asarray(spec, dtype=np.float32)
     if storage_dtype == "float32":
-        np.save(path, spec)
+        np.save(path, spec.T)
         return path
 
     low = spec.min(axis=1)
@@ -24,33 +24,43 @@ def write_spec(path, spec, storage_dtype="float32"):
     scale = np.maximum((high - low) / 255.0, np.float32(1e-6))
     offset = low + 128.0 * scale
     codes = np.clip(np.rint((spec - offset[:, None]) / scale[:, None]), -128, 127)
-    np.save(path, codes.astype(np.int8))
+    np.save(path, codes.T.astype(np.int8))
     np.savetxt(path.with_suffix(".txt"), np.column_stack([scale, offset]), fmt="%.9g")
     return path
+
+
+def dequant_int8(codes, affine):
+    spec = codes.astype(np.float32) * affine[None, :, 0] + affine[None, :, 1]
+    return np.array(spec.T, dtype=np.float32, copy=True)
 
 
 def load_int8_spec(path):
     codes = np.load(path, mmap_mode="r")
     affine = np.loadtxt(Path(path).with_suffix(".txt"), dtype=np.float32)
     affine = np.atleast_2d(affine)
-    return codes.astype(np.float32) * affine[:, 0, None] + affine[:, 1, None]
+    return dequant_int8(codes, affine)
 
 
 def load_spec(path):
     arr = np.load(path, mmap_mode="r")
     if arr.dtype == np.int8:
         return load_int8_spec(path)
-    return np.array(arr, dtype=np.float32, copy=True)
+    return np.array(arr.T, dtype=np.float32, copy=True)
+
+
+def spec_timebins(path):
+    arr = np.load(path, mmap_mode="r")
+    return int(arr.shape[0])
 
 
 def load_spec_slice(path, start, end):
     arr = np.load(path, mmap_mode="r")
-    sliced = arr[:, start:end]
+    sliced = arr[start:end]
     if arr.dtype == np.int8:
         affine = np.loadtxt(Path(path).with_suffix(".txt"), dtype=np.float32)
         affine = np.atleast_2d(affine)
-        return sliced.astype(np.float32) * affine[:, 0, None] + affine[:, 1, None]
-    return np.array(sliced, dtype=np.float32, copy=True)
+        return dequant_int8(sliced, affine)
+    return np.array(sliced.T, dtype=np.float32, copy=True)
 
 
 def list_spec_items(data_dir):
