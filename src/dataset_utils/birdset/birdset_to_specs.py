@@ -9,8 +9,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from src.core.audio2spec import DEFAULT_SHARD_SIZE, compute_spectrogram, write_audio_params, write_shard_index, write_spec_shard, write_waveform_spectrogram
+from src.core.audio2spec import DEFAULT_SHARD_SIZE, compute_spectrogram, write_audio_params, write_spec_shard, write_waveform_spectrogram
 from src.core.utils import write_spec
+
+
+def append_shard_index(path, rows):
+    with Path(path).open("a") as f:
+        for name, shard, start, end in rows:
+            f.write(f"{name}\t{shard}\t{start}\t{end}\n")
+
 
 def merge_intervals(intervals):
     intervals = sorted(intervals)
@@ -114,17 +121,25 @@ def birdset_to_specs(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    success_path = out_dir / "_SUCCESS"
+    success_path.unlink(missing_ok=True)
     write_audio_params(out_dir, sr, n_fft, hop_size, n_mels, storage_dtype)
     assert shard_size >= 0
     assert detection_mode != "bambird" or shard_size == 0
 
-    dataset = load_dataset("DBD-research-group/BirdSet", birdset, split=split, streaming=True, trust_remote_code=True)
+    if shard_size:
+        partial_index = out_dir / "shards" / "index.partial.tsv"
+        final_index = out_dir / "shards" / "index.tsv"
+        partial_index.parent.mkdir(parents=True, exist_ok=True)
+        partial_index.write_text("name\tshard\tstart\tend\n")
+        final_index.unlink(missing_ok=True)
+
+    dataset = load_dataset("DBD-research-group/BirdSet", birdset, split=split, trust_remote_code=True)
     dataset = dataset.cast_column("audio", Audio(sampling_rate=sr))
 
     assert workers > 0
     records = []
     shard_rows = []
-    index_rows = []
     shard_index = 0
     pending = set()
 
@@ -138,7 +153,7 @@ def birdset_to_specs(
                 continue
             shard_rows.append((name, spec))
             if len(shard_rows) == shard_size:
-                index_rows.extend(write_spec_shard(out_dir, shard_index, shard_rows, storage_dtype))
+                append_shard_index(partial_index, write_spec_shard(out_dir, shard_index, shard_rows, storage_dtype))
                 shard_index += 1
                 shard_rows = []
 
@@ -178,14 +193,15 @@ def birdset_to_specs(
         collect(pending)
 
     if shard_rows:
-        index_rows.extend(write_spec_shard(out_dir, shard_index, shard_rows, storage_dtype))
+        append_shard_index(partial_index, write_spec_shard(out_dir, shard_index, shard_rows, storage_dtype))
     if shard_size:
-        write_shard_index(out_dir, index_rows)
+        partial_index.replace(final_index)
 
     records = [record for _, record in sorted(records)]
     annotations = {"metadata": {"units": "ms"}, "recordings": records}
     path = out_dir / f"{birdset}_{split}_annotations.json"
     path.write_text(json.dumps(annotations, indent=2) + "\n")
+    success_path.write_text("ok\n")
 
 
 def main():
