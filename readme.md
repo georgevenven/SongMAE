@@ -107,7 +107,7 @@ Training writes runs under `runs/<run_name>/`:
   embeddings.
 - Supports random masks and Voronoi masks for pretraining.
 - Provides encoder inference paths for embedding extraction and layer probing.
-- Computes masked-patch reconstruction loss with optional patch normalization.
+- Computes masked-patch reconstruction loss directly on spectrogram patches.
 
 ## `src/core/train.py`
 

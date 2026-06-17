@@ -74,7 +74,6 @@ class SongMAE(nn.Module):
         self.mask_p = config["mask_p"]
         self.mask_c = config["mask_c"]
         self.mask_type = config.get("mask_type", "voronoi")
-        self.normalize_patches = config.get("normalize_patches", True)
         self._grid_cache = {}
 
         self.patch_projection = nn.Conv2d(
@@ -370,12 +369,4 @@ class SongMAE(nn.Module):
         """
         unfold = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)
         target = unfold(x).transpose(1, 2)                            # (B, T, P)
-        
-        # Optionally normalize target patches
-        if self.normalize_patches:
-            target_mean = target.mean(dim=-1, keepdim=True)
-            target_std = target.std(dim=-1, keepdim=True)
-            target = (target - target_mean) / (target_std + 1e-6)
-        
-        loss = ((pred - target) ** 2)[bool_mask].mean()
-        return loss
+        return ((pred - target) ** 2)[bool_mask].mean()
