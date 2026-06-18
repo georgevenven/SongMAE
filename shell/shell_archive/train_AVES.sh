@@ -8,7 +8,7 @@ PROJECT_ROOT="$(pwd)"
 # ====== Basic config (override via args) ======
 SPEC_ROOT=""
 WAV_ROOT=""
-ANNOTATION_ROOT="files"
+ANNOTATION_ROOT="files/annotation jsons"
 TEMP_ROOT="$PROJECT_ROOT/temp"
 
 AVES_MODEL="$PROJECT_ROOT/files/aves-base-bio.torchaudio.pt"

@@ -21,47 +21,47 @@ SPECIES = {
     "zf": (
         "Zebra Finch",
         "/media/george-vengrovski/disk2/specs/zf_64hop_32khz",
-        ROOT / "files/zf_annotations.json",
+        ROOT / "files/annotation jsons/zf_annotations.json",
     ),
     "bf": (
         "Bengalese Finch",
         "/media/george-vengrovski/disk2/specs/bf_64hop_32khz",
-        ROOT / "files/bf_annotations.json",
+        ROOT / "files/annotation jsons/bf_annotations.json",
     ),
     "canary": (
         "Canary",
         "/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz",
-        ROOT / "files/canary_annotations_for_individual_id.json",
+        ROOT / "files/annotation jsons/canary_annotations_for_individual_id.json",
     ),
     "chiffchaff": (
         "Chiffchaff",
         "/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz",
-        ROOT / "files/chiffchaff_annotations.json",
+        ROOT / "files/annotation jsons/chiffchaff_annotations.json",
     ),
     "european_starling": (
         "European Starling",
         "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed",
-        ROOT / "files/european_starling_annotations_fixed.json",
+        ROOT / "files/annotation jsons/european_starling_annotations.json",
     ),
     "tree_pipit": (
         "Tree Pipit",
         "/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz",
-        ROOT / "files/tree_pipit_annotations.json",
+        ROOT / "files/annotation jsons/tree_pipit_annotations.json",
     ),
     "little_owl": (
         "Little Owl",
         "/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz",
-        ROOT / "files/little_owl_annotations.json",
+        ROOT / "files/annotation jsons/little_owl_annotations.json",
     ),
     "orangutan": (
         "Orangutan",
         "/media/george-vengrovski/disk2/specs/orangutan_64hop_32khz",
-        ROOT / "files/orangutan_annotations.json",
+        ROOT / "files/annotation jsons/orangutan_annotations.json",
     ),
     "ovenbird": (
         "Ovenbird",
         "/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz",
-        ROOT / "files/lapp_ovenbird.json",
+        ROOT / "files/annotation jsons/lapp_ovenbird.json",
     ),
 }
 
@@ -72,8 +72,8 @@ FULL_SONG_SPECIES = {
     "chiffchaff": SPECIES["chiffchaff"],
     "european_starling": (
         "European Starling",
-        "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz",
-        ROOT / "files/european_starling_annotations_unprefixed.json",
+        "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed",
+        ROOT / "files/annotation jsons/european_starling_annotations.json",
     ),
     "little_owl": SPECIES["little_owl"],
     "ovenbird": SPECIES["ovenbird"],

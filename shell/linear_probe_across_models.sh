@@ -14,7 +14,7 @@ SEED="${SEED:-42}"
 OVERWRITE="${OVERWRITE:-0}"
 SAVE_PLOTS="${SAVE_PLOTS:-0}"
 
-SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/xcm_bambird_5s_ddp_100k}"
+SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/xcl_full_500k_bs256_5s_p32x10}"
 AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
 AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
 AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
@@ -25,13 +25,15 @@ WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
 # Hardcoded for now because these evals need matching annotation, spec, and wav roots.
 # Positional args filter this list, e.g. `bash shell/linear_probe_across_models.sh zf canary`.
 DATASETS=(
-  "zf|files/zf_annotations.json|/media/george-vengrovski/disk2/specs/zf_64hop_32khz|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  "bf|files/bf_annotations.json|/media/george-vengrovski/disk2/specs/bf_64hop_32khz|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  "canary|files/canary_annotations_for_individual_id.json|/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz|/media/george-vengrovski/disk2/raw_data/canary/individual_identification|events"
+  "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "cassins_vireo|files/annotation jsons/cassins_vireo_annotations.json|/media/george-vengrovski/disk2/specs/cassins_vireo_5ms|/media/george-vengrovski/disk2/raw_data/cassins_vireo/data/figshare_3081814/wav_files|events"
+  "american_robin|files/annotation jsons/american_robin_annotations.json|/media/george-vengrovski/disk2/specs/american_robin_5ms|/media/george-vengrovski/disk2/raw_data/american_robin/data/rmbl_robin/RMBL-Robin/data|events"
 )
 
 usage() {
-  echo "Usage: $0 [zf|bf|canary ...]" 1>&2
+  echo "Usage: $0 [zf|bf|canary|cassins_vireo|american_robin ...]" 1>&2
 }
 
 selected_dataset() {

@@ -41,7 +41,7 @@ N_FFT = 1024
 N_MELS = 128
 
 # Patch shapes (mel_height, time_width) — the main tokenization ablation.
-PATCH_SHAPES = [(128, 1), (64, 1), (32, 1), (16, 1), (32, 4), (4, 4)]
+PATCH_SHAPES = [(128, 1), (32, 1), (16, 1), (8, 1), (32, 4), (4, 4)]
 # Voronoi mask scales — the C interaction ablation.
 C_VALUES = [0.05, 0.1, 0.2]
 MASK_P = 0.75          # SongMAE default mask fraction

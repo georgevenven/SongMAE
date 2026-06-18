@@ -1,29 +1,5 @@
 """
-Convert labeled clip CSV annotations into TinyBird JSON.
-
-Expected CSV columns:
-  localization_event_id,array,event_timestamp,bird_position_x,bird_position_y,
-  distance_to_mic_m,aiid_label,data_split,clip_name,song_center_time,start_time,
-  end_time,file
-
-The output format matches the clip-level TinyBird annotation structure:
-
-{
-  "metadata": {"units": "ms"},
-  "recordings": [
-    {
-      "recording": {
-        "filename": "1946_oven20.mp3",
-        "bird_id": "20",
-        "detected_vocalizations": 1,
-        ...
-      },
-      "detected_events": [
-        {"onset_ms": 4000.0, "offset_ms": 6000.0}
-      ]
-    }
-  ]
-}
+Convert labeled ovenbird clip CSV annotations into TinyBird JSON.
 """
 
 from __future__ import annotations
@@ -71,23 +47,7 @@ def load_rows(csv_path: Path) -> list[dict[str, str]]:
             if end_s < start_s:
                 start_s, end_s = end_s, start_s
 
-            rows.append(
-                {
-                    "clip_name": clip_name,
-                    "bird_id": bird_id,
-                    "start_s": start_s,
-                    "end_s": end_s,
-                    "array": (row.get("array") or "").strip(),
-                    "event_timestamp": (row.get("event_timestamp") or "").strip(),
-                    "bird_position_x": (row.get("bird_position_x") or "").strip(),
-                    "bird_position_y": (row.get("bird_position_y") or "").strip(),
-                    "distance_to_mic_m": (row.get("distance_to_mic_m") or "").strip(),
-                    "data_split": (row.get("data_split") or "").strip(),
-                    "song_center_time": (row.get("song_center_time") or "").strip(),
-                    "localization_event_id": (row.get("localization_event_id") or "").strip(),
-                    "source_file": Path((row.get("file") or "").strip()).name,
-                }
-            )
+            rows.append({"clip_name": clip_name, "bird_id": bird_id, "start_s": start_s, "end_s": end_s})
     if not rows:
         raise ValueError(f"No usable rows found in {csv_path}")
     return rows
@@ -105,24 +65,6 @@ def build_recordings(rows: list[dict[str, str]]) -> list[dict[str, object]]:
                 "bird_id": row["bird_id"],
                 "detected_vocalizations": 0,
             }
-
-            # Preserve useful source metadata without changing the core JSON layout.
-            optional_fields = [
-                "array",
-                "event_timestamp",
-                "bird_position_x",
-                "bird_position_y",
-                "distance_to_mic_m",
-                "data_split",
-                "song_center_time",
-                "localization_event_id",
-                "source_file",
-            ]
-            for field in optional_fields:
-                value = row[field]
-                if value != "":
-                    recording[field] = value
-
             entry = {"recording": recording, "detected_events": []}
             grouped[clip_name] = entry
 

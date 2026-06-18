@@ -23,7 +23,10 @@ def load_recording_segments(args):
     segments = []
     collected_timebins = 0
     audio_params = (ds.params.sr, ds.params.mels, ds.params.hop_size, ds.params.fft)
+    max_segments = int(args.get("max_segments") or 0)
     for idx in range(len(ds)):
+        if max_segments > 0 and len(segments) >= max_segments:
+            break
         if max_timebins > 0 and collected_timebins >= max_timebins:
             break
         _, event = ds.samples[idx]

@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 # ================= CONFIGURATION =================
 # Using same config structure as benchmark script
-ANNOTATION_ROOT="files"
+ANNOTATION_ROOT="files/annotation jsons"
 BIRD_FILTER_JSON="files/SFT_experiment_birds.json"
 
 SPECIES_LIST=(

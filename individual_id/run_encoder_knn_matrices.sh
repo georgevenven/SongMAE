@@ -185,7 +185,7 @@ run_one() {
     cmd+=(--aves_model_path "$AVES_MODEL_PATH" --aves_config_path "$AVES_CONFIG_PATH")
   fi
   if [[ "$species" == "european_starling" && "$encoder" != "SongMAE" ]]; then
-    cmd+=(--annotation_json_override "$ROOT/files/european_starling_annotations_unprefixed.json")
+    cmd+=(--annotation_json_override "$ROOT/files/annotation jsons/european_starling_annotations.json")
   fi
   if [[ "$encoder" == "Perch" ]]; then
     (

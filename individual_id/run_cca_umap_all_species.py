@@ -23,7 +23,7 @@ DEFAULT_SPECIES = None
 SPECIES = {
     "zf": {
         "display": "Zebra Finch",
-        "annotation": "files/zf_annotations.json",
+        "annotation": "files/annotation jsons/zf_annotations.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/zf_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/zf/knn_attribution_matrices.npz",
         "songs": 0,
@@ -32,7 +32,7 @@ SPECIES = {
     },
     "bf": {
         "display": "Bengalese Finch",
-        "annotation": "files/bf_annotations.json",
+        "annotation": "files/annotation jsons/bf_annotations.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/bf_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_perbird200_uncapped/bf/knn_attribution_matrices.npz",
         "songs": 200,
@@ -41,7 +41,7 @@ SPECIES = {
     },
     "canary": {
         "display": "Canary",
-        "annotation": "files/canary_annotations_for_individual_id.json",
+        "annotation": "files/annotation jsons/canary_annotations_for_individual_id.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/canary/knn_attribution_matrices.npz",
         "songs": 0,
@@ -50,7 +50,7 @@ SPECIES = {
     },
     "chiffchaff": {
         "display": "Chiffchaff",
-        "annotation": "files/chiffchaff_annotations.json",
+        "annotation": "files/annotation jsons/chiffchaff_annotations.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_recordings2000_uncapped/chiffchaff/knn_attribution_matrices.npz",
         "songs": 88,
@@ -59,9 +59,9 @@ SPECIES = {
     },
     "european_starling": {
         "display": "European Starling",
-        "annotation": "files/european_starling_annotations_unprefixed.json",
-        "spec_dir": "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz",
-        "affinity_sweep_annotation": "files/european_starling_annotations_fixed.json",
+        "annotation": "files/annotation jsons/european_starling_annotations.json",
+        "spec_dir": "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed",
+        "affinity_sweep_annotation": "files/annotation jsons/european_starling_annotations.json",
         "affinity_sweep_spec_dir": "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_laplacian_cap30/european_starling/knn_attribution_matrices.npz",
         "songs": 30,
@@ -72,7 +72,7 @@ SPECIES = {
     },
     "little_owl": {
         "display": "Little Owl",
-        "annotation": "files/little_owl_annotations.json",
+        "annotation": "files/annotation jsons/little_owl_annotations.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/little_owl/knn_attribution_matrices.npz",
         "songs": 0,
@@ -83,7 +83,7 @@ SPECIES = {
     },
     "ovenbird": {
         "display": "Ovenbird",
-        "annotation": "files/lapp_ovenbird.json",
+        "annotation": "files/annotation jsons/lapp_ovenbird.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_maxdata_uncapped/ovenbird/knn_attribution_matrices.npz",
         "songs": 0,
@@ -94,7 +94,7 @@ SPECIES = {
     },
     "tree_pipit": {
         "display": "Tree Pipit",
-        "annotation": "files/tree_pipit_annotations.json",
+        "annotation": "files/annotation jsons/tree_pipit_annotations.json",
         "spec_dir": "/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz",
         "svd": "results/individual_id_knn_graph_metrics/bird_knn_matrix_perbird400_uncapped/tree_pipit/knn_attribution_matrices.npz",
         "songs": 0,

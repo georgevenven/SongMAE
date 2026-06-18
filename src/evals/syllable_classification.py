@@ -123,17 +123,127 @@ def standardize(train_x, val_x):
     return (train_x - mean) / std, (val_x - mean) / std
 
 
-def split_by_group(x, y, spans, groups, val_fraction, seed):
-    groups = np.asarray(groups)
-    keys = np.array(sorted(set(groups.tolist())))
-    assert keys.size >= 2, "Need at least two songs for a train/val split."
+def group_seconds(spans, groups):
+    seconds = {}
+    for (_, start, end), group in zip(spans, groups):
+        lo, hi = seconds.get(group, (start, end))
+        seconds[group] = (min(lo, start), max(hi, end))
+    return {group: (end - start) / 1000.0 for group, (start, end) in seconds.items()}
+
+
+def group_classes(y, groups):
+    classes = {}
+    for label, group in zip(y, groups):
+        classes.setdefault(group, set())
+        if label > 0:
+            classes[group].add(int(label))
+    return classes
+
+
+def select_val_keys(keys, group_to_classes, val_fraction, seed):
+    counts = {}
+    for classes in group_to_classes.values():
+        for label in classes:
+            counts[label] = counts.get(label, 0) + 1
+
+    target_classes = set(counts)
+    assert all(count > 1 for count in counts.values()), "Every syllable class needs train and validation examples."
+
     keys = keys[np.random.default_rng(seed).permutation(keys.size)]
     val_count = max(1, int(round(keys.size * val_fraction)))
     val_count = min(val_count, keys.size - 1)
-    val_keys = set(keys[:val_count].tolist())
+    val_keys = []
+    missing = set(target_classes)
+    while missing:
+        candidates = [
+            key
+            for key in keys
+            if key not in val_keys
+            and group_to_classes[key] & missing
+            and all(counts[label] > 1 for label in group_to_classes[key])
+        ]
+        assert candidates, "Cannot make validation cover every syllable while keeping train coverage."
+        key = max(candidates, key=lambda k: (len(group_to_classes[k] & missing), -len(group_to_classes[k]), k))
+        val_keys.append(key)
+        classes = group_to_classes[key]
+        for label in classes:
+            counts[label] -= 1
+        missing -= classes
+
+    for key in keys.tolist():
+        if len(val_keys) >= val_count:
+            break
+        classes = group_to_classes[key]
+        if key in val_keys or any(counts[label] <= 1 for label in classes):
+            continue
+        val_keys.append(key)
+        for label in classes:
+            counts[label] -= 1
+
+    return set(val_keys)
+
+
+def select_train_keys(keys, group_to_seconds, group_to_classes, max_seconds):
+    if max_seconds is None:
+        return set(keys.tolist())
+
+    selected = set()
+    used = 0.0
+    missing = set().union(*(group_to_classes[key] for key in keys))
+    while missing:
+        candidates = [
+            key
+            for key in keys
+            if key not in selected
+            and group_to_seconds[key] + used <= max_seconds + 1e-9
+            and group_to_classes[key] & missing
+        ]
+        assert candidates, f"Cannot cover syllables within --max_train_seconds={max_seconds:g}"
+        key = min(
+            candidates,
+            key=lambda k: (-len(group_to_classes[k] & missing) / group_to_seconds[k], group_to_seconds[k], k),
+        )
+        selected.add(key)
+        used += group_to_seconds[key]
+        missing -= group_to_classes[key]
+
+    while True:
+        candidates = [
+            key
+            for key in keys
+            if key not in selected and group_to_seconds[key] + used <= max_seconds + 1e-9
+        ]
+        if not candidates:
+            return selected
+        key = max(candidates, key=lambda k: (group_to_seconds[k], k))
+        selected.add(key)
+        used += group_to_seconds[key]
+
+
+def split_by_group(x, y, spans, groups, val_fraction, seed, max_train_seconds):
+    groups = np.asarray(groups)
+    keys = np.array(sorted(set(groups.tolist())))
+    assert keys.size >= 2, "Need at least two songs for a train/val split."
+
+    group_to_seconds = group_seconds(spans, groups)
+    group_to_classes = group_classes(y, groups)
+    val_keys = select_val_keys(keys, group_to_classes, val_fraction, seed)
+    train_keys = select_train_keys(
+        np.array([key for key in keys if key not in val_keys]),
+        group_to_seconds,
+        group_to_classes,
+        max_train_seconds,
+    )
+
     val = np.array([group in val_keys for group in groups])
-    train = ~val
+    train = np.array([group in train_keys for group in groups])
     assert len(set(y[train].tolist())) >= 2, "Train split has fewer than two classes."
+    train_seconds = sum(group_to_seconds[key] for key in train_keys)
+    target_classes = set().union(*group_to_classes.values())
+    val_classes = set().union(*(group_to_classes[key] for key in val_keys))
+    train_classes = set().union(*(group_to_classes[key] for key in train_keys))
+    assert val_classes == target_classes, "Validation split does not cover every syllable class."
+    assert train_classes == target_classes, "Train split does not cover every syllable class."
     return (
         x[train],
         y[train],
@@ -142,8 +252,10 @@ def split_by_group(x, y, spans, groups, val_fraction, seed):
         [groups[index] for index in np.flatnonzero(val)],
         int(train.sum()),
         int(val.sum()),
-        int(keys.size - val_count),
-        int(val_count),
+        int(len(train_keys)),
+        int(len(val_keys)),
+        float(train_seconds),
+        int(len(train_classes)),
     )
 
 
@@ -203,15 +315,40 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--max_train_seconds", default="MAX", help="Whole-song train budget in seconds, or MAX.")
     return parser.parse_args()
+
+
+def max_train_seconds(value):
+    value = str(value).strip()
+    if value.upper() == "MAX":
+        return None
+    seconds = float(value)
+    assert seconds > 0, "--max_train_seconds must be positive or MAX"
+    return seconds
 
 
 def main():
     args = parse_args()
+
+    # spans is one (recording_stem, token_start_ms, token_end_ms) tuple per feature row.
+    # feature row is a singular example, aka (11289, 1536) a detected event with latents 
     x, y, spans, groups = load_embeddings(args.embeddings, args.feature_key)
-    train_x, train_y, val_x, val_spans, val_groups, train_tokens, val_tokens, train_songs, val_songs = split_by_group(
-        x, y, spans, groups, args.val_fraction, args.seed
-    )
+    budget = max_train_seconds(args.max_train_seconds)
+
+    (
+        train_x,
+        train_y,
+        val_x,
+        val_spans,
+        val_groups,
+        train_tokens,
+        val_tokens,
+        train_songs,
+        val_songs,
+        train_seconds,
+        train_classes,
+    ) = split_by_group(x, y, spans, groups, args.val_fraction, args.seed, budget)
     train_x, val_x = standardize(train_x, val_x)
 
     if args.model == "logreg":
@@ -230,10 +367,12 @@ def main():
             "val_tokens": val_tokens,
             "train_songs": train_songs,
             "val_songs": val_songs,
+            "target_train_seconds": None if budget is None else float(budget),
+            "actual_train_seconds": train_seconds,
+            "train_classes": train_classes,
         }
     )
     print(json.dumps(metrics, indent=2))
-
 
 if __name__ == "__main__":
     main()

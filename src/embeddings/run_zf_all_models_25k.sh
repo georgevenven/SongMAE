@@ -6,7 +6,7 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 
 SPEC_DIR="${SPEC_DIR:-/media/george-vengrovski/disk2/specs/zf_64hop_32khz}"
 WAV_DIR="${WAV_DIR:-/media/george-vengrovski/disk2/raw_data/avn_zf_data}"
-ANNOTATION_FILE="${ANNOTATION_FILE:-$ROOT/files/zf_annotations.json}"
+ANNOTATION_FILE="${ANNOTATION_FILE:-$ROOT/files/annotation jsons/zf_annotations.json}"
 SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/zf_songmae_32h10_bs128_10k_e2e}"
 
 MODELS="${MODELS:-songmae,aves,bird_mae,hubert,perch2}"

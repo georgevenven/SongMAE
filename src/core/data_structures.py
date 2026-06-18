@@ -123,12 +123,13 @@ class TrainConfig(JsonDataclass):
 @dataclass(frozen=True)
 class Labels:
     recordings: list[dict]
+    metadata: dict | None = None
 
     @classmethod
     def from_json(cls, path):
         data = _read_json(path)
         assert "recordings" in data, f"{Path(path).name} missing keys: ['recordings']"
-        return cls(recordings=data["recordings"])
+        return cls(recordings=data["recordings"], metadata=data.get("metadata", {}))
 
     def for_file(self, filename):
         stem = Path(filename).stem
@@ -148,6 +149,9 @@ class Labels:
                 for unit in event.get("units", []):
                     ids.add(int(unit["id"]))
         return {raw_id: idx for idx, raw_id in enumerate(sorted(ids))}
+
+    def unit_label_map(self):
+        return (self.metadata or {}).get("unit_id_to_label", {})
 
     def num_classes(self, mode):
         assert mode in ("detect", "unit_detect", "classify")

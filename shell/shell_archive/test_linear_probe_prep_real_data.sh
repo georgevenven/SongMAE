@@ -118,15 +118,15 @@ process_one_bird() {
     case "$species" in
         Bengalese_Finch)
             spec_subdir="bf_64hop_32khz"
-            annotation_file="files/bf_annotations.json"
+            annotation_file="files/annotation jsons/bf_annotations.json"
             ;;
         Canary)
             spec_subdir="canary_64hop_32khz"
-            annotation_file="files/canary_annotations.json"
+            annotation_file="files/annotation jsons/canary_annotations.json"
             ;;
         Zebra_Finch)
             spec_subdir="zf_64hop_32khz"
-            annotation_file="files/zf_annotations.json"
+            annotation_file="files/annotation jsons/zf_annotations.json"
             ;;
         *)
             echo "Unknown species in mapping: ${species}" 1>&2

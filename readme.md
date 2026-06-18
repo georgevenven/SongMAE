@@ -22,12 +22,45 @@ sibling folder instead of growing core.
 - `audio_params.json`: stored beside every spectrogram dataset and copied into
   each run folder; defines mel shape, sample rate, hop size, FFT size, mean, and
   std.
+- Spectrogram `.npy` files are stored time-major as `(timebins, mels)` for
+  faster sequential time access; plotting code transposes them for display.
 - `model.json`: stored in each run folder; defines the model architecture and
   fixed input contract.
 - `train.json`: stored in each run folder; defines the training recipe used to
   create that run.
-- `labels.json` or `*_annotations.json`: stored in `files/`, sometimes beside a
-  corresponding spec folder, and copied into supervised run folders.
+- `labels.json` or `*_annotations.json`: stored in `files/annotation jsons/`,
+  sometimes beside a corresponding spec folder, and copied into supervised run
+  folders.
+
+## Annotation Coverage
+
+A check means the annotation JSON contains that information.
+
+| Species | Detections | Syllable units | Unit onset/offset | Individual ID |
+| --- | --- | --- | --- | --- |
+| American Robin |  | ✓ |  |  |
+| Bengalese Finch |  | ✓ |  |  |
+| Canary |  | ✓ |  |  |
+| Canary (individual ID) |  |  |  |  |
+| Cassin's Vireo |  | ✓ |  |  |
+| Chiffchaff |  |  |  |  |
+| European Starling |  |  |  |  |
+| Great Tit |  |  |  |  |
+| Orangutan |  |  |  |  |
+| Ovenbird |  |  |  |  |
+| Little Owl |  |  |  |  |
+| Red-winged Blackbird |  |  |  |  |
+| Swamp Sparrow |  |  |  |  |
+| Western Capercaillie |  |  |  |  |
+| Tree Pipit |  |  |  |  |
+| White-crowned Sparrow (manual) |  |  |  |  |
+| White-crowned Sparrow (predicted) |  |  |  |  |
+| Zebra Finch |  | ✓ |  |  |
+
+## Shell Scripts
+
+- `shell/linear_probe_across_models.sh`: extracts embeddings for syllable-labeled datasets across SongMAE, random SongMAE, AVES, and HuBERT, then runs `src/evals/syllable_classification.py` for each bird/model pair.
+- `shell/syllable_classification_train_sweep.sh`: reruns syllable classification from existing embedding folders while sweeping the train-second budget per bird/model.
 
 ## Embedding NPZ Contract
 

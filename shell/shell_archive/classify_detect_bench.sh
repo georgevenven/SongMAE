@@ -7,7 +7,7 @@ PROJECT_ROOT="$(pwd)"
 
 # ====== Basic config (override via args) ======
 SPEC_ROOT=""
-ANNOTATION_ROOT="files"
+ANNOTATION_ROOT="files/annotation jsons"
 TEMP_ROOT="$PROJECT_ROOT/temp"
 PRETRAINED_RUN=""
 

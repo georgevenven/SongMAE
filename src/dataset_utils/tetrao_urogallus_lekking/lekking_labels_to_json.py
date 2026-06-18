@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CSV = Path("/home/george-vengrovski/Downloads/lekking_labels.csv")
-DEFAULT_DST = ROOT / "files" / "tetrao_urogallus_lekking_annotations.json"
+DEFAULT_DST = ROOT / "files" / "annotation jsons" / "tetrao_urogallus_lekking_annotations.json"
 REQUIRED_COLUMNS = {
     "start_time_ms",
     "end_time_ms",

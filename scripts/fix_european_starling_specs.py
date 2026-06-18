@@ -26,12 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--annotation_json",
         type=Path,
-        default=ROOT / "files" / "european_starling_annotations.json",
+        default=ROOT / "files" / "annotation jsons" / "european_starling_annotations.json",
     )
     parser.add_argument(
         "--output_json",
         type=Path,
-        default=ROOT / "files" / "european_starling_annotations_fixed.json",
+        default=ROOT / "files" / "annotation jsons" / "european_starling_annotations.json",
     )
     parser.add_argument(
         "--source_spec_dir",

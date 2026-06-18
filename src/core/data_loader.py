@@ -100,11 +100,25 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
             self.file_dirs = [path for path in self.file_dirs if path.stem == recording_stem]
 
         audio_params = (self.params.sr, self.params.mels, self.params.hop_size, self.params.fft)
-        self.events_by_file = (
+        raw_events_by_file = (
             load_json_events(annotation_file, audio_params, selected_bird=selected_bird)
             if annotation_file
             else {path.stem: [] for path in self.file_dirs}
         )
+        self.events_by_file = {}
+        for path in self.file_dirs:
+            key = path.stem
+            if key not in raw_events_by_file:
+                short_key = key.split("_", 1)[0]
+                if short_key in raw_events_by_file:
+                    key = short_key
+                else:
+                    for candidate in raw_events_by_file:
+                        if key.startswith(f"{candidate}_"):
+                            key = candidate
+                            break
+            if key in raw_events_by_file:
+                self.events_by_file[path.stem] = raw_events_by_file[key]
         self.file_dirs = [path for path in self.file_dirs if path.stem in self.events_by_file]
         if not len(self.file_dirs): raise SystemExit("no labeled files!")
         self.samples = self._build_samples()

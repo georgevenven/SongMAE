@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 DEFAULT_ANNOTATIONS = [
-    Path("files/bf_annotations.json"),
-    Path("files/canary_annotations.json"),
-    Path("files/zf_annotations.json"),
+    Path("files/annotation jsons/bf_annotations.json"),
+    Path("files/annotation jsons/canary_annotations.json"),
+    Path("files/annotation jsons/zf_annotations.json"),
 ]
 
 

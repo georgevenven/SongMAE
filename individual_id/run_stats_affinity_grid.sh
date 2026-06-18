@@ -37,14 +37,14 @@ if [[ -n "${SPECIES_LIST:-}" ]]; then
 fi
 
 declare -A annotation_json=(
-  [zf]="files/zf_annotations.json"
-  [bf]="files/bf_annotations.json"
-  [canary]="files/canary_annotations_for_individual_id.json"
-  [chiffchaff]="files/chiffchaff_annotations.json"
-  [european_starling]="files/european_starling_annotations_unprefixed.json"
-  [little_owl]="files/little_owl_annotations.json"
-  [ovenbird]="files/lapp_ovenbird.json"
-  [tree_pipit]="files/tree_pipit_annotations.json"
+  [zf]="files/annotation jsons/zf_annotations.json"
+  [bf]="files/annotation jsons/bf_annotations.json"
+  [canary]="files/annotation jsons/canary_annotations_for_individual_id.json"
+  [chiffchaff]="files/annotation jsons/chiffchaff_annotations.json"
+  [european_starling]="files/annotation jsons/european_starling_annotations.json"
+  [little_owl]="files/annotation jsons/little_owl_annotations.json"
+  [ovenbird]="files/annotation jsons/lapp_ovenbird.json"
+  [tree_pipit]="files/annotation jsons/tree_pipit_annotations.json"
 )
 
 declare -A spec_dir=(
@@ -52,7 +52,7 @@ declare -A spec_dir=(
   [bf]="/media/george-vengrovski/disk2/specs/bf_64hop_32khz"
   [canary]="/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz"
   [chiffchaff]="/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz"
-  [european_starling]="/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz"
+  [european_starling]="/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed"
   [little_owl]="/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz"
   [ovenbird]="/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz"
   [tree_pipit]="/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz"

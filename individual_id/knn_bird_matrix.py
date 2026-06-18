@@ -54,14 +54,14 @@ PURITY_COLORS = [
 ]
 
 SPECIES = {
-    "zf": ("Zebra_Finch", "files/zf_annotations.json", "/media/george-vengrovski/disk2/specs/zf_64hop_32khz", "full_recordings"),
-    "bf": ("bf", "files/bf_annotations.json", "/media/george-vengrovski/disk2/specs/bf_64hop_32khz", "full_recordings"),
-    "canary": ("canary", "files/canary_annotations_for_individual_id.json", "/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz", "full_recordings"),
-    "ovenbird": ("ovenbird", "files/lapp_ovenbird.json", "/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz", "events"),
-    "chiffchaff": ("chiffchaff", "files/chiffchaff_annotations.json", "/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz", "full_recordings"),
-    "european_starling": ("european_starling", "files/european_starling_annotations_fixed.json", "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed", "full_recordings"),
-    "tree_pipit": ("tree_pipit", "files/tree_pipit_annotations.json", "/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz", "full_recordings"),
-    "little_owl": ("little_owl", "files/little_owl_annotations.json", "/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz", "full_recordings"),
+    "zf": ("Zebra_Finch", "files/annotation jsons/zf_annotations.json", "/media/george-vengrovski/disk2/specs/zf_64hop_32khz", "full_recordings"),
+    "bf": ("bf", "files/annotation jsons/bf_annotations.json", "/media/george-vengrovski/disk2/specs/bf_64hop_32khz", "full_recordings"),
+    "canary": ("canary", "files/annotation jsons/canary_annotations_for_individual_id.json", "/media/george-vengrovski/disk2/specs/canary_individual_identification_64hop_32khz", "full_recordings"),
+    "ovenbird": ("ovenbird", "files/annotation jsons/lapp_ovenbird.json", "/media/george-vengrovski/disk2/specs/ovenbird_lapp_sample_64hop_32khz", "events"),
+    "chiffchaff": ("chiffchaff", "files/annotation jsons/chiffchaff_annotations.json", "/media/george-vengrovski/disk2/specs/chiffchaff_64hop_32khz", "full_recordings"),
+    "european_starling": ("european_starling", "files/annotation jsons/european_starling_annotations.json", "/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed", "full_recordings"),
+    "tree_pipit": ("tree_pipit", "files/annotation jsons/tree_pipit_annotations.json", "/media/george-vengrovski/disk2/specs/tree_pipit_64hop_32khz", "full_recordings"),
+    "little_owl": ("little_owl", "files/annotation jsons/little_owl_annotations.json", "/media/george-vengrovski/disk2/specs/little_owl_64hop_32khz", "full_recordings"),
 }
 
 
