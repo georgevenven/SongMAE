@@ -22,11 +22,6 @@ from src.plotting_utils.pretrain_plotting import save_loss_curve, save_masked_re
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = PROJECT_ROOT / "runs"
 
-# Tiny config reference only: enc_hidden_d=256, enc_n_head=4, enc_dim_ff=1024,
-# enc_n_layer=6, dec_hidden_d=128, dec_n_head=2, dec_dim_ff=512, dec_n_layer=1.
-# Micro config reference only: enc_hidden_d=128, enc_n_head=2, enc_dim_ff=512,
-# enc_n_layer=6, dec_hidden_d=64, dec_n_head=1, dec_dim_ff=256, dec_n_layer=1.
-
 DEFAULT_CONFIG = {
     "task": "unsupervised",
     "steps": 500_000,
@@ -56,6 +51,39 @@ DEFAULT_CONFIG = {
     "amp_dtype": "bf16",
     "wandb": False,
     "recording_mode": "full_recordings",
+}
+
+MODEL_PRESETS = {
+    "base": {
+        "enc_hidden_d": 384,
+        "enc_n_head": 6,
+        "enc_n_layer": 6,
+        "enc_dim_ff": 1536,
+        "dec_hidden_d": 192,
+        "dec_n_head": 3,
+        "dec_n_layer": 1,
+        "dec_dim_ff": 768,
+    },
+    "tiny": {
+        "enc_hidden_d": 256,
+        "enc_n_head": 4,
+        "enc_n_layer": 6,
+        "enc_dim_ff": 1024,
+        "dec_hidden_d": 128,
+        "dec_n_head": 2,
+        "dec_n_layer": 1,
+        "dec_dim_ff": 512,
+    },
+    "micro": {
+        "enc_hidden_d": 128,
+        "enc_n_head": 2,
+        "enc_n_layer": 6,
+        "enc_dim_ff": 512,
+        "dec_hidden_d": 64,
+        "dec_n_head": 1,
+        "dec_n_layer": 1,
+        "dec_dim_ff": 256,
+    },
 }
 
 # Run folder layout:
@@ -359,6 +387,7 @@ def add_train_args(parser):
 
 
 def add_model_args(parser):
+    parser.add_argument("--model_preset", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--patch_height", type=int)
     parser.add_argument("--patch_width", type=int)
     parser.add_argument("--num_timebins", type=int)
@@ -385,15 +414,19 @@ def parse_args():
 
 def config_from_args(args):
     overrides = {key: value for key, value in vars(args).items() if value is not None}
+    model_preset = overrides.pop("model_preset", None)
     run_dir = None
     if args.continue_from:
         run_dir = resolve_run_path(args.continue_from)
         config = json.loads((run_dir / "config.json").read_text())
-        config.update(overrides)
     else:
         assert args.train_dir and args.val_dir and args.run_name
         config = dict(DEFAULT_CONFIG)
-        config.update(overrides)
+
+    if model_preset:
+        config.update(MODEL_PRESETS[model_preset])
+        config["model_preset"] = model_preset
+    config.update(overrides)
 
     config.setdefault("task", "unsupervised")
     if config["task"] == "supervised":

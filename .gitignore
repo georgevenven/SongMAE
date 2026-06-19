@@ -13,6 +13,7 @@ results/
 /wandb
 /temp
 individual_id/temp/
+shell/shell_archive/
 /tmp
 /home/george-vengrovski/Documents/projects/TinyBird/individual_id/temp
 scripts/concat_eval_f1_score_files.py
