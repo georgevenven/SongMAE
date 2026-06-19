@@ -21,6 +21,12 @@ from src.plotting_utils.pretrain_plotting import save_loss_curve, save_masked_re
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = PROJECT_ROOT / "runs"
+
+# Tiny config reference only: enc_hidden_d=256, enc_n_head=4, enc_dim_ff=1024,
+# enc_n_layer=6, dec_hidden_d=128, dec_n_head=2, dec_dim_ff=512, dec_n_layer=1.
+# Micro config reference only: enc_hidden_d=128, enc_n_head=2, enc_dim_ff=512,
+# enc_n_layer=6, dec_hidden_d=64, dec_n_head=1, dec_dim_ff=256, dec_n_layer=1.
+
 DEFAULT_CONFIG = {
     "task": "unsupervised",
     "steps": 500_000,
