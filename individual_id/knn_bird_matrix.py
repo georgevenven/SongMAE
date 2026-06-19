@@ -22,7 +22,10 @@ from src.core import extract_embedding  # noqa: E402
 from src.external_models import aves  # noqa: E402
 from src.external_models import bird_mae  # noqa: E402
 from src.external_models import hubert  # noqa: E402
-from src.external_models import old_perch as perch  # noqa: E402
+try:
+    from src.external_models import old_perch as perch  # noqa: E402
+except ImportError:
+    from src.external_models import perch2 as perch  # noqa: E402
 from individual_identification_linear_probe import (  # noqa: E402
     _apply_spec_normalization_preset,
     _pool_recording,

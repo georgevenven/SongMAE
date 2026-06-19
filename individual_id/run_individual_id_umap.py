@@ -24,7 +24,10 @@ from src.external_models import aves  # noqa: E402
 from src.external_models import bird_mae  # noqa: E402
 from src.core import extract_embedding  # noqa: E402
 from src.external_models import hubert  # noqa: E402
-from src.external_models import old_perch as perch  # noqa: E402
+try:
+    from src.external_models import old_perch as perch  # noqa: E402
+except ImportError:
+    from src.external_models import perch2 as perch  # noqa: E402
 
 
 def _default_recording_svd(path):
@@ -203,6 +206,13 @@ def _pick_recordings(stems, songs_per_bird, seed, bird_id):
     indices = rng.choice(len(stems), size=songs_per_bird, replace=False)
     indices.sort()
     return [stems[index] for index in indices]
+
+
+def _segment_songmae_features(segment, feature_key):
+    features = segment.get(feature_key)
+    if features is None:
+        features = segment["encoded_embeddings"]
+    return features
 
 
 def _songmae_feature_key(feature_source):
@@ -1129,7 +1139,7 @@ def _load_songmae_segments_by_bird(args, sampled_recordings, model_state):
     per_bird_segments = {}
     for segment in extracted["segments"]:
         bird_id = stem_to_bird[segment["recording_stem"]]
-        features = segment[feature_key]
+        features = _segment_songmae_features(segment, feature_key)
         labels = segment["labels_downsampled"]
         count = min(features.shape[0], labels.shape[0])
         if count == 0:
@@ -1175,7 +1185,7 @@ def _load_aves_segments(args, bird_id, recording_stem, model_state):
 
     segments = []
     for segment in extracted["segments"]:
-        features = segment["encoded_embeddings_before_pos_removal"]
+        features = _segment_songmae_features(segment, "encoded_embeddings_before_pos_removal")
         labels = segment["labels_downsampled"]
         count = min(features.shape[0], labels.shape[0])
         if count == 0:
@@ -1216,7 +1226,7 @@ def _load_hubert_segments(args, bird_id, recording_stem, model_state):
 
     segments = []
     for segment in extracted["segments"]:
-        features = segment["encoded_embeddings_before_pos_removal"]
+        features = _segment_songmae_features(segment, "encoded_embeddings_before_pos_removal")
         labels = segment["labels_downsampled"]
         count = min(features.shape[0], labels.shape[0])
         if count == 0:
@@ -1256,7 +1266,7 @@ def _load_bird_mae_segments(args, bird_id, recording_stem, model_state):
 
     segments = []
     for segment in extracted["segments"]:
-        features = segment["encoded_embeddings_before_pos_removal"]
+        features = _segment_songmae_features(segment, "encoded_embeddings_before_pos_removal")
         labels = segment["labels_downsampled"]
         count = min(features.shape[0], labels.shape[0])
         if count == 0:

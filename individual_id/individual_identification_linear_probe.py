@@ -35,7 +35,10 @@ from run_individual_id_umap import (
 from src.external_models import aves
 from src.external_models import bird_mae
 from src.external_models import hubert
-from src.external_models import old_perch as perch
+try:
+    from src.external_models import old_perch as perch
+except ImportError:
+    from src.external_models import perch2 as perch
 
 # Perch uses a separate TensorFlow stack. Run this script with:
 # /home/george-vengrovski/anaconda3/envs/perch/bin/python
@@ -326,7 +329,9 @@ def _pool_recording(
         embedding_key = f"encoded_embeddings_{args.songmae_embedding_variant}_pos_removal"
         tokens_per_window = int(extracted["num_patches_time"])
         for segment_index, segment in enumerate(extracted["segments"]):
-            features = segment[embedding_key]
+            features = segment.get(embedding_key)
+            if features is None:
+                features = segment["encoded_embeddings"]
             if args.window_token_probe:
                 pooled, group_ids, grouped_count = _token_windows(
                     features,

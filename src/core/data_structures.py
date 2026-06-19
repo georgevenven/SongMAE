@@ -70,7 +70,6 @@ class ModelConfig(JsonDataclass):
     dropout: float
     mask_p: float
     mask_c: float
-    mask_type: str = "voronoi"
 
     def __post_init__(self):
         assert self.mels % self.patch_height == 0

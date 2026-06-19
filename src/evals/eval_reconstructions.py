@@ -2,15 +2,17 @@
 import argparse
 import os
 import json
+import random
 from datetime import datetime
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # Local deps
-from src.core.data_loader import SpectogramDataset
+from src.core.data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
 from src.core.utils import load_model_from_checkpoint
 
 
@@ -32,6 +34,16 @@ def sanitize(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-._" else "_" for c in name)
 
 
+def infer_valid_timebins(spectrograms, pad_value):
+    # spectrograms: (B, 1, H, W)
+    diff = (spectrograms[:, 0] - pad_value).abs().amax(dim=1)
+    valid = []
+    for row in diff > 1e-5:
+        indices = torch.nonzero(row, as_tuple=False).flatten()
+        valid.append(int(indices[-1].item()) + 1 if indices.numel() else row.numel())
+    return torch.tensor(valid, dtype=torch.long)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Reconstruct spectrograms and compute MSE.")
     parser.add_argument("--run_dir", required=True, type=str, help="Run directory or name under ../runs")
@@ -39,9 +51,13 @@ def main():
     parser.add_argument("--out_dir", required=True, type=str, help="Folder to store results")
     parser.add_argument("--num_samples", type=int, default=10000, help="Max samples to evaluate")
     parser.add_argument("--checkpoint", type=str, default=None, help="Optional checkpoint filename to load")
+    parser.add_argument("--annotation_file", type=str, default=None, help="Optional annotation JSON for event crops")
+    parser.add_argument("--recording_mode", type=str, default="events", choices=["events", "full_recordings"])
+    parser.add_argument("--bird", type=str, default=None, help="Optional bird_id filter for annotations")
     parser.add_argument("--per_patch_norm", action="store_true", help="Enable per-patch normalization for visualization")
     parser.add_argument("--inference_mode", action="store_true", help="Disable masking (autoencoder-style reconstruction)")
     parser.add_argument("--numbers_only", action="store_true", help="Only compute CSV/summary metrics; skip image generation")
+    parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible crops and masks")
     parser.add_argument(
         "--image_format",
         type=str,
@@ -50,6 +66,9 @@ def main():
         help="Output format for saved visualizations",
     )
     args = parser.parse_args()
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     # Load model + config
     model, config = load_model_from_checkpoint(
@@ -57,16 +76,28 @@ def main():
         checkpoint_file=args.checkpoint,
         fallback_to_random=False
     )
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device).eval()
 
     # Dataset and loader (val-style), batch size = 1
-    dataset = SpectogramDataset(
-        dir=args.spec_dir,
-        n_timebins=config["num_timebins"]
-    )
-    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
+    if args.annotation_file:
+        dataset = SpectrogramDatasetSupervised(
+            dir=args.spec_dir,
+            annotation_file=args.annotation_file,
+            n_timebins=config["num_timebins"],
+            recording_mode=args.recording_mode,
+            selected_bird=args.bird,
+        )
+    else:
+        dataset = SpectrogramDataset(
+            dir=args.spec_dir,
+            n_timebins=config["num_timebins"]
+        )
+    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=True)
 
     # Output dirs
     mse_root = os.path.join(args.out_dir, "MSE analysis")
@@ -82,16 +113,21 @@ def main():
             "run_dir": args.run_dir,
             "checkpoint": args.checkpoint,
             "spec_dir": args.spec_dir,
+            "annotation_file": args.annotation_file,
+            "recording_mode": args.recording_mode,
+            "bird": args.bird,
             "num_samples": args.num_samples,
+            "seed": args.seed,
             "device": str(device),
             "numbers_only": args.numbers_only,
             "model_config": config
         }
         json.dump(meta, f, indent=2)
 
-    patch_size = tuple(config["patch_size"])
-    H = int(dataset.n_mels)
+    patch_size = (int(config["patch_height"]), int(config["patch_width"]))
+    H = int(dataset.params.mels)
     W = int(config["num_timebins"])
+    pad_value = float((0.0 - dataset.mean) / dataset.std)
 
     unfold = nn.Unfold(kernel_size=patch_size, stride=patch_size)
 
@@ -114,12 +150,17 @@ def main():
             if evaluated >= args.num_samples:
                 break
 
-            spectrograms, filenames = batch  # shapes: (1, 1, H, W), list[str]
+            spectrograms = batch[0]
+            if torch.is_tensor(batch[1]):
+                filenames = batch[2]
+                valid_timebins = infer_valid_timebins(spectrograms, pad_value)
+            else:
+                filenames = batch[1]
+                valid_timebins = batch[2]
             x = spectrograms.to(device, non_blocking=True)
+            valid_timebins = valid_timebins.to(device, non_blocking=True)
 
-            # Forward pass: encoder → decoder
-            h, idx_restore, bool_mask, T = model.forward_encoder(x, inference_mode=args.inference_mode)
-            pred = model.forward_decoder(h, idx_restore, T)  # (1, T, P)
+            pred, bool_mask = model.reconstruct(x, valid_timebins=valid_timebins)
 
             # Prepare patches of target
             x_patches = unfold(x).transpose(1, 2)  # (1, T, P)
@@ -168,9 +209,10 @@ def main():
                 masked_patches = masked_original(x_patches, bool_mask)
                 masked_img = depatchify(masked_patches, H=H, W=W, patch_size=patch_size)
 
-                x_img = x[0, 0].detach().cpu().numpy()
-                masked_img_np = masked_img[0, 0].detach().cpu().numpy()
-                overlay_np = overlay_img[0, 0].detach().cpu().numpy()
+                display_w = int(valid_timebins[0].item())
+                x_img = x[0, 0, :, :display_w].detach().cpu().numpy()
+                masked_img_np = masked_img[0, 0, :, :display_w].detach().cpu().numpy()
+                overlay_np = overlay_img[0, 0, :, :display_w].detach().cpu().numpy()
 
                 fig2 = plt.figure(figsize=(7.9, 5.8933))
                 ax1 = plt.subplot(3, 1, 1)

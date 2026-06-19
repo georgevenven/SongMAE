@@ -24,9 +24,7 @@ class SDPABlock(nn.Module):
         B, T, D = x.shape
         q, k, v = self.qkv(x).view(B, T, 3, self.nhead, self.head_dim).unbind(2)
         q, k, v = [t.transpose(1, 2) for t in (q, k, v)]
-        attn_mask = None
-        if key_padding_mask is not None and key_padding_mask.any():
-            attn_mask = ~key_padding_mask[:, None, None, :]
+        attn_mask = None if key_padding_mask is None else ~key_padding_mask[:, None, None, :]
         x = F.scaled_dot_product_attention(
             q,
             k,
@@ -42,12 +40,9 @@ class SDPABlock(nn.Module):
         ffn_out = self.linear2(self.dropout(F.relu(self.linear1(self.norm2(x)))))
         ffn_out = self.dropout2(ffn_out)
         if target_feature_type == "ffn":
-            feature = ffn_out
-        elif target_feature_type == "end_of_block":
-            feature = x + ffn_out
-        else:
-            raise ValueError(f"Unsupported target_feature_type: {target_feature_type}")
-        return x + ffn_out, feature
+            return x + ffn_out, ffn_out
+        assert target_feature_type == "end_of_block"
+        return x + ffn_out, x + ffn_out
 
     def forward(self, x, src_key_padding_mask=None):
         return self.forward_features(x, src_key_padding_mask)[0]
@@ -69,149 +64,76 @@ class SDPAStack(nn.Module):
 class SongMAE(nn.Module):
     def __init__(self, config):
         super().__init__()
-
         self.patch_size = config["patch_size"]
         self.mask_p = config["mask_p"]
         self.mask_c = config["mask_c"]
-        self.mask_type = config.get("mask_type", "voronoi")
         self._grid_cache = {}
 
-        self.patch_projection = nn.Conv2d(
-            in_channels = 1,
-            out_channels = config["enc_hidden_d"],
-            kernel_size = self.patch_size,
-            stride = self.patch_size 
-        )
+        d_enc = config["enc_hidden_d"]
+        d_dec = config["dec_hidden_d"]
+        patch_dim = self.patch_size[0] * self.patch_size[1]
+        max_h = config["mels"] // config["patch_height"]
+        max_w = config["num_timebins"] // config["patch_width"]
 
+        self.patch_projection = nn.Linear(patch_dim, d_enc)
+        self.patch_mask_token = nn.Parameter(torch.randn(1, d_enc, 1, 1))
+        self.patch_conv = nn.Sequential(
+            nn.Conv2d(d_enc, d_enc, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(d_enc, d_enc, kernel_size=3, padding=1),
+            nn.GELU(),
+        )
         self.encoder = SDPAStack(
-            config["enc_hidden_d"],
+            d_enc,
             config["enc_n_head"],
             config["enc_dim_ff"],
             config["dropout"],
             config["enc_n_layer"],
         )
+        self.encoder_to_decoder = nn.Linear(d_enc, d_dec)
+        self.mask_token = nn.Parameter(torch.randn(1, 1, d_dec))
         self.decoder = SDPAStack(
-            config["dec_hidden_d"],
+            d_dec,
             config["dec_n_head"],
             config["dec_dim_ff"],
             config["dropout"],
             config["dec_n_layer"],
         )
+        self.decoder_patch_conv = nn.Sequential(
+            nn.Conv2d(d_dec, d_dec, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(d_dec, d_dec, kernel_size=3, padding=1),
+            nn.GELU(),
+        )
+        self.decoder_deconv = nn.ConvTranspose2d(
+            d_dec,
+            1,
+            kernel_size=self.patch_size,
+            stride=self.patch_size,
+        )
+        self.freq_embed = nn.Parameter(torch.randn(1, d_enc, max_h, 1))
+        self.time_embed = nn.Parameter(torch.randn(1, d_enc, 1, max_w))
 
-        self.encoder_to_decoder = nn.Linear(config["enc_hidden_d"], config["dec_hidden_d"])
-        self.decoder_to_pixel = nn.Linear(config["dec_hidden_d"], self.patch_size[0] * self.patch_size[1])
-
-        self.mask_token = nn.Parameter(torch.randn(1, 1, config["dec_hidden_d"]))
-
-        # Calculate max patch grid dimensions for 2D positional encoding
-        max_h = config["mels"] // config["patch_height"]
-        max_w = config["num_timebins"] // config["patch_width"]
-        
-        self.pos_enc = nn.Parameter(torch.randn(1, config["enc_hidden_d"], max_h, max_w))
-
-        # GPT-style initialization
         self.apply(self._init_weights)
-        # GPT-2 scaled init for residual output projections: std = 0.02 / sqrt(2 * n_layer)
-        for layers, n_layer in (
-            (self.encoder.layers, config["enc_n_layer"]),
-            (self.decoder.layers, config["dec_n_layer"]),
-        ):
+        for layers, n_layer in ((self.encoder.layers, config["enc_n_layer"]), (self.decoder.layers, config["dec_n_layer"])):
             std = 0.02 / (2 * n_layer) ** 0.5
             for layer in layers:
                 nn.init.normal_(layer.out_proj.weight, std=std)
                 nn.init.normal_(layer.linear2.weight, std=std)
-        # learned positions / mask token
-        nn.init.normal_(self.pos_enc, std=0.02)
+        nn.init.normal_(self.freq_embed, std=0.02 / (2 ** 0.5))
+        nn.init.normal_(self.time_embed, std=0.02 / (2 ** 0.5))
+        nn.init.normal_(self.patch_mask_token, std=0.02)
         nn.init.normal_(self.mask_token, std=0.02)
-
-    def load_state_dict(self, state_dict, strict=True, assign=False):
-        mapped = {}
-        for key, value in state_dict.items():
-            key = key.replace(".self_attn.in_proj_weight", ".qkv.weight")
-            key = key.replace(".self_attn.in_proj_bias", ".qkv.bias")
-            key = key.replace(".self_attn.out_proj.", ".out_proj.")
-            mapped[key] = value
-        return super().load_state_dict(mapped, strict=strict, assign=assign)
 
     @staticmethod
     def _init_weights(module):
-        if isinstance(module, (nn.Linear, nn.Conv2d)):
+        if isinstance(module, (nn.Linear, nn.Conv2d, nn.ConvTranspose2d)):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.MultiheadAttention):
-            # combined QKV projection is a raw Parameter, not an nn.Linear
-            if module.in_proj_weight is not None:
-                nn.init.normal_(module.in_proj_weight, mean=0.0, std=0.02)
-            if module.in_proj_bias is not None:
-                nn.init.zeros_(module.in_proj_bias)
 
-    def voronoi_mask(self, hw, p=0.75, c=0.1, device=None):
-        """
-        bernoulli is imprecise (probably fine)
-
-        made by george and opus 
-        """
-        H, W = hw
-        n_patches = H * W
-        n_masked_patches = round(n_patches * p)
-
-        # Step 1: Create seeds
-        # create matrix with 0.1 values, bernoulli creates coin flip on each position, each pos has 10 precent chance being seed 
-        mask = torch.bernoulli(torch.full((H, W), c, device=device)).bool() 
-        
-        # Step 2: Distance transform
-        # returns coords of seeds, N x 2 (the 2 dimensions being row/col idx)
-        seed_coords = torch.nonzero(mask, as_tuple=False).float() # returns coords of True (seeds)
-        
-        # if zero seeds, unlikely, but if p is low and c is low this is bound to happen in a long train run 
-        if seed_coords.shape[0] == 0:
-            seed_coords = torch.tensor([[H // 2, W // 2]], dtype=torch.float, device=device) # set a seed cord in the middle 
-        
-        cache_key = (H, W, device)
-        if cache_key not in self._grid_cache:
-            y_coords = torch.arange(H, device=device).unsqueeze(1).expand(-1, W)
-            x_coords = torch.arange(W, device=device).unsqueeze(0).expand(H, -1)
-            self._grid_cache[cache_key] = torch.stack([y_coords, x_coords], dim=-1).float().reshape(-1, 1, 2)
-        
-        # Scale coordinates by actual patch dimensions for proper Euclidean distance
-        patch_height = self.patch_size[0]
-        patch_width = self.patch_size[1]
-        
-        grid_flat = self._grid_cache[cache_key]
-        seeds_flat = seed_coords.unsqueeze(0)
-        
-        scale = torch.tensor((patch_height, patch_width), device=device)
-        dists = torch.linalg.vector_norm((grid_flat - seeds_flat) * scale, dim=2)
-        
-        min_distances, _ = torch.min(dists, dim=1)
-        distances = min_distances.reshape(H, W)
-        
-        # Step 3: Find threshold
-        distances_flat = distances.flatten()
-        threshold = torch.kthvalue(distances_flat, min(n_masked_patches, distances_flat.numel())).values
-        
-        # Step 4: Create final mask
-        final_mask = distances < threshold
-        n_selected = torch.sum(final_mask).item()
-        n_needed = n_masked_patches - n_selected
-        
-        if n_needed > 0:
-            boundary_mask = (distances == threshold)
-            boundary_indices = torch.nonzero(boundary_mask, as_tuple=False)
-            if len(boundary_indices) >= n_needed:
-                perm = torch.randperm(len(boundary_indices), device=device)[:n_needed]
-                selected_boundary = boundary_indices[perm]
-                final_mask[selected_boundary[:, 0], selected_boundary[:, 1]] = True
-        
-        return final_mask
-
-    def random_mask(self, hw, p=0.75, device=None):
-        """
-        Randomly mask patches with Bernoulli(p).
-        """
-        H, W = hw
-        return torch.rand((H, W), device=device) < p
+    def _pos_enc(self, H, W):
+        return self.freq_embed[:, :, :H, :] + self.time_embed[:, :, :, :W]
 
     def valid_token_mask(self, valid_timebins, H, W, device):
         if valid_timebins is None:
@@ -224,52 +146,89 @@ class SongMAE(nn.Module):
         cols = torch.arange(W, device=device).repeat(H)
         return cols.unsqueeze(0) < valid_cols.unsqueeze(1)
 
-    def forward_encoder(self, x, inference_mode: bool = False, valid_timebins=None):
-        """
-        Patchify → add pos enc → mask → Transformer encoder.
-        Returns:
-          h: (B, keep, D_enc), idx_restore, bool_mask, T
-        """
+    def voronoi_mask(self, hw, device):
+        H, W = hw
+        n_masked = round(H * W * self.mask_p)
+        seeds = torch.bernoulli(torch.full((H, W), self.mask_c, device=device)).bool()
+        seed_coords = torch.nonzero(seeds, as_tuple=False).float()
+        if seed_coords.numel() == 0:
+            seed_coords = torch.tensor([[H // 2, W // 2]], dtype=torch.float, device=device)
 
-        z = self.patch_projection(x)               # (B, D_enc, H', W')
-        B, D, H, W = z.shape
+        cache_key = (H, W, device)
+        if cache_key not in self._grid_cache:
+            y = torch.arange(H, device=device).unsqueeze(1).expand(-1, W)
+            x = torch.arange(W, device=device).unsqueeze(0).expand(H, -1)
+            self._grid_cache[cache_key] = torch.stack([y, x], dim=-1).float().reshape(-1, 1, 2)
 
-        pos_enc = self.pos_enc[:, :, :H, :W]
-        z = z + pos_enc
-        z_seq = z.flatten(2).transpose(1, 2)        # (B, T, D_enc)
-        T = z_seq.size(1)
-        valid_tokens = self.valid_token_mask(valid_timebins, H, W, z.device)
+        scale = torch.tensor(self.patch_size, device=device)
+        dists = torch.linalg.vector_norm((self._grid_cache[cache_key] - seed_coords.unsqueeze(0)) * scale, dim=2)
+        dists = dists.min(dim=1).values
+        threshold = torch.kthvalue(dists, min(n_masked, dists.numel())).values
+        mask = dists < threshold
+        shortfall = n_masked - int(mask.sum().item())
+        if shortfall > 0:
+            boundary = torch.nonzero(dists == threshold, as_tuple=False).squeeze(1)
+            chosen = boundary[torch.randperm(boundary.numel(), device=device)[:shortfall]]
+            mask[chosen] = True
+        return mask.reshape(H, W)
 
-        if inference_mode:
-            bool_mask = torch.zeros((B, T), dtype=torch.bool, device=z.device)
-            idx_restore = torch.arange(T, device=z.device).unsqueeze(0).expand(B, -1)
-            key_padding_mask = None if valid_tokens is None else ~valid_tokens
-            h = self.encoder(z_seq, src_key_padding_mask=key_padding_mask)  # (B, T, D_enc)
-            return h, idx_restore, bool_mask, T
+    def patch_grid(self, x):
+        patches = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)(x).transpose(1, 2)
+        B = x.size(0)
+        H = self.freq_embed.size(2)
+        W = self.time_embed.size(3)
+        z = self.patch_projection(patches).transpose(1, 2).reshape(B, -1, H, W)
+        return z + self._pos_enc(H, W), H, W
 
-        mask_type = getattr(self, "mask_type", "voronoi")
-        if mask_type == "random":
-            mask_grid = self.random_mask((H, W), p=self.mask_p, device=z.device)
-        else:
-            mask_grid = self.voronoi_mask((H, W), p=self.mask_p, c=self.mask_c, device=z.device)
-        bool_mask_flat = mask_grid.flatten()
-        bool_mask = bool_mask_flat.unsqueeze(0).expand(B, -1)               # (B, T)
-        if valid_tokens is not None:
-            bool_mask = bool_mask & valid_tokens
+    def conv_features(self, x, mask=None):
+        z, H, W = self.patch_grid(x)
+        if mask is not None:
+            z = torch.where(mask.unsqueeze(1), self.patch_mask_token, z)
+        return self.patch_conv(z), H, W
 
-        keep_indices = torch.nonzero(~bool_mask_flat, as_tuple=False).squeeze(1)
-        mask_indices = torch.nonzero(bool_mask_flat, as_tuple=False).squeeze(1)
+    def mask_batch(self, B, H, W, device):
+        mask = self.voronoi_mask((H, W), device)
+        return mask.unsqueeze(0).expand(B, -1, -1)
 
-        z_keep = torch.index_select(z_seq, 1, keep_indices)                 # (B, keep, D_enc)
-        keep_padding_mask = None if valid_tokens is None else ~valid_tokens[:, keep_indices]
+    def sparse_restore_indices(self, mask):
+        mask = mask[0].flatten()
+        keep = torch.nonzero(~mask, as_tuple=False).squeeze(1)
+        drop = torch.nonzero(mask, as_tuple=False).squeeze(1)
+        restore = torch.cat([keep, drop], dim=0).argsort()
+        return keep, restore
 
-        perm = torch.cat([keep_indices, mask_indices], dim=0)               # kept-first layout
-        idx_restore = perm.argsort().unsqueeze(0).expand(B, -1)             # (B, T)
+    def reconstruct(self, x, valid_timebins=None):
+        B = x.size(0)
+        z, H, W = self.patch_grid(x)
+        mask = self.mask_batch(B, H, W, x.device)
+        valid_tokens = self.valid_token_mask(valid_timebins, H, W, x.device)
+        loss_mask = mask if valid_tokens is None else mask & valid_tokens.reshape(B, H, W)
 
-        h = self.encoder(z_keep, src_key_padding_mask=keep_padding_mask)    # (B, keep, D_enc)
-        return h, idx_restore, bool_mask, T
-    
-    def _forward_encoder_layer(self, layer, x, target_feature_type="end_of_block", key_padding_mask=None):
+        z = torch.where(mask.unsqueeze(1), self.patch_mask_token, z)
+        z = self.patch_conv(z).flatten(2).transpose(1, 2)
+        keep, restore = self.sparse_restore_indices(mask)
+        keep_padding = None if valid_tokens is None else ~valid_tokens[:, keep]
+        h = self.encoder(torch.index_select(z, 1, keep), src_key_padding_mask=keep_padding)
+
+        d = self.encoder_to_decoder(h)
+        D = d.size(2)
+        mask_tokens = self.mask_token.expand(B, H * W - d.size(1), D)
+        d = torch.cat([d, mask_tokens], dim=1)
+        d = torch.index_select(d, 1, restore)
+        d = d + self.encoder_to_decoder(self._pos_enc(H, W).flatten(2).transpose(1, 2))
+
+        key_padding = None if valid_tokens is None else ~valid_tokens
+        d = self.decoder(d, src_key_padding_mask=key_padding)
+        d = d.transpose(1, 2).reshape(B, D, H, W)
+        pred = self.decoder_deconv(self.decoder_patch_conv(d))
+        pred = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)(pred).transpose(1, 2)
+        return pred, loss_mask.flatten(1)
+
+    def forward(self, x, valid_timebins=None):
+        pred, mask = self.reconstruct(x, valid_timebins)
+        return self.loss_mse(x, pred, mask)
+
+    def _forward_encoder_layer(self, layer, x, target_feature_type, key_padding_mask):
         return layer.forward_features(x, key_padding_mask, target_feature_type)
 
     def forward_encoder_inference(
@@ -280,93 +239,32 @@ class SongMAE(nn.Module):
         target_feature_type="end_of_block",
         valid_timebins=None,
     ):
-        z = self.patch_projection(x)               # (B, D_enc, H', W')
-        B, D, H, W = z.shape
-
-        pos_enc = self.pos_enc[:, :, :H, :W]
-        z = z + pos_enc
-        z_seq = z.flatten(2).transpose(1, 2)        # (B, T, D_enc)
+        z, H, W = self.conv_features(x)
+        z = z.flatten(2).transpose(1, 2)
         valid_tokens = self.valid_token_mask(valid_timebins, H, W, z.device)
-        key_padding_mask = None if valid_tokens is None else ~valid_tokens
-
-        layers = getattr(self.encoder, "layers", None)
-        if layers is None:
-            raise RuntimeError("SongMAE.encoder does not expose .layers; cannot run encoder inference.")
+        key_padding = None if valid_tokens is None else ~valid_tokens
 
         layer_features = []
-        out = z_seq
-        for layer in layers:
-            out, feature = self._forward_encoder_layer(
-                layer,
-                out,
-                target_feature_type=target_feature_type,
-                key_padding_mask=key_padding_mask,
-            )
+        out = z
+        for layer in self.encoder.layers:
+            out, feature = self._forward_encoder_layer(layer, out, target_feature_type, key_padding)
             layer_features.append(feature)
 
         if average_top_k is not None:
             top_k = int(average_top_k)
-            num_layers = len(layer_features)
-            if top_k <= 0 or top_k > num_layers:
-                raise ValueError(f"average_top_k out of range: {average_top_k} (num_layers={num_layers})")
-            top_features = layer_features[-top_k:]
-            normed_features = [F.layer_norm(feature, (feature.shape[-1],)) for feature in top_features]
-            h = torch.stack(normed_features, dim=0).mean(dim=0)
-        elif encoder_layer_idx is None:
-            h = out
-        else:
-            num_layers = len(layer_features)
-            idx = int(encoder_layer_idx)
-            if idx < 0:
-                idx = num_layers + idx
-            if idx < 0 or idx >= num_layers:
-                raise ValueError(f"encoder_layer_idx out of range: {encoder_layer_idx} (num_layers={num_layers})")
-            h = layer_features[idx]
-        return h, z_seq # z seq is encoded patches + pos enc 
+            assert 0 < top_k <= len(layer_features)
+            features = [F.layer_norm(feature, (feature.shape[-1],)) for feature in layer_features[-top_k:]]
+            return torch.stack(features, dim=0).mean(dim=0), z
 
-    def forward_decoder(self, h, idx_restore, T, valid_timebins=None):
-        """
-        Project to decoder dim → insert mask tokens → unshuffle → add pos → decode → predict pixels.
-        Returns:
-          pred: (B, T, P) where P = patch_size[0]*patch_size[1]
-        """
-        B = h.size(0)
-        # project encoder tokens to decoder width
-        y = self.encoder_to_decoder(h)                 # (B, keep, D_dec)
-        D_dec = self.decoder_to_pixel.in_features
-        keep = y.size(1)
+        if encoder_layer_idx is None:
+            return out, z
 
-        # build full sequence with mask tokens then unshuffle to original order
-        mask_tokens = self.mask_token.expand(B, T - keep, D_dec)     # (B, T-keep, D_dec)
-        y_full = torch.cat([y, mask_tokens], dim=1)                  # kept-first layout
-        y_full = torch.gather(y_full, 1, idx_restore.unsqueeze(-1).expand(B, T, D_dec))
-
-        # Convert 2D pos enc to 1D sequence format for decoder
-        # We need to determine H, W from T and the original patch grid dimensions
-        H_max = self.pos_enc.size(2)
-        W = T // H_max
-        # Assume the patches fill the grid in row-major order
-        pos_enc_seq = self.pos_enc[:, :, :, :W].flatten(2, 3).transpose(1, 2)  # (1, T, D_enc)
-        pos_dec = self.encoder_to_decoder(pos_enc_seq)    # (1, T, D_dec)
-        y_full = y_full + pos_dec
-
-        valid_tokens = self.valid_token_mask(valid_timebins, H_max, W, y_full.device)
-        key_padding_mask = None if valid_tokens is None else ~valid_tokens
-        d = self.decoder(y_full, src_key_padding_mask=key_padding_mask)     # (B, T, D_dec)
-        pred = self.decoder_to_pixel(d)                               # (B, T, P)
-        return pred
-
-    def forward(self, x, valid_timebins=None):
-        h, idx_restore, bool_mask, T = self.forward_encoder(x, valid_timebins=valid_timebins)
-        pred = self.forward_decoder(h, idx_restore, T, valid_timebins=valid_timebins)
-        return self.loss_mse(x, pred, bool_mask)
+        idx = int(encoder_layer_idx)
+        if idx < 0:
+            idx += len(layer_features)
+        assert 0 <= idx < len(layer_features)
+        return layer_features[idx], z
 
     def loss_mse(self, x, pred, bool_mask):
-        """
-        Compute MSE on masked patches only.
-        x:    (B, 1, H, W)
-        pred: (B, T, P) from decoder
-        """
-        unfold = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)
-        target = unfold(x).transpose(1, 2)                            # (B, T, P)
+        target = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)(x).transpose(1, 2)
         return ((pred - target) ** 2)[bool_mask].mean()
