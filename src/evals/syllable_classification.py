@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT))
+
+from src.plotting_utils.spectrogram_prediction_vs_groundtruth import (
+    load_plot_specs,
+    save_spectrogram_prediction_vs_groundtruth,
+)
 
 
 def class_labels(labels):
@@ -83,38 +92,6 @@ def raster_metrics(predictions, spans, units):
         "frames": int(y_true.size),
         "classes": len(labels),
     }
-
-
-def save_prediction_plots(predictions, spans, groups, units, out_dir):
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    by_group = {}
-    for pred, span, group in zip(predictions, spans, groups):
-        by_group.setdefault(group, []).append((pred, span))
-
-    for index, (group, rows) in enumerate(sorted(by_group.items())[:50]):
-        start = min(span[1] for _, span in rows)
-        end = max(span[2] for _, span in rows)
-        true = ground_truth(units, rows[0][1][0], start, end)
-        pred = np.zeros(end - start, dtype=np.int64)
-        for label, (_, lo, hi) in rows:
-            pred[lo - start : hi - start] = label
-
-        vmax = max(1, int(max(true.max(initial=0), pred.max(initial=0))))
-        fig, axes = plt.subplots(2, 1, figsize=(8, 1.6), dpi=160, sharex=True)
-        for ax, row, title in zip(axes, [true, pred], ["truth", "prediction"]):
-            ax.imshow(row[None, :], aspect="auto", interpolation="nearest", vmin=0, vmax=vmax)
-            ax.set_yticks([])
-            ax.set_ylabel(title)
-        axes[-1].set_xlabel("ms")
-        fig.tight_layout()
-        fig.savefig(out_dir / f"{index:04d}_{group.replace(':', '_')}.png")
-        plt.close(fig)
 
 
 def standardize(train_x, val_x):
@@ -311,6 +288,7 @@ def parse_args():
     parser.add_argument("--feature_key", default="encoded_embeddings")
     parser.add_argument("--val_fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--save_plots", action="store_true")
     parser.add_argument("--plot_dir")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=4096)
@@ -359,8 +337,11 @@ def main():
 
     units = load_units(args.annotations)
     metrics = raster_metrics(pred, val_spans, units)
-    if args.plot_dir:
-        save_prediction_plots(pred, val_spans, val_groups, units, args.plot_dir)
+    if args.save_plots:
+        assert args.plot_dir, "--save_plots requires --plot_dir"
+        save_spectrogram_prediction_vs_groundtruth(
+            pred, val_spans, val_groups, units, args.plot_dir, load_plot_specs(args.embeddings)
+        )
     metrics.update(
         {
             "train_tokens": train_tokens,

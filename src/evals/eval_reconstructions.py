@@ -34,6 +34,12 @@ def sanitize(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-._" else "_" for c in name)
 
 
+def filename_at(filenames, index):
+    if isinstance(filenames, (list, tuple)):
+        return filenames[index]
+    return str(filenames)
+
+
 def infer_valid_timebins(spectrograms, pad_value):
     # spectrograms: (B, 1, H, W)
     diff = (spectrograms[:, 0] - pad_value).abs().amax(dim=1)
@@ -57,6 +63,7 @@ def main():
     parser.add_argument("--per_patch_norm", action="store_true", help="Enable per-patch normalization for visualization")
     parser.add_argument("--inference_mode", action="store_true", help="Disable masking (autoencoder-style reconstruction)")
     parser.add_argument("--numbers_only", action="store_true", help="Only compute CSV/summary metrics; skip image generation")
+    parser.add_argument("--batch_size", type=int, default=1, help="Evaluation batch size")
     parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible crops and masks")
     parser.add_argument(
         "--image_format",
@@ -66,6 +73,8 @@ def main():
         help="Output format for saved visualizations",
     )
     args = parser.parse_args()
+    if args.batch_size != 1 and not args.numbers_only:
+        raise SystemExit("--batch_size > 1 is only supported with --numbers_only")
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -83,7 +92,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device).eval()
 
-    # Dataset and loader (val-style), batch size = 1
+    # Dataset and loader (val-style)
     if args.annotation_file:
         dataset = SpectrogramDatasetSupervised(
             dir=args.spec_dir,
@@ -97,7 +106,7 @@ def main():
             dir=args.spec_dir,
             n_timebins=config["num_timebins"]
         )
-    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=True)
+    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
     # Output dirs
     mse_root = os.path.join(args.out_dir, "MSE analysis")
@@ -117,6 +126,7 @@ def main():
             "recording_mode": args.recording_mode,
             "bird": args.bird,
             "num_samples": args.num_samples,
+            "batch_size": args.batch_size,
             "seed": args.seed,
             "device": str(device),
             "numbers_only": args.numbers_only,
@@ -142,23 +152,25 @@ def main():
     with open(csv_path, "w") as fcsv:
         fcsv.write("index,filename,mse_all,mse_masked\n")
 
-    pbar = tqdm(total=min(args.num_samples, len(loader)), desc="Evaluating", unit="sample")
+    pbar = tqdm(total=min(args.num_samples, len(dataset)), desc="Evaluating", unit="sample")
     evaluated = 0
 
     with torch.no_grad():
-        for i, batch in enumerate(loader):
+        for batch in loader:
             if evaluated >= args.num_samples:
                 break
 
-            spectrograms = batch[0]
+            remaining = args.num_samples - evaluated
+            spectrograms = batch[0][:remaining]
             if torch.is_tensor(batch[1]):
-                filenames = batch[2]
+                filenames = batch[2][:remaining]
                 valid_timebins = infer_valid_timebins(spectrograms, pad_value)
             else:
-                filenames = batch[1]
-                valid_timebins = batch[2]
+                filenames = batch[1][:remaining]
+                valid_timebins = batch[2][:remaining]
             x = spectrograms.to(device, non_blocking=True)
             valid_timebins = valid_timebins.to(device, non_blocking=True)
+            batch_size = x.size(0)
 
             pred, bool_mask = model.reconstruct(x, valid_timebins=valid_timebins)
 
@@ -171,23 +183,21 @@ def main():
             # pred_denorm = pred * (target_std + 1e-6) + target_mean  # (1, T, P)
             pred_denorm = pred.to(dtype=x_patches.dtype)
 
-            # Per-sample MSEs in raw scale
-            diff2 = (pred_denorm - x_patches) ** 2  # (1, T, P)
-            mse_all = diff2.mean().item()
-            # Masked elements count = (#masked tokens) * P
-            masked_elems = bool_mask.sum().item() * diff2.size(-1)
-            if masked_elems > 0:
-                mse_masked = diff2[bool_mask].mean().item()
-            else:
-                mse_masked = float("nan")  # no masked tokens (should not happen with mask_p>0)
+            diff2 = (pred_denorm - x_patches) ** 2
+            mse_all_values = diff2.flatten(1).mean(dim=1)
+            masked_elems = bool_mask.sum(dim=1) * diff2.size(-1)
+            mse_masked_values = [
+                diff2[j][bool_mask[j]].mean().item() if masked_elems[j].item() else float("nan")
+                for j in range(batch_size)
+            ]
 
             # Global aggregates
             SSE_all += diff2.sum().item()
             N_all += diff2.numel()
             SSE_masked += diff2[bool_mask].sum().item()
-            N_masked += masked_elems
+            N_masked += masked_elems.sum().item()
 
-            fname = sanitize(filenames[0] if isinstance(filenames, list) else str(filenames))
+            fname = sanitize(filename_at(filenames, 0))
 
             if not args.numbers_only:
                 import matplotlib.pyplot as plt
@@ -235,20 +245,26 @@ def main():
                 ax3.axis("off")
 
                 fig2.tight_layout()
-                out_image = os.path.join(imgs_dir, f"{i:06d}_{fname}_overlay.{args.image_format}")
+                out_image = os.path.join(imgs_dir, f"{evaluated:06d}_{fname}_overlay.{args.image_format}")
                 save_kwargs = {"facecolor": "white", "edgecolor": "none"}
                 if args.image_format == "png":
                     save_kwargs["dpi"] = 300
                 fig2.savefig(out_image, **save_kwargs)
                 plt.close(fig2)
 
-            # Append CSV
             with open(csv_path, "a") as fcsv:
-                fcsv.write(f"{i},{fname},{mse_all:.8f},{mse_masked:.8f}\n")
+                for j in range(batch_size):
+                    fname = sanitize(filename_at(filenames, j))
+                    fcsv.write(
+                        f"{evaluated + j},{fname},{mse_all_values[j].item():.8f},{mse_masked_values[j]:.8f}\n"
+                    )
 
-            evaluated += 1
-            pbar.set_postfix(mse_all=f"{mse_all:.5g}", mse_masked=f"{mse_masked:.5g}")
-            pbar.update(1)
+            evaluated += batch_size
+            pbar.set_postfix(
+                mse_all=f"{mse_all_values.mean().item():.5g}",
+                mse_masked=f"{float(np.nanmean(mse_masked_values)):.5g}",
+            )
+            pbar.update(batch_size)
 
     pbar.close()
 

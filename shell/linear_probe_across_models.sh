@@ -7,14 +7,20 @@ ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_linear_probe}"
-MODELS="${MODELS:-songmae songmae_random aves hubert}"
+MODELS="${MODELS:-xcl_tiny_500k_p32x4_default xcl_base_500k_p32x4_default xcl_micro_500k_p16x1_default xcl_micro_500k_p32x1_default xcl_micro_500k_p32x4_default aves hubert}"
 PROBE_MODEL="${PROBE_MODEL:-logreg}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
 SEED="${SEED:-42}"
 OVERWRITE="${OVERWRITE:-0}"
 SAVE_PLOTS="${SAVE_PLOTS:-0}"
+CLEAN_EMBEDDINGS="${CLEAN_EMBEDDINGS:-1}"
 
 SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/xcl_full_500k_bs256_5s_p32x10}"
+XCL_TINY_P32X4_RUN_DIR="${XCL_TINY_P32X4_RUN_DIR:-$ROOT/runs/xcl_tiny_500k_p32x4_default}"
+XCL_BASE_P32X4_RUN_DIR="${XCL_BASE_P32X4_RUN_DIR:-$ROOT/runs/xcl_base_500k_p32x4_default}"
+XCL_MICRO_P16X1_RUN_DIR="${XCL_MICRO_P16X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p16x1_default}"
+XCL_MICRO_P32X1_RUN_DIR="${XCL_MICRO_P32X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x1_default}"
+XCL_MICRO_P32X4_RUN_DIR="${XCL_MICRO_P32X4_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x4_default}"
 AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
 AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
 AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
@@ -28,8 +34,8 @@ DATASETS=(
   "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  "cassins_vireo|files/annotation jsons/cassins_vireo_annotations.json|/media/george-vengrovski/disk2/specs/cassins_vireo_5ms|/media/george-vengrovski/disk2/raw_data/cassins_vireo/data/figshare_3081814/wav_files|events"
-  "american_robin|files/annotation jsons/american_robin_annotations.json|/media/george-vengrovski/disk2/specs/american_robin_5ms|/media/george-vengrovski/disk2/raw_data/american_robin/data/rmbl_robin/RMBL-Robin/data|events"
+  # "cassins_vireo|files/annotation jsons/cassins_vireo_annotations.json|/media/george-vengrovski/disk2/specs/cassins_vireo_5ms|/media/george-vengrovski/disk2/raw_data/cassins_vireo/data/figshare_3081814/wav_files|events"
+  # "american_robin|files/annotation jsons/american_robin_annotations.json|/media/george-vengrovski/disk2/specs/american_robin_5ms|/media/george-vengrovski/disk2/raw_data/american_robin/data/rmbl_robin/RMBL-Robin/data|events"
 )
 
 usage() {
@@ -63,13 +69,25 @@ for bird in sorted(bird for bird in birds if bird):
 PY
 }
 
+songmae_run_dir() {
+  case "$1" in
+    songmae|songmae_random) echo "$SONGMAE_RUN_DIR" ;;
+    xcl_tiny_500k_p32x4_default) echo "$XCL_TINY_P32X4_RUN_DIR" ;;
+    xcl_base_500k_p32x4_default) echo "$XCL_BASE_P32X4_RUN_DIR" ;;
+    xcl_micro_500k_p16x1_default) echo "$XCL_MICRO_P16X1_RUN_DIR" ;;
+    xcl_micro_500k_p32x1_default) echo "$XCL_MICRO_P32X1_RUN_DIR" ;;
+    xcl_micro_500k_p32x4_default) echo "$XCL_MICRO_P32X4_RUN_DIR" ;;
+    *) return 1 ;;
+  esac
+}
+
 extract_embeddings() {
   local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7"
   case "$model" in
-    songmae|songmae_random)
+    songmae|songmae_random|xcl_tiny_500k_p32x4_default|xcl_base_500k_p32x4_default|xcl_micro_500k_p16x1_default|xcl_micro_500k_p32x1_default|xcl_micro_500k_p32x4_default)
       cmd=(
         "$PYTHON_BIN" -m src.core.extract_embedding
-        --run_dir "$SONGMAE_RUN_DIR" \
+        --run_dir "$(songmae_run_dir "$model")" \
         --spec_dir "$spec_dir" \
         --json_path "$json" \
         --bird "$bird" \
@@ -146,7 +164,7 @@ for row in "${DATASETS[@]}"; do
       fi
       plot_args=()
       if [[ "$SAVE_PLOTS" == "1" ]]; then
-        plot_args=(--plot_dir "$run_dir/prediction_plots")
+        plot_args=(--save_plots --plot_dir "$run_dir/prediction_plots")
       fi
       if ! "$PYTHON_BIN" src/evals/syllable_classification.py \
         --embeddings "$embed_dir/embeddings.npz" \
@@ -159,6 +177,10 @@ for row in "${DATASETS[@]}"; do
         echo "probe failed: dataset=$dataset bird=$bird model=$model" 1>&2
       else
         mv "$metrics_tmp" "$metrics_path"
+        if [[ "$CLEAN_EMBEDDINGS" == "1" ]]; then
+          rm -rf "$embed_dir"
+          echo "cleaned: $embed_dir"
+        fi
       fi
     done
   done < <(birds_in_json "$json")

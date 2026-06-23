@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +17,7 @@ import umap
 from matplotlib import cm
 
 ROOT = Path(__file__).resolve().parents[2]
-RAW_MODELS = {"aves", "bird_mae", "hubert", "perch2"}
+RAW_MODELS = {"aves", "bird_mae", "hubert"}
 
 
 def split_models(models):
@@ -34,17 +33,9 @@ def add_arg(cmd, flag, value):
         cmd.extend([flag, str(value)])
 
 
-def run(cmd, env=None):
+def run(cmd):
     print(" ".join(map(str, cmd)))
-    subprocess.run([str(part) for part in cmd], check=True, env=env)
-
-
-def model_env(model, args):
-    if model != "perch2" or args.perch_cudnn_dir is None:
-        return None
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = f"{args.perch_cudnn_dir}:{env.get('LD_LIBRARY_PATH', '')}"
-    return env
+    subprocess.run([str(part) for part in cmd], check=True)
 
 
 def songmae_command(model, args, out_path):
@@ -77,9 +68,8 @@ def songmae_command(model, args, out_path):
 
 def raw_command(model, args, out_dir):
     assert args.wav_dir, f"--wav_dir is required for model={model}"
-    python = args.perch_python if model == "perch2" else sys.executable
     cmd = [
-        python,
+        sys.executable,
         ROOT / "src" / "external_models" / f"{model}.py",
         "--spec_dir",
         args.spec_dir,
@@ -104,8 +94,6 @@ def raw_command(model, args, out_dir):
     if model == "hubert":
         cmd.extend(["--model_name", args.hubert_model_name])
         add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
-    if model == "perch2":
-        cmd.extend(["--model_name", args.perch_model_name, "--window_seconds", args.perch_window_seconds])
     return cmd
 
 
@@ -122,7 +110,7 @@ def extract(model, args, model_dir):
         out_path.unlink(missing_ok=True)
     if not (args.reuse and out_path.exists()):
         model_dir.mkdir(parents=True, exist_ok=True)
-        run(raw_command(model, args, model_dir), env=model_env(model, args))
+        run(raw_command(model, args, model_dir))
     return out_path
 
 
@@ -138,6 +126,12 @@ def limit_points(features, labels, max_points):
     if max_points <= 0 or features.shape[0] <= max_points:
         return features, labels
     return features[:max_points], labels[:max_points]
+
+
+def zscore(features):
+    mean = features.mean(axis=0, keepdims=True)
+    std = np.maximum(features.std(axis=0, keepdims=True), 1e-8)
+    return ((features - mean) / std).astype(np.float32, copy=False)
 
 
 def fit_umap(features, args):
@@ -183,6 +177,8 @@ def run_model(model, args):
     source = extract(model, args, model_dir)
     features, labels = load_arrays(source)
     features, labels = limit_points(features, labels, args.max_points)
+    if args.zscore:
+        features = zscore(features)
     xy = fit_umap(features, args)
     np.save(model_dir / "umap_points.npy", xy)
     np.save(model_dir / "labels.npy", labels)
@@ -197,7 +193,7 @@ def parse_args():
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--models", default="songmae")
     parser.add_argument("--wav_dir")
-    parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
+    parser.add_argument("--recording_mode", default="full_recordings", choices=["events", "full_recordings"])
     parser.add_argument("--recording_stem")
     parser.add_argument("--bird", required=True)
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
@@ -205,9 +201,11 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--deterministic", action="store_true")
     parser.add_argument("--reuse", action="store_true")
-    parser.add_argument("--umap_neighbors", type=int, default=200)
+    parser.add_argument("--zscore", dest="zscore", action="store_true", default=True)
+    parser.add_argument("--no_zscore", dest="zscore", action="store_false")
+    parser.add_argument("--umap_neighbors", type=int, default=25)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
-    parser.add_argument("--umap_metric", default="cosine")
+    parser.add_argument("--umap_metric", default="euclidean")
     parser.add_argument("--songmae_run_dir")
     parser.add_argument("--checkpoint")
     parser.add_argument("--num_timebins", type=int, default=12400)
@@ -216,10 +214,6 @@ def parse_args():
     parser.add_argument("--aves_config_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.model_config.json"))
     parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
     parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
-    parser.add_argument("--perch_model_name", default="perch_v2")
-    parser.add_argument("--perch_window_seconds", type=float, default=5.0)
-    parser.add_argument("--perch_python", default=sys.executable)
-    parser.add_argument("--perch_cudnn_dir", default=os.environ.get("PERCH_CUDNN_DIR"))
     return parser.parse_args()
 
 
