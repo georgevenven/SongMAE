@@ -3,9 +3,11 @@ from pathlib import Path
 
 import numpy as np
 
+from src.core.embedding_store import EmbeddingStore
+
 
 def load_plot_specs(path):
-    data = np.load(path, allow_pickle=True)
+    data = EmbeddingStore(path)
     keys = ("segment_recording_stem", "segment_song_id", "segment_spec_path")
     if any(key not in data for key in keys):
         return {}

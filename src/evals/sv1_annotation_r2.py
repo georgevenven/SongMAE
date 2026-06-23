@@ -9,26 +9,27 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
+from src.core.embedding_store import EmbeddingStore
 from src.plotting_utils.sv1_annotation_r2 import plot_metric_bars, plot_sv1_overlay
 
 
-def npz_paths(path):
+def embedding_paths(path):
     path = Path(path)
-    if path.is_file():
+    if (path / "encoded_embeddings.npy").exists():
         return [path]
-    paths = [p for p in sorted(path.glob("*.npz")) if ".tmp." not in p.name]
-    assert paths, f"no npz files found: {path}"
+    paths = [p for p in sorted(path.iterdir()) if p.is_dir() and (p / "encoded_embeddings.npy").exists()]
+    assert paths, f"no embedding folders found: {path}"
     return paths
 
 
 def parse_dataset(value):
     name, sep, path = value.partition("=")
-    assert sep and name and path, "--dataset must look like name=/path/to/embeddings.npz"
+    assert sep and name and path, "--dataset must look like name=/path/to/embeddings"
     return name, Path(path)
 
 
 def load_one(path, feature_key):
-    data = np.load(path, allow_pickle=True)
+    data = EmbeddingStore(path)
     assert feature_key in data, f"{feature_key} missing from {path}"
     assert "labels_downsampled" in data, f"labels_downsampled missing from {path}"
     x = data[feature_key].astype(np.float32, copy=False).reshape(data[feature_key].shape[0], -1)
@@ -43,7 +44,7 @@ def token_spectrogram(data, count):
     spec = data["spectrograms"].astype(np.float32, copy=False)
     if spec.shape[0] == count:
         return spec.T
-    patch_width = int(data["patch_width"]) if "patch_width" in data else spec.shape[0] // count
+    patch_width = int(data.metadata.get("patch_width", spec.shape[0] // count))
     assert patch_width > 0 and spec.shape[0] >= count * patch_width
     spec = spec[: count * patch_width]
     return spec.reshape(count, patch_width, spec.shape[1]).mean(axis=1).T
@@ -86,14 +87,14 @@ def overlay_items(dataset, path, data, y, offset):
 def load_dataset(name, path, feature_key):
     xs, ys, pixels, items = [], [], [], []
     offset = 0
-    for npz_path in npz_paths(path):
-        data, x, y = load_one(npz_path, feature_key)
+    for embedding_path in embedding_paths(path):
+        data, x, y = load_one(embedding_path, feature_key)
         pixel = pixel_intensity(data, y.size)
         xs.append(x)
         ys.append(y)
         if pixel is not None:
             pixels.append(pixel)
-        items.extend(overlay_items(name, npz_path, data, y, offset))
+        items.extend(overlay_items(name, embedding_path, data, y, offset))
         offset += x.shape[0]
     return {
         "name": name,
@@ -183,7 +184,7 @@ def summarize_datasets(datasets, scores, summary):
 def main():
     parser = argparse.ArgumentParser(description="Measure how much global SV1 tracks annotation song state.")
     parser.add_argument("--model", required=True, choices=["songmae", "hubert", "birdaves", "aves", "songmae_random"])
-    parser.add_argument("--dataset", action="append", required=True, help="Repeat as name=/path/to/embeddings.npz-or-dir")
+    parser.add_argument("--dataset", action="append", required=True, help="Repeat as name=/path/to/embeddings-folder-or-parent-dir")
     parser.add_argument("--feature_key", default="encoded_embeddings")
     parser.add_argument("--zscore", dest="zscore", action="store_true", default=True)
     parser.add_argument("--no_zscore", dest="zscore", action="store_false")

@@ -10,8 +10,7 @@ import torchaudio
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from src.external_models.data_loader import WavFromSpectrogramDataset, save_concatenated_embeddings
-from src.core.utils import downsample_labels
+from src.external_models.data_loader import WavFromSpectrogramDataset, labels_for_features, limited_items, save_concatenated_embeddings
 
 
 def load_model(model_name):
@@ -76,8 +75,7 @@ def save_embeddings(args):
     model = model.to(device)
 
     rows = []
-    for index in range(len(dataset)):
-        item = dataset[index]
+    for item in limited_items(dataset, args.num_timebins):
         embeddings = extract_features(
             feature_extractor,
             model,
@@ -86,7 +84,9 @@ def save_embeddings(args):
             args.encoder_layer_idx,
             device,
         )
-        labels = downsample_labels(item["labels"], embeddings.shape[0])
+        if embeddings.shape[0] == 0:
+            continue
+        labels = labels_for_features(item["labels"], embeddings.shape[0])
         assert embeddings.shape[0] == labels.shape[0]
         rows.append(
             {
@@ -99,18 +99,19 @@ def save_embeddings(args):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Extract HuBERT embeddings as .npz files.")
+    parser = argparse.ArgumentParser(description="Extract HuBERT embeddings into an embedding folder.")
     parser.add_argument("--spec_dir", required=True)
     parser.add_argument("--wav_dir", required=True)
     parser.add_argument("--annotation_file", required=True)
     parser.add_argument("--out_dir", required=True)
-    parser.add_argument("--model_name", default="facebook/hubert-base-ls960")
+    parser.add_argument("--model_name", default="facebook/hubert-large-ll60k")
     parser.add_argument("--audio_sr", type=int, default=16000)
     parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
     parser.add_argument("--recording_stem")
     parser.add_argument("--bird")
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--encoder_layer_idx", type=int)
+    parser.add_argument("--num_timebins", type=int, default=0)
     return parser.parse_args()
 
 

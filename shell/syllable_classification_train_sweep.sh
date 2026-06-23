@@ -40,8 +40,8 @@ for bird_dir in "$EMBED_ROOT"/*; do
   bird="$(basename "$bird_dir")"
   selected_bird "$bird" || continue
   for model_name in "${MODEL_NAMES[@]}"; do
-    embeddings="$bird_dir/$model_name/embeddings/embeddings.npz"
-    [[ -f "$embeddings" ]] || continue
+    embeddings="$bird_dir/$model_name/embeddings"
+    [[ -d "$embeddings" ]] || continue
     for budget in "${BUDGETS[@]}"; do
       run_dir="$OUT_ROOT/$bird/$model_name/train_${budget}s"
       metrics="$run_dir/metrics.json"

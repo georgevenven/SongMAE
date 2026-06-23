@@ -709,7 +709,7 @@ def main():
     parser.add_argument("--perch_model_name", default="perch_v2")
     parser.add_argument("--perch_audio_sr", type=int, default=32000)
     parser.add_argument("--perch_window_seconds", type=float, default=5.0)
-    parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
+    parser.add_argument("--hubert_model_name", default="facebook/hubert-large-ll60k")
     parser.add_argument("--hubert_audio_sr", type=int, default=16000)
     parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
     parser.add_argument("--bird_mae_audio_sr", type=int, default=32000)

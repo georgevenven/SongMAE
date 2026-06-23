@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from .data_loader import SpectrogramDatasetSupervised
+from .embedding_store import EmbeddingFolderWriter
 from .utils import downsample_labels, timebins_to_ms
 from .utils import load_model_state
 
@@ -29,7 +30,7 @@ def load_recording_segments(args):
             break
         if max_timebins > 0 and collected_timebins >= max_timebins:
             break
-        _, event = ds.samples[idx]
+        spec_path, event = ds.samples[idx]
         spec, labels, stem = ds[idx]
         spec = spec.squeeze(0).numpy()
         labels = labels.numpy()
@@ -47,6 +48,7 @@ def load_recording_segments(args):
                 "song_id": idx,
                 "start_ms": timebins_to_ms(start_timebin, audio_params),
                 "end_ms": timebins_to_ms(end_timebin, audio_params),
+                "spec_path": str(spec_path),
                 "spectrogram": spec,
                 "labels_original": labels,
             }
@@ -194,57 +196,151 @@ def extract_recording_embeddings(args):
     return extract_recording_embeddings_with_state(args, model_state)
 
 
-def _concatenate_segments(segments, key):
-    arrays = [segment[key] for segment in segments]
-    assert arrays
-    return np.concatenate(arrays, axis=0)
+def _token_count(timebins, model_num_timebins, patch_width, num_patches_time):
+    batch_size = max(1, (timebins + model_num_timebins - 1) // model_num_timebins)
+    pad_amount = batch_size * model_num_timebins - timebins
+    return batch_size * num_patches_time - pad_amount // patch_width
 
 
-def _token_metadata(segments):
-    stems, song_ids, starts, ends = [], [], [], []
-    for segment in segments:
-        count = segment["encoded_embeddings"].shape[0]
-        edges = np.linspace(segment["start_ms"], segment["end_ms"], count + 1)
-        stems.append(np.full(count, segment["recording_stem"]))
-        song_ids.append(np.full(count, segment["song_id"], dtype=np.int64))
-        starts.append(edges[:-1])
-        ends.append(edges[1:])
-    return np.concatenate(stems), np.concatenate(song_ids), np.concatenate(starts), np.concatenate(ends)
+def _extract_one(raw_segment, args, model_state):
+    return _extract_segment_arrays(
+        spec_segment=raw_segment["spectrogram"],
+        labels_segment=raw_segment["labels_original"],
+        model=model_state["model"],
+        device=model_state["device"],
+        model_num_timebins=model_state["model_num_timebins"],
+        patch_width=model_state["patch_width"],
+        num_patches_height=model_state["num_patches_height"],
+        num_patches_time=model_state["num_patches_time"],
+        encoder_layer_idx=args.get("encoder_layer_idx"),
+    )
+
+
+def _writer_shapes(raw_segments, first_state, model_state):
+    total_tokens = sum(
+        _token_count(
+            segment["labels_original"].shape[0],
+            model_state["model_num_timebins"],
+            model_state["patch_width"],
+            model_state["num_patches_time"],
+        )
+        for segment in raw_segments
+    )
+    total_timebins = sum(segment["labels_original"].shape[0] for segment in raw_segments)
+    segment_count = len(raw_segments)
+    return {
+        "encoded_embeddings": (total_tokens, *first_state["encoded_embeddings"].shape[1:]),
+        "encoded_embeddings_grid": (total_tokens, *first_state["encoded_embeddings_grid"].shape[1:]),
+        "labels_downsampled": (total_tokens,),
+        "labels_original": (total_timebins,),
+        "spectrograms": (total_timebins, first_state["spectrograms"].shape[1]),
+        "recording_stem": (total_tokens,),
+        "song_id": (total_tokens,),
+        "token_start_ms": (total_tokens,),
+        "token_end_ms": (total_tokens,),
+        "segment_recording_stem": (segment_count,),
+        "segment_song_id": (segment_count,),
+        "segment_start_ms": (segment_count,),
+        "segment_end_ms": (segment_count,),
+        "segment_spec_path": (segment_count,),
+    }
+
+
+def _writer_dtypes(raw_segments, first_state):
+    stems = [segment["recording_stem"] for segment in raw_segments]
+    spec_paths = [segment["spec_path"] for segment in raw_segments]
+    stem_dtype = f"<U{max(1, max(len(stem) for stem in stems))}"
+    spec_path_dtype = f"<U{max(1, max(len(path) for path in spec_paths))}"
+    return {
+        "encoded_embeddings": first_state["encoded_embeddings"].dtype,
+        "encoded_embeddings_grid": first_state["encoded_embeddings_grid"].dtype,
+        "labels_downsampled": np.int64,
+        "labels_original": np.int64,
+        "spectrograms": np.float32,
+        "recording_stem": stem_dtype,
+        "song_id": np.int64,
+        "token_start_ms": np.float32,
+        "token_end_ms": np.float32,
+        "segment_recording_stem": stem_dtype,
+        "segment_song_id": np.int64,
+        "segment_start_ms": np.float32,
+        "segment_end_ms": np.float32,
+        "segment_spec_path": spec_path_dtype,
+    }
+
+
+def _metadata(extracted, args, model_state):
+    audio_params = extracted["audio_params"]
+    return {
+        "audio_sr": audio_params[0],
+        "audio_n_mels": audio_params[1],
+        "audio_hop_size": audio_params[2],
+        "audio_fft": audio_params[3],
+        "patch_height": model_state["patch_height"],
+        "patch_width": model_state["patch_width"],
+        "num_patches_time": model_state["num_patches_time"],
+        "num_patches_height": model_state["num_patches_height"],
+        "checkpoint": args.get("checkpoint") or "",
+        "model_num_timebins": model_state["model_num_timebins"],
+        "mels": int(model_state["config"]["mels"]),
+    }
+
+
+def _write_segment(writer, token_start, timebin_start, segment_index, raw_segment, state):
+    token_count = state["encoded_embeddings"].shape[0]
+    timebin_count = state["labels_original"].shape[0]
+    token_end = token_start + token_count
+    timebin_end = timebin_start + timebin_count
+    edges = np.linspace(raw_segment["start_ms"], raw_segment["end_ms"], token_count + 1)
+
+    writer.arrays["encoded_embeddings"][token_start:token_end] = state["encoded_embeddings"]
+    writer.arrays["encoded_embeddings_grid"][token_start:token_end] = state["encoded_embeddings_grid"]
+    writer.arrays["labels_downsampled"][token_start:token_end] = state["labels_downsampled"]
+    writer.arrays["labels_original"][timebin_start:timebin_end] = state["labels_original"]
+    writer.arrays["spectrograms"][timebin_start:timebin_end] = state["spectrograms"]
+    writer.arrays["recording_stem"][token_start:token_end] = raw_segment["recording_stem"]
+    writer.arrays["song_id"][token_start:token_end] = raw_segment["song_id"]
+    writer.arrays["token_start_ms"][token_start:token_end] = edges[:-1]
+    writer.arrays["token_end_ms"][token_start:token_end] = edges[1:]
+    writer.arrays["segment_recording_stem"][segment_index] = raw_segment["recording_stem"]
+    writer.arrays["segment_song_id"][segment_index] = raw_segment["song_id"]
+    writer.arrays["segment_start_ms"][segment_index] = raw_segment["start_ms"]
+    writer.arrays["segment_end_ms"][segment_index] = raw_segment["end_ms"]
+    writer.arrays["segment_spec_path"][segment_index] = raw_segment["spec_path"]
+    return token_end, timebin_end
+
+
+def write_recording_embedding_folder(args):
+    model_state = load_model_state(args["run_dir"], args.get("checkpoint"), random_init=args.get("random_init", False))
+    extracted = load_recording_segments(args)
+    raw_segments = extracted["segments"]
+    assert raw_segments, "No valid segments found for the requested recording set."
+
+    first_state = _extract_one(raw_segments[0], args, model_state)
+    assert first_state is not None, "No valid patches extracted for the requested recording set."
+    writer = EmbeddingFolderWriter(
+        args["out_dir"],
+        _writer_shapes(raw_segments, first_state, model_state),
+        _writer_dtypes(raw_segments, first_state),
+        _metadata(extracted, args, model_state),
+    )
+
+    token_start, timebin_start = _write_segment(writer, 0, 0, 0, raw_segments[0], first_state)
+    for segment_index, raw_segment in enumerate(raw_segments[1:], start=1):
+        state = _extract_one(raw_segment, args, model_state)
+        assert state is not None, "No valid patches extracted for a non-empty segment."
+        token_start, timebin_start = _write_segment(writer, token_start, timebin_start, segment_index, raw_segment, state)
+
+    assert token_start == writer.arrays["encoded_embeddings"].shape[0]
+    assert timebin_start == writer.arrays["spectrograms"].shape[0]
+    writer.close()
 
 
 def main(args):
-    extracted = extract_recording_embeddings(args)
-    npz_path = args.get("npz_dir")
-    if not npz_path:
-        return extracted
-
-    segments = extracted["segments"]
-    recording_stem, song_id, token_start_ms, token_end_ms = _token_metadata(segments)
-    np.savez(
-        npz_path,
-        spectrograms=_concatenate_segments(segments, "spectrograms"),
-        labels_original=_concatenate_segments(segments, "labels_original"),
-        labels_downsampled=_concatenate_segments(segments, "labels_downsampled"),
-        encoded_embeddings=_concatenate_segments(segments, "encoded_embeddings"),
-        encoded_embeddings_grid=_concatenate_segments(segments, "encoded_embeddings_grid"),
-        recording_stem=recording_stem,
-        song_id=song_id,
-        token_start_ms=token_start_ms,
-        token_end_ms=token_end_ms,
-        audio_sr=np.array(extracted["audio_params"][0]),
-        audio_n_mels=np.array(extracted["audio_params"][1]),
-        audio_hop_size=np.array(extracted["audio_params"][2]),
-        audio_fft=np.array(extracted["audio_params"][3]),
-        patch_height=np.array(extracted["patch_height"]),
-        patch_width=np.array(extracted["patch_width"]),
-        num_patches_time=np.array(extracted["num_patches_time"]),
-        num_patches_height=np.array(extracted["num_patches_height"]),
-        checkpoint=np.array(extracted["checkpoint"]),
-        model_num_timebins=np.array(extracted["model_num_timebins"]),
-        mels=np.array(extracted["mels"]),
-    )
-    print(f"NPZ saved to {npz_path}")
-    return extracted
+    if args.get("out_dir"):
+        write_recording_embedding_folder(args)
+        return None
+    return extract_recording_embeddings(args)
 
 
 if __name__ == "__main__":
@@ -253,7 +349,7 @@ if __name__ == "__main__":
     parser.add_argument("--run_dir", type=str, required=True)
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--spec_dir", type=str, required=True)
-    parser.add_argument("--npz_dir", type=str, default=None)
+    parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--json_path", type=str, default=None)
     parser.add_argument("--bird", type=str, default=None)
     parser.add_argument("--random_init", action="store_true")

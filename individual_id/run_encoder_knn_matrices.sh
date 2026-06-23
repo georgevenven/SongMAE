@@ -88,7 +88,7 @@ encoder_tag() {
     SongMAE) printf "%s" "${SONGMAE_TAG:-songmae_xcl_ckpt499999}" ;;
     AVES) printf "birdaves_base" ;;
     Perch) printf "perch_v2" ;;
-    HuBERT) printf "hubert_base_ls960" ;;
+    HuBERT) printf "hubert_large_ll60k" ;;
     BirdMAE) printf "bird_mae_base" ;;
     *) return 1 ;;
   esac

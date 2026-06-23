@@ -38,24 +38,21 @@ A check means the annotation JSON contains that information.
 
 | Species | Detections | Syllable units | Unit onset/offset | Individual ID |
 | --- | --- | --- | --- | --- |
-| American Robin |  | ✓ |  |  |
-| Bengalese Finch |  | ✓ |  |  |
-| Canary |  | ✓ |  |  |
-| Canary (individual ID) |  |  |  |  |
-| Cassin's Vireo |  | ✓ |  |  |
-| Chiffchaff |  |  |  |  |
-| European Starling |  |  |  |  |
-| Great Tit |  |  |  |  |
-| Orangutan |  |  |  |  |
-| Ovenbird |  |  |  |  |
-| Little Owl |  |  |  |  |
-| Red-winged Blackbird |  |  |  |  |
-| Swamp Sparrow |  |  |  |  |
-| Western Capercaillie |  |  |  |  |
-| Tree Pipit |  |  |  |  |
-| White-crowned Sparrow (manual) |  |  |  |  |
-| White-crowned Sparrow (predicted) |  |  |  |  |
-| Zebra Finch |  | ✓ |  |  |
+| American Robin | ✓ | ✓ | ✓ | ✓ |
+| Bengalese Finch | ✓ | ✓ | ✓ | ✓ |
+| Canary | ✓ | ✓ | ✓ | ✓ |
+| Cassin's Vireo | ✓ | ✓ | ✓ | ✓ |
+| Chiffchaff | ✓ |  |  | ✓ |
+| European Starling | ✓ |  |  | ✓ |
+| Great Tit | ✓ |  | ✓ | ? |
+| Ovenbird | ✓ |  |  | ✓ |
+| Little Owl | ✓ |  |  | ✓ |
+| Red-winged Blackbird | ? | ? | ? | ? |
+| Swamp Sparrow | ✓ | ? | ✓ | ? |
+| Western Capercaillie | ✓ |  |  |  |
+| Tree Pipit | ✓ |  |  | ✓ |
+| White-crowned Sparrow |  |  |  |  |
+| Zebra Finch | ✓ | ✓ | ✓ | ✓ |
 
 ## Shell Scripts
 

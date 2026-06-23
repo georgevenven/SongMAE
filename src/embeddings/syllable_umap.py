@@ -1,5 +1,6 @@
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,10 @@ import umap
 from matplotlib import cm
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT))
+
+from src.core.embedding_store import EmbeddingStore
+
 RAW_MODELS = {"aves", "bird_mae", "hubert"}
 
 
@@ -48,7 +53,7 @@ def songmae_command(model, args, out_path):
         args.spec_dir,
         "--run_dir",
         args.songmae_run_dir,
-        "--npz_dir",
+        "--out_dir",
         out_path,
         "--json_path",
         args.annotation_file,
@@ -99,25 +104,25 @@ def raw_command(model, args, out_dir):
 
 def extract(model, args, model_dir):
     if model in {"songmae", "songmae_random"}:
-        out_path = model_dir / "embeddings.npz"
-        if not (args.reuse and out_path.exists()):
+        out_path = model_dir / "embeddings"
+        if not (args.reuse and out_path.is_dir()):
             model_dir.mkdir(parents=True, exist_ok=True)
             run(songmae_command(model, args, out_path))
         return out_path
 
-    out_path = model_dir / "embeddings.npz"
+    out_path = model_dir / "embeddings"
     if not args.reuse:
-        out_path.unlink(missing_ok=True)
-    if not (args.reuse and out_path.exists()):
+        shutil.rmtree(out_path, ignore_errors=True)
+    if not (args.reuse and out_path.is_dir()):
         model_dir.mkdir(parents=True, exist_ok=True)
-        run(raw_command(model, args, model_dir))
+        run(raw_command(model, args, out_path))
     return out_path
 
 
 def load_arrays(path):
-    npz = np.load(path)
-    features = npz["encoded_embeddings"].astype(np.float32, copy=False)
-    labels = npz["labels_downsampled"].astype(np.int64, copy=False)
+    store = EmbeddingStore(path)
+    features = store["encoded_embeddings"].astype(np.float32, copy=False)
+    labels = store["labels_downsampled"].astype(np.int64, copy=False)
     assert features.shape[0] == labels.shape[0], path
     return features, labels
 
@@ -193,7 +198,7 @@ def parse_args():
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--models", default="songmae")
     parser.add_argument("--wav_dir")
-    parser.add_argument("--recording_mode", default="full_recordings", choices=["events", "full_recordings"])
+    parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
     parser.add_argument("--recording_stem")
     parser.add_argument("--bird", required=True)
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
@@ -213,7 +218,7 @@ def parse_args():
     parser.add_argument("--aves_model_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.pt"))
     parser.add_argument("--aves_config_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.model_config.json"))
     parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
-    parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
+    parser.add_argument("--hubert_model_name", default="facebook/hubert-large-ll60k")
     return parser.parse_args()
 
 

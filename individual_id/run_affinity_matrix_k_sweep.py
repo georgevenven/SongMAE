@@ -70,7 +70,7 @@ def _base_args(args, species):
         perch_model_name="perch_v2",
         perch_audio_sr=32000,
         perch_window_seconds=5.0,
-        hubert_model_name="facebook/hubert-base-ls960",
+        hubert_model_name="facebook/hubert-large-ll60k",
         hubert_audio_sr=16000,
         bird_mae_model_name="DBD-research-group/Bird-MAE-Base",
         bird_mae_audio_sr=32000,

@@ -8,7 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
 from src.core.data_loader import SpectrogramDatasetSupervised
-from src.core.utils import timebins_to_ms
+from src.core.embedding_store import save_embedding_arrays
+from src.core.utils import downsample_labels, timebins_to_ms
 
 
 class WavFromSpectrogramDataset(Dataset):
@@ -79,6 +80,26 @@ class WavFromSpectrogramDataset(Dataset):
         return len(self.spec_dataset)
 
 
+def limited_items(dataset, num_timebins):
+    max_timebins = int(num_timebins or 0)
+    used = 0
+    for index in range(len(dataset)):
+        item = dataset[index]
+        labels = item["labels"]
+        count = int(labels.numel())
+        if max_timebins > 0:
+            remaining = max_timebins - used
+            if remaining <= 0:
+                return
+            if count > remaining:
+                item = dict(item)
+                item["labels"] = labels[:remaining]
+                item["end_ms"] = item["start_ms"] + timebins_to_ms(remaining, dataset.audio_params)
+                count = remaining
+        yield item
+        used += count
+
+
 def save_concatenated_embeddings(out_dir, rows, **metadata):
     assert rows
     out_dir = Path(out_dir)
@@ -113,7 +134,7 @@ def save_concatenated_embeddings(out_dir, rows, **metadata):
         if "encoded_embeddings_grid" in row:
             grids.append(row["encoded_embeddings_grid"].astype(np.float32, copy=False))
 
-    payload = {
+    arrays = {
         "encoded_embeddings": np.concatenate(features, axis=0),
         "labels_downsampled": np.concatenate(labels, axis=0),
         "labels_original": np.concatenate(labels, axis=0),
@@ -130,12 +151,20 @@ def save_concatenated_embeddings(out_dir, rows, **metadata):
     }
     if grids:
         assert len(grids) == len(rows)
-        payload["encoded_embeddings_grid"] = np.concatenate(grids, axis=0)
-    for key, value in metadata.items():
-        payload[key] = np.asarray(value)
+        arrays["encoded_embeddings_grid"] = np.concatenate(grids, axis=0)
+    save_embedding_arrays(out_dir, arrays, metadata)
 
-    tmp_path = out_dir / "embeddings.tmp.npz"
-    out_path = out_dir / "embeddings.npz"
-    np.savez(tmp_path, **payload)
-    tmp_path.replace(out_path)
-    print(f"NPZ saved to {out_path}")
+
+def labels_for_features(labels, output_length):
+    if hasattr(labels, "detach"):
+        labels = labels.detach().cpu().numpy()
+    labels = np.asarray(labels, dtype=np.int64)
+    assert labels.ndim == 1
+    assert output_length > 0
+    assert labels.size > 0
+    if labels.size >= output_length:
+        return downsample_labels(labels, output_length)
+
+    index = np.floor((np.arange(output_length) + 0.5) * labels.size / output_length).astype(np.int64)
+    index = np.minimum(index, labels.size - 1)
+    return labels[index].astype(np.int64, copy=False)

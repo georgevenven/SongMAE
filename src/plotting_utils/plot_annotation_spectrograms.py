@@ -25,6 +25,7 @@ from src.plotting_utils.plotting_utils import SPEC_DPI, SPEC_IMSHOW_KW, SPEC_TIT
 
 DETECT_CMAP = ListedColormap([[0.05, 0.05, 0.05], [0.90, 0.20, 0.20]])
 BACKGROUND = [0.05, 0.05, 0.05]
+CROP_SECONDS = 10.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -141,6 +142,8 @@ def label_ax(ax, label: str) -> None:
 
 def plot_one(path: Path, recording: dict, unit_ids: dict[int, int], out_path: Path, sr: int, hop: int, mels: int) -> None:
     spec = display_spec(path, mels)
+    crop = ms_to_bin(CROP_SECONDS * 1000.0, sr, hop, spec.shape[1])
+    spec = spec[:, :crop]
     detection, units = tracks(recording, unit_ids, spec.shape[1], sr, hop)
     seconds = spec.shape[1] * hop / sr
 

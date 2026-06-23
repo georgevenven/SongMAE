@@ -12,6 +12,7 @@ from sklearn.metrics import f1_score
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
+from src.core.embedding_store import EmbeddingStore
 from src.plotting_utils.spectrogram_prediction_vs_groundtruth import (
     load_plot_specs,
     save_spectrogram_prediction_vs_groundtruth,
@@ -39,7 +40,7 @@ def token_groups(data, stems, count):
 
 
 def load_embeddings(path, feature_key):
-    data = np.load(path, allow_pickle=True)
+    data = EmbeddingStore(path)
     x = data[feature_key].astype(np.float32, copy=False)
     y = class_labels(data["labels_downsampled"])
     if x.shape[0] != y.shape[0]:
@@ -282,7 +283,7 @@ def predict_mlp(model, classes, val_x):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fit a simple syllable classifier on extracted embeddings.")
-    parser.add_argument("--embeddings", required=True, help="Single concatenated embeddings .npz; split by song_id.")
+    parser.add_argument("--embeddings", required=True, help="Embedding folder; split by song_id.")
     parser.add_argument("--annotations", required=True)
     parser.add_argument("--model", choices=["logreg", "mlp"], default="logreg")
     parser.add_argument("--feature_key", default="encoded_embeddings")

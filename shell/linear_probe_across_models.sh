@@ -14,6 +14,9 @@ SEED="${SEED:-42}"
 OVERWRITE="${OVERWRITE:-0}"
 SAVE_PLOTS="${SAVE_PLOTS:-0}"
 CLEAN_EMBEDDINGS="${CLEAN_EMBEDDINGS:-1}"
+MAX_PROBE_SECONDS="${MAX_PROBE_SECONDS:-3600}"
+PROBE_TIMEBINS_PER_SECOND="${PROBE_TIMEBINS_PER_SECOND:-200}"
+PROBE_NUM_TIMEBINS="${PROBE_NUM_TIMEBINS:-$((MAX_PROBE_SECONDS * PROBE_TIMEBINS_PER_SECOND))}"
 
 SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/xcl_full_500k_bs256_5s_p32x10}"
 XCL_TINY_P32X4_RUN_DIR="${XCL_TINY_P32X4_RUN_DIR:-$ROOT/runs/xcl_tiny_500k_p32x4_default}"
@@ -24,7 +27,7 @@ XCL_MICRO_P32X4_RUN_DIR="${XCL_MICRO_P32X4_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p3
 AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
 AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
 AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
-HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
+HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-large-ll60k}"
 HUBERT_AUDIO_SR="${HUBERT_AUDIO_SR:-16000}"
 WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
 
@@ -92,8 +95,8 @@ extract_embeddings() {
         --json_path "$json" \
         --bird "$bird" \
         --recording_mode "$mode" \
-        --npz_dir "$out_dir/embeddings.npz" \
-        --num_timebins 0
+        --out_dir "$out_dir" \
+        --num_timebins "$PROBE_NUM_TIMEBINS"
       )
       if [[ -n "${SONGMAE_CHECKPOINT:-}" ]]; then cmd+=(--checkpoint "$SONGMAE_CHECKPOINT"); fi
       if [[ "$model" == "songmae_random" ]]; then cmd+=(--random_init); fi
@@ -110,7 +113,8 @@ extract_embeddings() {
         --aves_model_path "$AVES_MODEL_PATH" \
         --aves_config_path "$AVES_CONFIG_PATH" \
         --audio_sr "$AVES_AUDIO_SR" \
-        --wav_exts "$WAV_EXTS"
+        --wav_exts "$WAV_EXTS" \
+        --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     hubert)
       "$PYTHON_BIN" src/external_models/hubert.py \
@@ -122,7 +126,8 @@ extract_embeddings() {
         --recording_mode "$mode" \
         --model_name "$HUBERT_MODEL_NAME" \
         --audio_sr "$HUBERT_AUDIO_SR" \
-        --wav_exts "$WAV_EXTS"
+        --wav_exts "$WAV_EXTS" \
+        --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     *)
       echo "Unknown model: $model" 1>&2
@@ -167,7 +172,7 @@ for row in "${DATASETS[@]}"; do
         plot_args=(--save_plots --plot_dir "$run_dir/prediction_plots")
       fi
       if ! "$PYTHON_BIN" src/evals/syllable_classification.py \
-        --embeddings "$embed_dir/embeddings.npz" \
+        --embeddings "$embed_dir" \
         --annotations "$json" \
         --model "$PROBE_MODEL" \
         --val_fraction "$VAL_FRACTION" \
