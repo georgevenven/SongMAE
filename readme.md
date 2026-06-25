@@ -231,3 +231,17 @@ Training writes runs under `runs/<run_name>/`:
 - Uses annotation event durations to choose recordings for the held-out set.
 - Moves selected spec files into a test folder.
 - Copies `audio_params.json` into the test folder when present.
+
+---
+
+## Data fixes
+
+- **Swamp Sparrow annotations (2026-06-24):** `files/annotation jsons/swamp_sparrow_annotations.json`
+  recording filenames carried a numeric prefix (e.g. `608__PymConneaut08T01A-Y.wav`) that the
+  spectrogram files (`swamp_sparrow_5ms/PymConneaut08T01A-Y.npy`) lack, so the supervised loader
+  matched zero files (`no labeled files!`). The `^\d+__` prefix was stripped from all 1870
+  filenames so stems match the specs. Original preserved at
+  `files/annotation jsons/swamp_sparrow_annotations.original.json`.
+- **Great Tit excluded from the SV1 annotation-R² analysis (2026-06-24):** its unit labels are
+  unreliable, so it is commented out of `shell/sv1_annotation_r2_across_models.sh`. Re-enable if
+  the annotations are corrected.

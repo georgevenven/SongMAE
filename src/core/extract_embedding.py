@@ -6,8 +6,14 @@ import torch.nn.functional as F
 
 from .data_loader import SpectrogramDatasetSupervised
 from .embedding_store import EmbeddingFolderWriter
-from .utils import downsample_labels, timebins_to_ms
+from .utils import create_label_arr, downsample_labels, load_spec, normalize_spectrogram, timebins_to_ms
 from .utils import load_model_state
+
+
+def _labels_for_recording(ds, stem, length):
+    units = [unit for event in ds.events_by_file[stem] for unit in event["units"]]
+    return create_label_arr({"units": units}, 0, length)
+
 
 def load_recording_segments(args):
     max_timebins = int(args.get("num_timebins") or 0)
@@ -25,16 +31,25 @@ def load_recording_segments(args):
     collected_timebins = 0
     audio_params = (ds.params.sr, ds.params.mels, ds.params.hop_size, ds.params.fft)
     max_segments = int(args.get("max_segments") or 0)
+    cached_path = None
+    cached_spec = None
+    cached_labels = None
     for idx in range(len(ds)):
         if max_segments > 0 and len(segments) >= max_segments:
             break
         if max_timebins > 0 and collected_timebins >= max_timebins:
             break
         spec_path, event = ds.samples[idx]
-        spec, labels, stem = ds[idx]
-        spec = spec.squeeze(0).numpy()
-        labels = labels.numpy()
-        start_timebin = 0 if event is None else int(event["on_timebins"])
+        if spec_path != cached_path:
+            cached_path = spec_path
+            cached_spec = load_spec(spec_path)
+            cached_labels = _labels_for_recording(ds, spec_path.stem, cached_spec.shape[1])
+        assert cached_spec is not None and cached_labels is not None
+
+        spec, start_timebin, end_timebin = ds._event_crop(cached_spec, event) if event else ds._crop_pad(cached_spec)
+        labels = cached_labels[start_timebin:end_timebin]
+        if ds.normalize:
+            spec = normalize_spectrogram(spec, ds.mean, ds.std)
         if max_timebins > 0:
             remaining = max_timebins - collected_timebins
             spec = spec[:, :remaining]
@@ -44,7 +59,7 @@ def load_recording_segments(args):
         end_timebin = start_timebin + spec.shape[1]
         segments.append(
             {
-                "recording_stem": stem,
+                "recording_stem": spec_path.stem,
                 "song_id": idx,
                 "start_ms": timebins_to_ms(start_timebin, audio_params),
                 "end_ms": timebins_to_ms(end_timebin, audio_params),
@@ -226,47 +241,52 @@ def _writer_shapes(raw_segments, first_state, model_state):
         )
         for segment in raw_segments
     )
-    total_timebins = sum(segment["labels_original"].shape[0] for segment in raw_segments)
-    segment_count = len(raw_segments)
-    return {
+    shapes = {
         "encoded_embeddings": (total_tokens, *first_state["encoded_embeddings"].shape[1:]),
-        "encoded_embeddings_grid": (total_tokens, *first_state["encoded_embeddings_grid"].shape[1:]),
         "labels_downsampled": (total_tokens,),
-        "labels_original": (total_timebins,),
-        "spectrograms": (total_timebins, first_state["spectrograms"].shape[1]),
         "recording_stem": (total_tokens,),
         "song_id": (total_tokens,),
         "token_start_ms": (total_tokens,),
         "token_end_ms": (total_tokens,),
+    }
+    if model_state.get("minimal"):
+        return shapes
+
+    total_timebins = sum(segment["labels_original"].shape[0] for segment in raw_segments)
+    segment_count = len(raw_segments)
+    shapes.update({
+        "encoded_embeddings_grid": (total_tokens, *first_state["encoded_embeddings_grid"].shape[1:]),
+        "labels_original": (total_timebins,),
+        "spectrograms": (total_timebins, first_state["spectrograms"].shape[1]),
         "segment_recording_stem": (segment_count,),
         "segment_song_id": (segment_count,),
         "segment_start_ms": (segment_count,),
         "segment_end_ms": (segment_count,),
         "segment_spec_path": (segment_count,),
-    }
+    })
+    return shapes
 
 
 def _writer_dtypes(raw_segments, first_state):
     stems = [segment["recording_stem"] for segment in raw_segments]
-    spec_paths = [segment["spec_path"] for segment in raw_segments]
     stem_dtype = f"<U{max(1, max(len(stem) for stem in stems))}"
-    spec_path_dtype = f"<U{max(1, max(len(path) for path in spec_paths))}"
     return {
         "encoded_embeddings": first_state["encoded_embeddings"].dtype,
-        "encoded_embeddings_grid": first_state["encoded_embeddings_grid"].dtype,
         "labels_downsampled": np.int64,
-        "labels_original": np.int64,
-        "spectrograms": np.float32,
         "recording_stem": stem_dtype,
         "song_id": np.int64,
         "token_start_ms": np.float32,
         "token_end_ms": np.float32,
+    } | ({
+        "encoded_embeddings_grid": first_state["encoded_embeddings_grid"].dtype,
+        "labels_original": np.int64,
+        "spectrograms": np.float32,
         "segment_recording_stem": stem_dtype,
         "segment_song_id": np.int64,
         "segment_start_ms": np.float32,
         "segment_end_ms": np.float32,
-        "segment_spec_path": spec_path_dtype,
-    }
+        "segment_spec_path": f"<U{max(1, max(len(segment['spec_path']) for segment in raw_segments))}",
+    } if not first_state.get("minimal") else {})
 
 
 def _metadata(extracted, args, model_state):
@@ -294,14 +314,17 @@ def _write_segment(writer, token_start, timebin_start, segment_index, raw_segmen
     edges = np.linspace(raw_segment["start_ms"], raw_segment["end_ms"], token_count + 1)
 
     writer.arrays["encoded_embeddings"][token_start:token_end] = state["encoded_embeddings"]
-    writer.arrays["encoded_embeddings_grid"][token_start:token_end] = state["encoded_embeddings_grid"]
     writer.arrays["labels_downsampled"][token_start:token_end] = state["labels_downsampled"]
-    writer.arrays["labels_original"][timebin_start:timebin_end] = state["labels_original"]
-    writer.arrays["spectrograms"][timebin_start:timebin_end] = state["spectrograms"]
     writer.arrays["recording_stem"][token_start:token_end] = raw_segment["recording_stem"]
     writer.arrays["song_id"][token_start:token_end] = raw_segment["song_id"]
     writer.arrays["token_start_ms"][token_start:token_end] = edges[:-1]
     writer.arrays["token_end_ms"][token_start:token_end] = edges[1:]
+    if "encoded_embeddings_grid" not in writer.arrays:
+        return token_end, timebin_end
+
+    writer.arrays["encoded_embeddings_grid"][token_start:token_end] = state["encoded_embeddings_grid"]
+    writer.arrays["labels_original"][timebin_start:timebin_end] = state["labels_original"]
+    writer.arrays["spectrograms"][timebin_start:timebin_end] = state["spectrograms"]
     writer.arrays["segment_recording_stem"][segment_index] = raw_segment["recording_stem"]
     writer.arrays["segment_song_id"][segment_index] = raw_segment["song_id"]
     writer.arrays["segment_start_ms"][segment_index] = raw_segment["start_ms"]
@@ -312,12 +335,14 @@ def _write_segment(writer, token_start, timebin_start, segment_index, raw_segmen
 
 def write_recording_embedding_folder(args):
     model_state = load_model_state(args["run_dir"], args.get("checkpoint"), random_init=args.get("random_init", False))
+    model_state["minimal"] = bool(args.get("minimal"))
     extracted = load_recording_segments(args)
     raw_segments = extracted["segments"]
     assert raw_segments, "No valid segments found for the requested recording set."
 
     first_state = _extract_one(raw_segments[0], args, model_state)
     assert first_state is not None, "No valid patches extracted for the requested recording set."
+    first_state["minimal"] = model_state["minimal"]
     writer = EmbeddingFolderWriter(
         args["out_dir"],
         _writer_shapes(raw_segments, first_state, model_state),
@@ -332,7 +357,8 @@ def write_recording_embedding_folder(args):
         token_start, timebin_start = _write_segment(writer, token_start, timebin_start, segment_index, raw_segment, state)
 
     assert token_start == writer.arrays["encoded_embeddings"].shape[0]
-    assert timebin_start == writer.arrays["spectrograms"].shape[0]
+    if "spectrograms" in writer.arrays:
+        assert timebin_start == writer.arrays["spectrograms"].shape[0]
     writer.close()
 
 
@@ -346,6 +372,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract SongMAE embeddings for exact recordings or full directories.")
     parser.add_argument("--num_timebins", type=int, default=12400)
+    parser.add_argument("--minimal", action="store_true")
     parser.add_argument("--run_dir", type=str, required=True)
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--spec_dir", type=str, required=True)

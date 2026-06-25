@@ -118,18 +118,20 @@ def group_classes(y, groups):
     return classes
 
 
-def select_val_keys(keys, group_to_classes, val_fraction, seed):
+def select_val_keys(keys, group_to_classes, val_fraction, seed, require_all_classes=True):
     counts = {}
     for classes in group_to_classes.values():
         for label in classes:
             counts[label] = counts.get(label, 0) + 1
 
     target_classes = set(counts)
-    assert all(count > 1 for count in counts.values()), "Every syllable class needs train and validation examples."
-
     keys = keys[np.random.default_rng(seed).permutation(keys.size)]
     val_count = max(1, int(round(keys.size * val_fraction)))
     val_count = min(val_count, keys.size - 1)
+    if not require_all_classes:
+        return set(keys[:val_count].tolist())
+
+    assert all(count > 1 for count in counts.values()), "Every syllable class needs train and validation examples."
     val_keys = []
     missing = set(target_classes)
     while missing:
@@ -198,14 +200,14 @@ def select_train_keys(keys, group_to_seconds, group_to_classes, max_seconds):
         used += group_to_seconds[key]
 
 
-def split_by_group(x, y, spans, groups, val_fraction, seed, max_train_seconds):
+def split_by_group(x, y, spans, groups, val_fraction, seed, max_train_seconds, require_all_classes=True):
     groups = np.asarray(groups)
     keys = np.array(sorted(set(groups.tolist())))
     assert keys.size >= 2, "Need at least two songs for a train/val split."
 
     group_to_seconds = group_seconds(spans, groups)
     group_to_classes = group_classes(y, groups)
-    val_keys = select_val_keys(keys, group_to_classes, val_fraction, seed)
+    val_keys = select_val_keys(keys, group_to_classes, val_fraction, seed, require_all_classes=require_all_classes)
     train_keys = select_train_keys(
         np.array([key for key in keys if key not in val_keys]),
         group_to_seconds,
@@ -220,8 +222,10 @@ def split_by_group(x, y, spans, groups, val_fraction, seed, max_train_seconds):
     target_classes = set().union(*group_to_classes.values())
     val_classes = set().union(*(group_to_classes[key] for key in val_keys))
     train_classes = set().union(*(group_to_classes[key] for key in train_keys))
-    assert val_classes == target_classes, "Validation split does not cover every syllable class."
-    assert train_classes == target_classes, "Train split does not cover every syllable class."
+    if require_all_classes:
+        assert val_classes == target_classes, "Validation split does not cover every syllable class."
+    if require_all_classes:
+        assert train_classes == target_classes, "Train split does not cover every syllable class."
     return (
         x[train],
         y[train],
@@ -234,6 +238,12 @@ def split_by_group(x, y, spans, groups, val_fraction, seed, max_train_seconds):
         int(len(val_keys)),
         float(train_seconds),
         int(len(train_classes)),
+        sorted(train_keys),
+        sorted(val_keys),
+        sorted(int(label) for label in train_classes),
+        sorted(int(label) for label in val_classes),
+        sorted(int(label) for label in target_classes - train_classes),
+        sorted(int(label) for label in target_classes - val_classes),
     )
 
 
@@ -295,6 +305,8 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--max_train_seconds", default="MAX", help="Whole-song train budget in seconds, or MAX.")
+    parser.add_argument("--allow_unmatched_val_classes", action="store_true")
+    parser.add_argument("--split_json")
     return parser.parse_args()
 
 
@@ -327,7 +339,22 @@ def main():
         val_songs,
         train_seconds,
         train_classes,
-    ) = split_by_group(x, y, spans, groups, args.val_fraction, args.seed, budget)
+        train_group_keys,
+        val_group_keys,
+        train_class_ids,
+        val_class_ids,
+        missing_train_class_ids,
+        missing_val_class_ids,
+    ) = split_by_group(
+        x,
+        y,
+        spans,
+        groups,
+        args.val_fraction,
+        args.seed,
+        budget,
+        require_all_classes=not args.allow_unmatched_val_classes,
+    )
     train_x, val_x = standardize(train_x, val_x)
 
     if args.model == "logreg":
@@ -352,8 +379,26 @@ def main():
             "target_train_seconds": None if budget is None else float(budget),
             "actual_train_seconds": train_seconds,
             "train_classes": train_classes,
+            "val_classes": len(val_class_ids),
+            "missing_train_classes": len(missing_train_class_ids),
+            "missing_val_classes": len(missing_val_class_ids),
         }
     )
+    if args.split_json:
+        split = {
+            "seed": int(args.seed),
+            "val_fraction": float(args.val_fraction),
+            "max_train_seconds": None if budget is None else float(budget),
+            "allow_unmatched_val_classes": bool(args.allow_unmatched_val_classes),
+            "train_groups": train_group_keys,
+            "val_groups": val_group_keys,
+            "train_classes": train_class_ids,
+            "val_classes": val_class_ids,
+            "missing_train_classes": missing_train_class_ids,
+            "missing_val_classes": missing_val_class_ids,
+        }
+        Path(args.split_json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.split_json).write_text(json.dumps(split, indent=2) + "\n")
     print(json.dumps(metrics, indent=2))
 
 if __name__ == "__main__":
