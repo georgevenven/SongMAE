@@ -100,6 +100,33 @@ def limited_items(dataset, num_timebins):
         used += count
 
 
+def append_limited(rows, row, max_points, used):
+    count = int(row["encoded_embeddings"].shape[0])
+    max_points = int(max_points or 0)
+    if max_points <= 0:
+        rows.append(row)
+        return used + count, True
+
+    remaining = max_points - used
+    if remaining <= 0:
+        return used, False
+
+    if count > remaining:
+        row = dict(row)
+        item = dict(row["item"])
+        item["end_ms"] = item["start_ms"] + (item["end_ms"] - item["start_ms"]) * remaining / count
+        row["item"] = item
+        row["encoded_embeddings"] = row["encoded_embeddings"][:remaining]
+        row["labels_downsampled"] = row["labels_downsampled"][:remaining]
+        if "encoded_embeddings_grid" in row:
+            row["encoded_embeddings_grid"] = row["encoded_embeddings_grid"][:remaining]
+        count = remaining
+
+    rows.append(row)
+    used += count
+    return used, used < max_points
+
+
 def save_concatenated_embeddings(out_dir, rows, **metadata):
     assert rows
     out_dir = Path(out_dir)

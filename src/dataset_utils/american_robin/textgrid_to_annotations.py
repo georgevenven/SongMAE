@@ -47,20 +47,28 @@ def intervals(path: Path) -> dict[str, list[dict]]:
 
 def label_ids(paths: list[Path]) -> dict[str, int]:
     labels = {
-        interval["text"]
+        syllable_label(interval)
         for path in paths
         for interval in intervals(path)["syllable-quality"]
         if interval["text"]
     }
-    return {label: index for index, label in enumerate(sorted(labels))}
+    return {label: index for index, label in enumerate(sorted(labels, key=int))}
+
+
+def syllable_label(interval: dict) -> str:
+    return interval["text"].split("-", 1)[0]
 
 
 def unit(interval: dict, ids: dict[str, int]) -> dict:
-    return {
+    item = {
         "onset_ms": interval["onset_ms"],
         "offset_ms": interval["offset_ms"],
-        "id": ids[interval["text"]],
+        "id": ids[syllable_label(interval)],
     }
+    parts = interval["text"].split("-", 1)
+    if len(parts) == 2:
+        item["quality"] = int(parts[1])
+    return item
 
 
 def make_recording(path: Path, ids: dict[str, int]) -> dict:
@@ -104,7 +112,7 @@ def make_recording(path: Path, ids: dict[str, int]) -> dict:
         "recording": {
             "filename": filename,
             "bird_id": filename.split("-", 1)[0],
-            "detected_vocalizations": len(syllables),
+            "detected_vocalizations": len(events),
         },
         "detected_events": events,
     }
@@ -115,7 +123,11 @@ def main() -> None:
     paths = textgrid_paths(args.src_dir.expanduser())
     ids = label_ids(paths)
     payload = {
-        "metadata": {"units": "ms"},
+        "metadata": {
+            "units": "ms",
+            "unit_label_type": "american_robin_syllable_pattern",
+            "unit_id_to_label": {str(index): label for label, index in ids.items()},
+        },
         "recordings": [make_recording(path, ids) for path in paths],
     }
 

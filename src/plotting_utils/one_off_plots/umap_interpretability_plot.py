@@ -30,11 +30,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recording_stem", default=None)
     parser.add_argument("--bird", default=None)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--neighbors", type=int, default=200)
+    parser.add_argument("--neighbors", type=int, default=25)
     parser.add_argument("--min_dist", type=float, default=0.1)
+    parser.add_argument("--metric", default="euclidean")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
     parser.add_argument("--random_init", action="store_true")
     return parser.parse_args()
+
+
+def zscore(features: np.ndarray) -> np.ndarray:
+    mean = features.mean(axis=0, keepdims=True)
+    std = np.maximum(features.std(axis=0, keepdims=True), 1e-8)
+    return ((features - mean) / std).astype(np.float32, copy=False)
 
 
 def label_colors(labels: np.ndarray) -> np.ndarray:
@@ -129,14 +136,16 @@ def main() -> None:
         "max_segments": 1,
     })
     segment = extracted["segments"][0]
-    embeddings = segment["encoded_embeddings"]
+    embeddings = zscore(segment["encoded_embeddings"])
     assert len(embeddings) >= 3
 
     xy = umap.UMAP(
         random_state=args.seed,
         n_neighbors=min(args.neighbors, len(embeddings) - 1),
         min_dist=args.min_dist,
-        metric="cosine",
+        metric=args.metric,
+        low_memory=True,
+        n_jobs=-1,
     ).fit_transform(embeddings)
     for path in plot_panel(segment, xy, args.out_dir):
         print(f"Wrote {path}")

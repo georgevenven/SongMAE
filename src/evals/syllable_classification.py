@@ -2,6 +2,7 @@
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -101,150 +102,220 @@ def standardize(train_x, val_x):
     return (train_x - mean) / std, (val_x - mean) / std
 
 
-def group_seconds(spans, groups):
-    seconds = {}
-    for (_, start, end), group in zip(spans, groups):
-        lo, hi = seconds.get(group, (start, end))
-        seconds[group] = (min(lo, start), max(hi, end))
-    return {group: (end - start) / 1000.0 for group, (start, end) in seconds.items()}
+@dataclass(frozen=True)
+class SplitPolicy:
+    val_fraction: float
+    seed: int
+    max_train_seconds: float | None
+    require_all_classes: bool
 
 
-def group_classes(y, groups):
-    classes = {}
-    for label, group in zip(y, groups):
-        classes.setdefault(group, set())
-        if label > 0:
-            classes[group].add(int(label))
+@dataclass(frozen=True)
+class SyllableSplit:
+    train_groups: list[str]
+    val_groups: list[str]
+    train_order: list[str]
+    train_classes: list[int]
+    val_classes: list[int]
+    base_val_classes: list[int]
+    missing_train_classes: list[int]
+    missing_val_classes: list[int]
+    unmatched_val_groups: list[str]
+    unseen_val_classes: list[int]
+    train_seconds: float
+
+
+def group_bounds(spans, groups):
+    bounds = {}
+    for (stem, start, end), group in zip(spans, groups):
+        if group not in bounds:
+            bounds[group] = (stem, start, end)
+            continue
+        old_stem, lo, hi = bounds[group]
+        assert stem == old_stem
+        bounds[group] = (stem, min(lo, start), max(hi, end))
+    return bounds
+
+
+def group_seconds(bounds):
+    return {group: (end - start) / 1000.0 for group, (_, start, end) in bounds.items()}
+
+
+def group_classes(bounds, units):
+    classes = {group: set() for group in bounds}
+    for group, (stem, start, end) in bounds.items():
+        for onset, offset, label in units.get(stem, []):
+            if max(start, onset) < min(end, offset):
+                classes[group].add(label)
     return classes
 
 
-def select_val_keys(keys, group_to_classes, val_fraction, seed, require_all_classes=True):
+def class_counts(group_to_classes):
     counts = {}
     for classes in group_to_classes.values():
         for label in classes:
             counts[label] = counts.get(label, 0) + 1
+    return counts
 
-    target_classes = set(counts)
-    keys = keys[np.random.default_rng(seed).permutation(keys.size)]
-    val_count = max(1, int(round(keys.size * val_fraction)))
-    val_count = min(val_count, keys.size - 1)
-    if not require_all_classes:
-        return set(keys[:val_count].tolist())
 
-    assert all(count > 1 for count in counts.values()), "Every syllable class needs train and validation examples."
-    val_keys = []
-    missing = set(target_classes)
+def can_hold_out(group, group_to_classes, train_class_counts):
+    return all(train_class_counts[label] > 1 for label in group_to_classes[group])
+
+
+def hold_out(group, val_groups, train_class_counts, group_to_classes):
+    val_groups.append(group)
+    for label in group_to_classes[group]:
+        train_class_counts[label] -= 1
+
+
+def target_val_count(keys, val_fraction):
+    count = max(1, int(round(keys.size * val_fraction)))
+    return min(count, keys.size - 1)
+
+
+def select_val_groups(keys, group_to_classes, policy):
+    train_class_counts = class_counts(group_to_classes)
+    target_count = target_val_count(keys, policy.val_fraction)
+    shuffled = keys[np.random.default_rng(policy.seed).permutation(keys.size)].tolist()
+    val_groups = []
+
+    if policy.require_all_classes:
+        assert all(
+            count > 1 for count in train_class_counts.values()
+        ), "Every syllable class needs train and validation examples."
+        missing = set(train_class_counts)
+        while missing:
+            candidates = [
+                group
+                for group in shuffled
+                if group not in val_groups
+                and group_to_classes[group] & missing
+                and can_hold_out(group, group_to_classes, train_class_counts)
+            ]
+            assert candidates, "Cannot make validation cover every syllable while keeping train coverage."
+            group = max(
+                candidates,
+                key=lambda item: (
+                    len(group_to_classes[item] & missing),
+                    -len(group_to_classes[item]),
+                    item,
+                ),
+            )
+            hold_out(group, val_groups, train_class_counts, group_to_classes)
+            missing -= group_to_classes[group]
+
+    for group in shuffled:
+        if len(val_groups) >= target_count:
+            break
+        if group in val_groups or not can_hold_out(group, group_to_classes, train_class_counts):
+            continue
+        hold_out(group, val_groups, train_class_counts, group_to_classes)
+
+    assert val_groups, "Validation split has no songs with train-seen syllable classes."
+    return set(val_groups)
+
+
+def train_group_order(keys, group_to_seconds, group_to_classes, seed):
+    shuffled = keys[np.random.default_rng(seed).permutation(keys.size)].tolist()
+    selected = []
+    missing = classes_for(shuffled, group_to_classes)
     while missing:
         candidates = [
             key
-            for key in keys
-            if key not in val_keys
-            and group_to_classes[key] & missing
-            and all(counts[label] > 1 for label in group_to_classes[key])
+            for key in shuffled
+            if key not in selected and group_to_classes[key] & missing
         ]
-        assert candidates, "Cannot make validation cover every syllable while keeping train coverage."
-        key = max(candidates, key=lambda k: (len(group_to_classes[k] & missing), -len(group_to_classes[k]), k))
-        val_keys.append(key)
-        classes = group_to_classes[key]
-        for label in classes:
-            counts[label] -= 1
-        missing -= classes
-
-    for key in keys.tolist():
-        if len(val_keys) >= val_count:
-            break
-        classes = group_to_classes[key]
-        if key in val_keys or any(counts[label] <= 1 for label in classes):
-            continue
-        val_keys.append(key)
-        for label in classes:
-            counts[label] -= 1
-
-    return set(val_keys)
+        assert candidates, "Cannot cover syllables from non-validation songs."
+        key = max(
+            candidates,
+            key=lambda item: (
+                len(group_to_classes[item] & missing) / max(group_to_seconds[item], 1e-9),
+                -group_to_seconds[item],
+                item,
+            ),
+        )
+        selected.append(key)
+        missing -= group_to_classes[key]
+    selected += sorted(
+        [key for key in shuffled if key not in selected],
+        key=lambda item: (group_to_seconds[item], item),
+    )
+    return selected
 
 
-def select_train_keys(keys, group_to_seconds, group_to_classes, max_seconds):
+def budget_train_groups(train_order, group_to_seconds, max_seconds):
     if max_seconds is None:
-        return set(keys.tolist())
+        return set(train_order)
 
     selected = set()
     used = 0.0
-    missing = set().union(*(group_to_classes[key] for key in keys))
-    while missing:
-        candidates = [
-            key
-            for key in keys
-            if key not in selected
-            and group_to_seconds[key] + used <= max_seconds + 1e-9
-            and group_to_classes[key] & missing
-        ]
-        assert candidates, f"Cannot cover syllables within --max_train_seconds={max_seconds:g}"
-        key = min(
-            candidates,
-            key=lambda k: (-len(group_to_classes[k] & missing) / group_to_seconds[k], group_to_seconds[k], k),
-        )
-        selected.add(key)
-        used += group_to_seconds[key]
-        missing -= group_to_classes[key]
-
-    while True:
-        candidates = [
-            key
-            for key in keys
-            if key not in selected and group_to_seconds[key] + used <= max_seconds + 1e-9
-        ]
-        if not candidates:
-            return selected
-        key = max(candidates, key=lambda k: (group_to_seconds[k], k))
-        selected.add(key)
-        used += group_to_seconds[key]
+    for group in train_order:
+        seconds = group_to_seconds[group]
+        if used + seconds > max_seconds + 1e-9:
+            break
+        selected.add(group)
+        used += seconds
+    assert selected, f"No train songs fit within --max_train_seconds={max_seconds:g}"
+    return selected
 
 
-def split_by_group(x, y, spans, groups, val_fraction, seed, max_train_seconds, require_all_classes=True):
+def classes_for(groups, group_to_classes):
+    if not groups:
+        return set()
+    return set().union(*(group_to_classes[group] for group in groups))
+
+
+def build_syllable_split(spans, groups, units, policy):
     groups = np.asarray(groups)
     keys = np.array(sorted(set(groups.tolist())))
     assert keys.size >= 2, "Need at least two songs for a train/val split."
 
-    group_to_seconds = group_seconds(spans, groups)
-    group_to_classes = group_classes(y, groups)
-    val_keys = select_val_keys(keys, group_to_classes, val_fraction, seed, require_all_classes=require_all_classes)
-    train_keys = select_train_keys(
-        np.array([key for key in keys if key not in val_keys]),
+    bounds = group_bounds(spans, groups)
+    group_to_seconds = group_seconds(bounds)
+    group_to_classes = group_classes(bounds, units)
+    target_classes = classes_for(keys.tolist(), group_to_classes)
+    val_groups = select_val_groups(keys, group_to_classes, policy)
+    order = train_group_order(
+        np.array([key for key in keys if key not in val_groups]),
         group_to_seconds,
         group_to_classes,
-        max_train_seconds,
+        policy.seed,
+    )
+    train_groups = budget_train_groups(order, group_to_seconds, policy.max_train_seconds)
+
+    train_classes = classes_for(train_groups, group_to_classes)
+    base_val_classes = classes_for(val_groups, group_to_classes)
+    unseen_val_classes = base_val_classes - train_classes
+    val_classes = base_val_classes if policy.require_all_classes else base_val_classes & train_classes
+    unmatched_val_groups = sorted(group for group in val_groups if group_to_classes[group] - train_classes)
+    if policy.require_all_classes:
+        assert base_val_classes == target_classes, "Validation split does not cover every syllable class."
+        assert train_classes == target_classes, "Train split does not cover every syllable class."
+
+    return SyllableSplit(
+        train_groups=sorted(train_groups),
+        val_groups=sorted(val_groups),
+        train_order=order,
+        train_classes=sorted(int(label) for label in train_classes),
+        val_classes=sorted(int(label) for label in val_classes),
+        base_val_classes=sorted(int(label) for label in base_val_classes),
+        missing_train_classes=sorted(int(label) for label in target_classes - train_classes),
+        missing_val_classes=sorted(int(label) for label in target_classes - base_val_classes),
+        unmatched_val_groups=unmatched_val_groups,
+        unseen_val_classes=sorted(int(label) for label in unseen_val_classes),
+        train_seconds=float(sum(group_to_seconds[group] for group in train_groups)),
     )
 
-    val = np.array([group in val_keys for group in groups])
-    train = np.array([group in train_keys for group in groups])
-    assert len(set(y[train].tolist())) >= 2, "Train split has fewer than two classes."
-    train_seconds = sum(group_to_seconds[key] for key in train_keys)
-    target_classes = set().union(*group_to_classes.values())
-    val_classes = set().union(*(group_to_classes[key] for key in val_keys))
-    train_classes = set().union(*(group_to_classes[key] for key in train_keys))
-    if require_all_classes:
-        assert val_classes == target_classes, "Validation split does not cover every syllable class."
-    if require_all_classes:
-        assert train_classes == target_classes, "Train split does not cover every syllable class."
-    return (
-        x[train],
-        y[train],
-        x[val],
-        [spans[index] for index in np.flatnonzero(val)],
-        [groups[index] for index in np.flatnonzero(val)],
-        int(train.sum()),
-        int(val.sum()),
-        int(len(train_keys)),
-        int(len(val_keys)),
-        float(train_seconds),
-        int(len(train_classes)),
-        sorted(train_keys),
-        sorted(val_keys),
-        sorted(int(label) for label in train_classes),
-        sorted(int(label) for label in val_classes),
-        sorted(int(label) for label in target_classes - train_classes),
-        sorted(int(label) for label in target_classes - val_classes),
-    )
+
+def split_masks(groups, y, split):
+    train_groups = set(split.train_groups)
+    val_groups = set(split.val_groups)
+    groups = np.asarray(groups)
+    train = np.array([group in train_groups for group in groups])
+    train_labels = set(y[train].tolist())
+    # Relaxed splits keep the same validation songs, but score only train-seen labels.
+    val = np.array([group in val_groups and int(label) in train_labels for group, label in zip(groups, y)])
+    return train, val
 
 
 def fit_logreg(train_x, train_y):
@@ -323,38 +394,32 @@ def main():
     args = parse_args()
 
     # spans is one (recording_stem, token_start_ms, token_end_ms) tuple per feature row.
-    # feature row is a singular example, aka (11289, 1536) a detected event with latents 
+    # feature row is a singular example, aka (11289, 1536) a detected event with latents
     x, y, spans, groups = load_embeddings(args.embeddings, args.feature_key)
+    units = load_units(args.annotations)
     budget = max_train_seconds(args.max_train_seconds)
 
-    (
-        train_x,
-        train_y,
-        val_x,
-        val_spans,
-        val_groups,
-        train_tokens,
-        val_tokens,
-        train_songs,
-        val_songs,
-        train_seconds,
-        train_classes,
-        train_group_keys,
-        val_group_keys,
-        train_class_ids,
-        val_class_ids,
-        missing_train_class_ids,
-        missing_val_class_ids,
-    ) = split_by_group(
-        x,
-        y,
+    split = build_syllable_split(
         spans,
         groups,
-        args.val_fraction,
-        args.seed,
-        budget,
-        require_all_classes=not args.allow_unmatched_val_classes,
+        units,
+        SplitPolicy(
+            val_fraction=args.val_fraction,
+            seed=args.seed,
+            max_train_seconds=budget,
+            require_all_classes=not args.allow_unmatched_val_classes,
+        ),
     )
+    train, val = split_masks(groups, y, split)
+    assert len(set(y[train].tolist())) >= 2, "Train split has fewer than two classes."
+    assert int(val.sum()) > 0, "Validation split has no embedding tokens."
+    train_x, train_y = x[train], y[train]
+    val_x = x[val]
+    val_spans = [spans[index] for index in np.flatnonzero(val)]
+    val_groups = [groups[index] for index in np.flatnonzero(val)]
+    scored_val_groups = sorted(set(val_groups))
+    train_tokens = int(train.sum())
+    val_tokens = int(val.sum())
     train_x, val_x = standardize(train_x, val_x)
 
     if args.model == "logreg":
@@ -363,7 +428,6 @@ def main():
         model, classes = fit_mlp(train_x, train_y, args)
         pred = predict_mlp(model, classes, val_x)
 
-    units = load_units(args.annotations)
     metrics = raster_metrics(pred, val_spans, units)
     if args.save_plots:
         assert args.plot_dir, "--save_plots requires --plot_dir"
@@ -374,31 +438,41 @@ def main():
         {
             "train_tokens": train_tokens,
             "val_tokens": val_tokens,
-            "train_songs": train_songs,
-            "val_songs": val_songs,
+            "train_songs": len(split.train_groups),
+            "val_songs": len(split.val_groups),
+            "scored_val_songs": len(scored_val_groups),
             "target_train_seconds": None if budget is None else float(budget),
-            "actual_train_seconds": train_seconds,
-            "train_classes": train_classes,
-            "val_classes": len(val_class_ids),
-            "missing_train_classes": len(missing_train_class_ids),
-            "missing_val_classes": len(missing_val_class_ids),
+            "actual_train_seconds": split.train_seconds,
+            "train_classes": len(split.train_classes),
+            "val_classes": len(split.val_classes),
+            "base_val_classes": len(split.base_val_classes),
+            "missing_train_classes": len(split.missing_train_classes),
+            "missing_val_classes": len(split.missing_val_classes),
+            "unmatched_val_songs": len(split.unmatched_val_groups),
+            "unseen_val_classes": len(split.unseen_val_classes),
+            "dropped_val_songs": len(set(split.val_groups) - set(scored_val_groups)),
         }
     )
     if args.split_json:
-        split = {
+        split_payload = {
             "seed": int(args.seed),
             "val_fraction": float(args.val_fraction),
             "max_train_seconds": None if budget is None else float(budget),
             "allow_unmatched_val_classes": bool(args.allow_unmatched_val_classes),
-            "train_groups": train_group_keys,
-            "val_groups": val_group_keys,
-            "train_classes": train_class_ids,
-            "val_classes": val_class_ids,
-            "missing_train_classes": missing_train_class_ids,
-            "missing_val_classes": missing_val_class_ids,
+            "train_groups": split.train_groups,
+            "val_groups": split.val_groups,
+            "scored_val_groups": scored_val_groups,
+            "train_order": split.train_order,
+            "train_classes": split.train_classes,
+            "val_classes": split.val_classes,
+            "base_val_classes": split.base_val_classes,
+            "missing_train_classes": split.missing_train_classes,
+            "missing_val_classes": split.missing_val_classes,
+            "unmatched_val_groups": split.unmatched_val_groups,
+            "unseen_val_classes": split.unseen_val_classes,
         }
         Path(args.split_json).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.split_json).write_text(json.dumps(split, indent=2) + "\n")
+        Path(args.split_json).write_text(json.dumps(split_payload, indent=2) + "\n")
     print(json.dumps(metrics, indent=2))
 
 if __name__ == "__main__":

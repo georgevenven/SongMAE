@@ -86,6 +86,8 @@ def raw_command(model, args, out_dir):
         out_dir,
         "--recording_mode",
         args.recording_mode,
+        "--max_points",
+        args.max_points,
         "--wav_exts",
         args.wav_exts,
     ]

@@ -12,7 +12,13 @@ from torchaudio.models import wav2vec2_model
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from src.external_models.data_loader import WavFromSpectrogramDataset, labels_for_features, limited_items, save_concatenated_embeddings
+from src.external_models.data_loader import (
+    append_limited,
+    labels_for_features,
+    limited_items,
+    save_concatenated_embeddings,
+    WavFromSpectrogramDataset,
+)
 
 
 def load_model(config_path, model_path):
@@ -72,6 +78,7 @@ def save_embeddings(args):
     min_samples = min_input_samples(model)
 
     rows = []
+    used = 0
     for item in limited_items(dataset, args.num_timebins):
         embeddings = extract_features(
             model,
@@ -84,13 +91,10 @@ def save_embeddings(args):
             continue
         labels = labels_for_features(item["labels"], embeddings.shape[0])
         assert embeddings.shape[0] == labels.shape[0]
-        rows.append(
-            {
-                "item": item,
-                "encoded_embeddings": embeddings,
-                "labels_downsampled": labels,
-            }
-        )
+        row = {"item": item, "encoded_embeddings": embeddings, "labels_downsampled": labels}
+        used, keep_going = append_limited(rows, row, args.max_points, used)
+        if not keep_going:
+            break
     save_concatenated_embeddings(args.out_dir, rows, model_name="aves", audio_sr=args.audio_sr)
 
 
@@ -109,6 +113,7 @@ def parse_args():
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--encoder_layer_idx", type=int)
     parser.add_argument("--num_timebins", type=int, default=0)
+    parser.add_argument("--max_points", type=int, default=0)
     return parser.parse_args()
 
 

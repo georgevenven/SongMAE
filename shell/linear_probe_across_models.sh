@@ -7,7 +7,7 @@ ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_linear_probe}"
-MODELS="${MODELS:-xcl_micro_500k_p16x1_default xcl_micro_500k_p32x1_default xcl_micro_500k_p32x4_default xcl_micro_500k_p128x1_default}"
+MODELS="${MODELS:-xcl_micro_500k_p16x1_default xcl_micro_500k_p32x1_default xcl_micro_500k_p32x4_default xcl_micro_500k_p128x1_default xcl_micro_500k_p4x4_default xcl_tiny_500k_p32x4_default xcl_base_500k_p32x4_default aves hubert}"
 PROBE_MODEL="${PROBE_MODEL:-logreg}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
 SEED="${SEED:-42}"
@@ -25,6 +25,7 @@ XCL_MICRO_P128X1_RUN_DIR="${XCL_MICRO_P128X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_
 XCL_MICRO_P16X1_RUN_DIR="${XCL_MICRO_P16X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p16x1_default}"
 XCL_MICRO_P32X1_RUN_DIR="${XCL_MICRO_P32X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x1_default}"
 XCL_MICRO_P32X4_RUN_DIR="${XCL_MICRO_P32X4_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x4_default}"
+XCL_MICRO_P4X4_RUN_DIR="${XCL_MICRO_P4X4_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p4x4_default}"
 AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
 AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
 AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
@@ -35,9 +36,9 @@ WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
 # Hardcoded for now because these evals need matching annotation, spec, and wav roots.
 # Positional args filter this list, e.g. `bash shell/linear_probe_across_models.sh cassins_vireo`.
 DATASETS=(
-  # "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  # "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  # "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
+  "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "cassins_vireo|files/annotation jsons/cassins_vireo_annotations.json|/media/george-vengrovski/disk2/specs/cassins_vireo_5ms|/media/george-vengrovski/disk2/raw_data/cassins_vireo/data/figshare_3081814/wav_files|events"
   "american_robin|files/annotation jsons/american_robin_annotations.json|/media/george-vengrovski/disk2/specs/american_robin_5ms|/media/george-vengrovski/disk2/raw_data/american_robin/data/rmbl_robin/RMBL-Robin/data|events"
 )
@@ -124,6 +125,7 @@ songmae_run_dir() {
     xcl_micro_500k_p16x1_default) echo "$XCL_MICRO_P16X1_RUN_DIR" ;;
     xcl_micro_500k_p32x1_default) echo "$XCL_MICRO_P32X1_RUN_DIR" ;;
     xcl_micro_500k_p32x4_default) echo "$XCL_MICRO_P32X4_RUN_DIR" ;;
+    xcl_micro_500k_p4x4_default) echo "$XCL_MICRO_P4X4_RUN_DIR" ;;
     *) return 1 ;;
   esac
 }
@@ -131,7 +133,7 @@ songmae_run_dir() {
 extract_embeddings() {
   local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7"
   case "$model" in
-    songmae|songmae_random|xcl_tiny_500k_p32x4_default|xcl_base_500k_p32x4_default|xcl_micro_500k_p128x1_default|xcl_micro_500k_p16x1_default|xcl_micro_500k_p32x1_default|xcl_micro_500k_p32x4_default)
+    songmae|songmae_random|xcl_tiny_500k_p32x4_default|xcl_base_500k_p32x4_default|xcl_micro_500k_p128x1_default|xcl_micro_500k_p16x1_default|xcl_micro_500k_p32x1_default|xcl_micro_500k_p32x4_default|xcl_micro_500k_p4x4_default)
       cmd=(
         "$PYTHON_BIN" -m src.core.extract_embedding
         --run_dir "$(songmae_run_dir "$model")" \

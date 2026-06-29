@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# For each model: extract every selected dataset, fit ONE SV1 across them all, score each
+# For each model: extract every selected dataset, fit one singular subspace across them all, score each
 # dataset (per-ms, over the whole recording, vs its own unit coverage), then render the heatmap
-# + spectrogram panels. Run with one dataset for a per-species SV1, or many for a shared one.
+# + spectrogram panels. Run with one dataset for a per-species subspace, or many for a shared one.
 
 set -euo pipefail
 
@@ -11,8 +11,9 @@ ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/results/sv1_annotation_r2_sweep}"
-MODELS="${MODELS:-xcl_micro_500k_p32x1_default xcl_micro_500k_p32x4_default hubert}"
+MODELS="${MODELS:-xcl_micro_500k_p32x1_default xcl_micro_500k_p32x4_default aves hubert}"
 FEATURE_KEY="${FEATURE_KEY:-encoded_embeddings}"
+NUM_SINGULAR_VECTORS="${NUM_SINGULAR_VECTORS:-1}"
 OVERWRITE="${OVERWRITE:-0}"
 CLEAN_EMBEDDINGS="${CLEAN_EMBEDDINGS:-1}"
 MAX_SECONDS="${MAX_SECONDS:-1800}"
@@ -33,7 +34,7 @@ HUBERT_AUDIO_SR="${HUBERT_AUDIO_SR:-16000}"
 WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
 
 # dataset|annotation json|spec_dir|wav_dir|recording_mode
-# full_recordings so SV1 is fit on the whole recording (song + silence) and R^2 is scored over
+# full_recordings so the singular subspace is fit on the whole recording (song + silence) and R^2 is scored over
 # the whole recording vs unit coverage.
 # Positional args filter this list, e.g. `bash shell/sv1_annotation_r2_across_models.sh american_robin`.
 DATASETS=(
@@ -132,7 +133,7 @@ TARGETS=("$@")
 read -r -a MODEL_LIST <<< "$MODELS"
 mkdir -p "$OUT_ROOT"
 
-# One SV1 per model, fit across every selected dataset at once; each scored against its own units.
+  # One singular subspace per model, fit across every selected dataset at once; each scored against its own units.
 for model in "${MODEL_LIST[@]}"; do
   model_dir="$OUT_ROOT/$model"
   metrics_path="$model_dir/metrics.json"
@@ -160,12 +161,13 @@ for model in "${MODEL_LIST[@]}"; do
     echo "no datasets extracted for model=$model" 1>&2
     continue
   fi
-  echo "fitting SV1: model=$model datasets=$(( ${#dataset_args[@]} / 2 ))"
+  echo "fitting top-$NUM_SINGULAR_VECTORS singular subspace: model=$model datasets=$(( ${#dataset_args[@]} / 2 ))"
   if ! "$PYTHON_BIN" src/evals/sv1_annotation_r2.py \
-    --model "$model" \
-    "${dataset_args[@]}" \
-    --feature_key "$FEATURE_KEY" \
-    --out_json "$model_dir/metrics.tmp" \
+	    --model "$model" \
+	    "${dataset_args[@]}" \
+	    --feature_key "$FEATURE_KEY" \
+	    --num_singular_vectors "$NUM_SINGULAR_VECTORS" \
+	    --out_json "$model_dir/metrics.tmp" \
     --overlay_dir "$model_dir/overlays" > /dev/null; then
     rm -f "$model_dir/metrics.tmp"
     echo "eval failed: model=$model" 1>&2

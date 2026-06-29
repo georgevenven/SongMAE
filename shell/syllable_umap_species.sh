@@ -3,15 +3,17 @@ set -euo pipefail
 
 SPEC_ROOT="/media/george-vengrovski/disk2/specs"
 ANN_ROOT="files/annotation jsons"
-MODEL_DIR="runs/xcl_micro_500k_p16x1_default"
-NUM_TIMEBINS=50000
-MAX_POINTS=50000
+WAV_ROOT="/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
+MODEL_DIR="runs/xcl_micro_500k_p4x4_default"
+MODELS="${MODELS:-songmae,aves,hubert}"
+NUM_TIMEBINS="${NUM_TIMEBINS:-0}"
+MAX_POINTS="${MAX_POINTS:-100000}"
 
 # spec_dir annotation_file bird1 bird2 bird3
 SPECIES=(
-  "zebra_finch_5ms zf_annotations.json B145 B236 B258"
-  "bengalese_finch_5ms bf_annotations.json bird0 bird1 bird2"
-  "canary_5ms canary_annotations.json llb3_annot llb11_annot llb16_annot"
+  "zebra_finch_5ms zf_annotations.json Y389 S389 Y453"
+  "bengalese_finch_5ms bf_annotations.json bird1 bird3 bird4"
+  "canary_5ms canary_annotations.json llb11_annot llb3_annot llb16_annot"
 )
 
 for entry in "${SPECIES[@]}"; do
@@ -23,7 +25,8 @@ for entry in "${SPECIES[@]}"; do
       --spec_dir "${SPEC_ROOT}/${spec_dir}" \
       --annotation_file "${ANN_ROOT}/${anno_file}" \
       --out_dir "${out_dir}" \
-      --models songmae \
+      --models "${MODELS}" \
+      --wav_dir "${WAV_ROOT}" \
       --bird "${bird}" \
       --num_timebins ${NUM_TIMEBINS} \
       --max_points ${MAX_POINTS} \

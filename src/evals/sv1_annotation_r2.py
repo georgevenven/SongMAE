@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Measure how much a model's top singular vector (SV1) tracks song state.
+"""Measure how much a model's top singular subspace tracks song state.
 
-One SV1 is fit (PCA, top component) on every token of the full recordings of all
---dataset arguments pooled together, then scored per dataset, at 1 ms resolution over
-the whole recording, against unit-coverage song state from each dataset's annotations.
-Run with a single --dataset for a per-species SV1, or many for a shared one.
+One singular subspace is fit on full-recording embeddings pooled across every
+--dataset, then scored per dataset at 1 ms resolution against unit-coverage song state.
 """
 import argparse
 import json
@@ -163,12 +161,12 @@ def zscore(features):
     return ((features - mean) / std).astype(np.float32, copy=False)
 
 
-def top_singular_vector(x):
+def top_singular_vectors(x, count):
     mean = x.mean(axis=0, keepdims=True)
     centered = x - mean
     values, vectors = np.linalg.eigh(centered.T @ centered)
-    index = int(np.argmax(values))
-    return mean, vectors[:, index].astype(np.float32, copy=False), float(np.sqrt(values[index]))
+    order = np.argsort(values)[::-1][:count]
+    return mean, vectors[:, order].astype(np.float32, copy=False), np.sqrt(values[order]).astype(float).tolist()
 
 
 def pearson_r2(score, y):
@@ -180,6 +178,24 @@ def pearson_r2(score, y):
     return r, r * r
 
 
+def has_variance(values):
+    values = np.asarray(values)
+    if values.ndim == 1:
+        return values.min() < values.max()
+    return bool(np.any(values.std(axis=0) > 0.0))
+
+
+def readout_r2(score, y):
+    score = np.asarray(score, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    if score.ndim == 1:
+        return pearson_r2(minmax01(score), y)
+    x = score - score.mean(axis=0, keepdims=True)
+    target = y - y.mean()
+    coef, *_ = np.linalg.lstsq(x, target, rcond=None)
+    return pearson_r2(x @ coef, target)
+
+
 def minmax01(values):
     # Min-max normalize to [0, 1]; constant input maps to all-zeros.
     values = np.asarray(values, dtype=np.float64)
@@ -187,30 +203,45 @@ def minmax01(values):
     return (values - lo) / (hi - lo) if hi > lo else np.zeros_like(values)
 
 
+def span_groups(spans):
+    groups = {}
+    for index, (stem, _, _) in enumerate(spans):
+        groups.setdefault(stem, []).append(index)
+    return groups
+
+
+def rasterize_indices(spans, scores, units, stem, indices):
+    max_end = max(int(spans[i][2]) for i in indices)
+    if max_end <= 0:
+        return None, None
+    scores = np.asarray(scores)
+    score_grid = (
+        np.full(max_end, np.nan, dtype=np.float64)
+        if scores.ndim == 1
+        else np.full((max_end, scores.shape[1]), np.nan, dtype=np.float64)
+    )
+    for i in indices:
+        lo = max(0, int(spans[i][1]))
+        hi = min(max_end, int(spans[i][2]))
+        if hi > lo:
+            score_grid[lo:hi] = scores[i]
+    song_grid = (ground_truth(units, stem, 0, max_end) > 0).astype(np.float64)
+    mask = ~np.isnan(score_grid) if scores.ndim == 1 else ~np.isnan(score_grid).any(axis=1)
+    if not mask.any():
+        return None, None
+    return score_grid[mask], song_grid[mask]
+
+
 def rasterize(spans, scores, units):
     # Expand each token's SV1 score over its [start_ms, end_ms) at 1 ms resolution over the whole
     # recording and compare against unit-coverage song state. Scores are min-max normalized to
     # [0, 1] once, globally (a single affine that Pearson R^2 is invariant to).
-    by_stem = {}
-    for index, (stem, start, end) in enumerate(spans):
-        by_stem.setdefault(stem, []).append(index)
-
     score_parts, song_parts = [], []
-    for stem, indices in by_stem.items():
-        max_end = max(int(spans[i][2]) for i in indices)
-        if max_end <= 0:
-            continue
-        score_grid = np.full(max_end, np.nan, dtype=np.float64)
-        for i in indices:
-            lo = max(0, int(spans[i][1]))
-            hi = min(max_end, int(spans[i][2]))
-            if hi > lo:
-                score_grid[lo:hi] = scores[i]
-        song_grid = (ground_truth(units, stem, 0, max_end) > 0).astype(np.float64)
-        mask = ~np.isnan(score_grid)
-        if mask.any():
-            score_parts.append(score_grid[mask])
-            song_parts.append(song_grid[mask])
+    for stem, indices in span_groups(spans).items():
+        score, song = rasterize_indices(spans, scores, units, stem, indices)
+        if score is not None:
+            score_parts.append(score)
+            song_parts.append(song)
 
     assert score_parts, "no token-covered frames to rasterize"
     return minmax01(np.concatenate(score_parts)), np.concatenate(song_parts)
@@ -221,7 +252,7 @@ def raster_summary(spans, scores, units):
         return {}
     score, song = rasterize(spans, scores, units)
     assert song.min() < song.max(), "need both song and silence frames after rasterizing"
-    r, r2 = pearson_r2(score, song)
+    r, r2 = readout_r2(score, song)
     return {
         "r2_raster": r2,
         "pearson_r_raster": r,
@@ -230,21 +261,76 @@ def raster_summary(spans, scores, units):
     }
 
 
+def within_recording_centered_summary(spans, scores, units):
+    if not spans or units is None:
+        return {}
+    score_parts, song_parts = [], []
+    for stem, indices in span_groups(spans).items():
+        score, song = rasterize_indices(spans, scores, units, stem, indices)
+        if score is None or not has_variance(score) or song.min() == song.max():
+            continue
+        score_parts.append(score - score.mean(axis=0) if np.asarray(score).ndim == 2 else score - score.mean())
+        song_parts.append(song - song.mean())
+    if not score_parts:
+        return {}
+    r, r2 = readout_r2(np.concatenate(score_parts), np.concatenate(song_parts))
+    return {
+        "r2_raster_within_recording_centered": r2,
+        "pearson_r_raster_within_recording_centered": r,
+    }
+
+
+def recording_summary(dataset, recording, score, song):
+    if score is None or song is None or not has_variance(score) or song.min() == song.max():
+        return None
+    r, r2 = readout_r2(score, song)
+    return {
+        "dataset": dataset,
+        "recording": recording,
+        "r2_raster": r2,
+        "pearson_r_raster": r,
+        "frames_raster": int(song.size),
+        "song_fraction_raster": float(song.mean()),
+    }
+
+
+def recording_summaries(dataset, spans, scores, units, pixel=None):
+    if not spans or units is None:
+        return []
+    rows = []
+    for stem, indices in span_groups(spans).items():
+        score, song = rasterize_indices(spans, scores, units, stem, indices)
+        row = recording_summary(dataset, stem, score, song)
+        if row is None:
+            continue
+        if pixel is not None:
+            pixel_score, pixel_song = rasterize_indices(spans, pixel, units, stem, indices)
+            pixel_row = recording_summary("pixel_intensity", stem, pixel_score, pixel_song)
+            if pixel_row is not None:
+                row["pixel_intensity"] = pixel_row
+        rows.append(row)
+    return rows
+
+
 def summarize(name, score, y, files, spans=None, units=None):
-    scores = minmax01(score)
+    score = np.asarray(score)
     assert y.min() < y.max(), f"need both song and silence labels for {name}"
-    r, r2 = pearson_r2(scores, y)
+    r, r2 = readout_r2(score, y)
     row = {
         "dataset": name,
         "files": int(files),
         "tokens": int(y.size),
+        "score_dim": int(1 if score.ndim == 1 else score.shape[1]),
         "song_fraction": float(y.mean()),
         "pearson_r": r,
         "r2": r2,
-        "song_score_mean": float(scores[y == 1].mean()),
-        "silence_score_mean": float(scores[y == 0].mean()),
     }
+    if score.ndim == 1:
+        scores = minmax01(score)
+        row["song_score_mean"] = float(scores[y == 1].mean())
+        row["silence_score_mean"] = float(scores[y == 0].mean())
     row.update(raster_summary(spans, score, units))
+    row.update(within_recording_centered_summary(spans, score, units))
     return row
 
 
@@ -305,7 +391,7 @@ def add_pixel_summary(row, pixel, y, files, spans=None, units=None):
 
 def summarize_datasets(datasets, scores, summary):
     # Each dataset is rasterized against its own units (so one pooled SV1 is scored per dataset);
-    # plot scores are sliced from the shared projection.
+    # plot scores are sliced from the shared score array.
     start = 0
     for item in datasets:
         end = start + item["x"].shape[0]
@@ -313,8 +399,10 @@ def summarize_datasets(datasets, scores, summary):
         row = summarize(item["name"], scores[start:end], item["y"], item["files"], item["spans"], units)
         pixel_row = add_pixel_summary(row, item["pixel"], item["y"], item["files"], item["spans"], units)
         summary["by_dataset"].append(pixel_row)
+        summary["by_recording"].extend(recording_summaries(item["name"], item["spans"], scores[start:end], units, item["pixel"]))
+        overlay_scores = scores[:, 0] if np.asarray(scores).ndim == 2 else scores
         for plot_item in item["items"]:
-            plot_item["score"] = scores[start + plot_item["start"] : start + plot_item["end"]]
+            plot_item["score"] = overlay_scores[start + plot_item["start"] : start + plot_item["end"]]
         start = end
 
 
@@ -327,12 +415,13 @@ def merge_units(datasets):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Measure how much SV1 tracks unit-coverage song state over full recordings.")
+    parser = argparse.ArgumentParser(description="Measure how much a singular subspace tracks unit-coverage song state over full recordings.")
     parser.add_argument("--model", required=True, help="Model label used as the heatmap column (free-form).")
     parser.add_argument("--dataset", action="append", required=True,
                         help="Repeat as name=/path/to/embeddings[=annotations.json]; many datasets share one SV1.")
     parser.add_argument("--annotations", default=None, help="Default annotation JSON (used when a --dataset omits its own).")
     parser.add_argument("--feature_key", default="encoded_embeddings")
+    parser.add_argument("--num_singular_vectors", type=int, default=1)
     parser.add_argument("--zscore", dest="zscore", action="store_true", default=True)
     parser.add_argument("--no_zscore", dest="zscore", action="store_false")
     parser.add_argument("--out_json", default=None)
@@ -354,12 +443,14 @@ def main():
     if args.zscore:
         x = zscore(x)
 
-    # One SV1 fit on every token of every dataset's full recordings (song + silence), pooled.
-    mean, sv1, singular_value = top_singular_vector(x)
-    scores = (x - mean) @ sv1
-    if scores[y == 1].mean() < scores[y == 0].mean():
-        sv1 *= -1.0
-        scores *= -1.0
+    assert args.num_singular_vectors >= 1
+    mean, vectors, singular_values = top_singular_vectors(x, args.num_singular_vectors)
+    scores = (x - mean) @ vectors
+    if args.num_singular_vectors == 1:
+        scores = scores[:, 0]
+        if scores[y == 1].mean() < scores[y == 0].mean():
+            vectors[:, 0] *= -1.0
+            scores *= -1.0
     global_files = sum(item["files"] for item in datasets)
     global_spans = concat_spans(datasets)
     global_units = merge_units(datasets)
@@ -369,12 +460,15 @@ def main():
         "feature_key": args.feature_key,
         "zscore": bool(args.zscore),
         "feature_dim": int(x.shape[1]),
-        "sv1_singular_value": singular_value,
+        "num_singular_vectors": int(args.num_singular_vectors),
+        "singular_values": singular_values,
+        "sv1_singular_value": singular_values[0],
         "datasets": [{"dataset": item["name"], "path": item["path"], "tokens": int(item["x"].shape[0])} for item in datasets],
-        "fit": f"SV1 fit on full recordings, pooled across {len(datasets)} dataset(s)",
+        "fit": f"top-{args.num_singular_vectors} singular subspace fit on full recordings, pooled across {len(datasets)} dataset(s)",
         "target": "unit coverage over full recording (per-ms)" if global_units is not None else "labels_downsampled >= 0",
         "global": add_pixel_summary(global_row, pixel, y, global_files, global_spans, global_units),
         "by_dataset": [],
+        "by_recording": [],
     }
 
     summarize_datasets(datasets, scores, summary)
