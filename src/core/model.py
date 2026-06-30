@@ -67,6 +67,8 @@ class SongMAE(nn.Module):
         self.patch_size = config["patch_size"]
         self.mask_p = config["mask_p"]
         self.mask_c = config["mask_c"]
+        self.mask_type = config.get("mask_type", "voronoi")
+        assert self.mask_type in ("voronoi", "random")
         self._grid_cache = {}
 
         d_enc = config["enc_hidden_d"]
@@ -172,6 +174,13 @@ class SongMAE(nn.Module):
             mask[chosen] = True
         return mask.reshape(H, W)
 
+    def random_mask(self, hw, device):
+        H, W = hw
+        n_masked = round(H * W * self.mask_p)
+        mask = torch.zeros(H * W, dtype=torch.bool, device=device)
+        mask[torch.randperm(mask.numel(), device=device)[:n_masked]] = True
+        return mask.reshape(H, W)
+
     def patch_grid(self, x):
         patches = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)(x).transpose(1, 2)
         B = x.size(0)
@@ -187,7 +196,10 @@ class SongMAE(nn.Module):
         return self.patch_conv(z), H, W
 
     def mask_batch(self, B, H, W, device):
-        mask = self.voronoi_mask((H, W), device)
+        if self.mask_type == "random":
+            mask = self.random_mask((H, W), device)
+        else:
+            mask = self.voronoi_mask((H, W), device)
         return mask.unsqueeze(0).expand(B, -1, -1)
 
     def sparse_restore_indices(self, mask):

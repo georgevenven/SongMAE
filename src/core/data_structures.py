@@ -70,10 +70,12 @@ class ModelConfig(JsonDataclass):
     dropout: float
     mask_p: float
     mask_c: float
+    mask_type: str = "voronoi"
 
     def __post_init__(self):
         assert self.mels % self.patch_height == 0
         assert self.num_timebins % self.patch_width == 0
+        assert self.mask_type in ("voronoi", "random")
 
     @property
     def patch_size(self):
