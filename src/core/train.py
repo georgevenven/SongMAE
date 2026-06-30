@@ -29,7 +29,9 @@ DEFAULT_CONFIG = {
     "batch_size": 128,
     "num_workers": 8,
     "weight_decay": 0.01,
+    "grad_clip": 1.0,
     "eval_every": 500,
+    "save_every": 5_000,
     "warmup_steps": 5_000,
     "min_lr": 1e-5,
     "patch_height": 32,
@@ -47,8 +49,8 @@ DEFAULT_CONFIG = {
     "dec_n_layer": 2,
     "dec_dim_ff": 768,
     "amp": True,
-    "amp_dtype": "bf16",
-    "wandb": False,
+    "amp_dtype": "fp16",
+    "wandb": True,
     "recording_mode": "full_recordings",
 }
 
@@ -123,7 +125,7 @@ class Trainer:
 
         self.device = torch.device(f"cuda:{self.local_rank}" if self.distributed else "cuda" if torch.cuda.is_available() else "cpu")
         self.use_amp = config.get("amp", False) and self.device.type == "cuda"
-        self.amp_dtype = torch.bfloat16 if config.get("amp_dtype", "bf16") == "bf16" else torch.float16
+        self.amp_dtype = torch.bfloat16 if config.get("amp_dtype", "fp16") == "bf16" else torch.float16
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp and self.amp_dtype is torch.float16)
         self.model = self.build_model().to(self.device)
         self.start_step = self.load_checkpoint() if config.get("continue_from") else 0
@@ -137,11 +139,22 @@ class Trainer:
         self.steps = config["steps"]
         self.end_step = self.start_step + self.steps - 1
         self.eval_every = config.get("eval_every", 500)
-        assert config["batch_size"] % self.world_size == 0
-        self.batch_size = config["batch_size"] // self.world_size
+        self.save_every = config.get("save_every", 5_000)
+        self.grad_clip = config.get("grad_clip", 1.0)
+        assert self.grad_clip > 0
+        global_batch_size = config["batch_size"]
+        assert global_batch_size >= self.world_size
+        base_batch, extra_batches = divmod(global_batch_size, self.world_size)
+        rank_batch_sizes = [base_batch + int(rank < extra_batches) for rank in range(self.world_size)]
+        self.batch_size = rank_batch_sizes[self.rank]
+        self.loader_batch_size = rank_batch_sizes[0]
         n_params = sum(p.numel() for p in self.model.parameters())
         self.write_log(f"run={self.run_dir}")
-        self.write_log(f"device={self.device} | ddp={self.world_size} | params={n_params:,} | steps={self.steps} | batch={config['batch_size']}")
+        msg = f"device={self.device} | ddp={self.world_size} | params={n_params:,} | steps={self.steps} | batch={global_batch_size}"
+        if self.distributed:
+            msg += f" | local_batches={','.join(str(size) for size in rank_batch_sizes)}"
+        self.write_log(msg)
+        self.wandb_run = self.setup_wandb(n_params, rank_batch_sizes)
 
     def barrier(self):
         if self.distributed:
@@ -217,6 +230,33 @@ class Trainer:
             return
         with self.losses_path.open("a") as f:
             f.write(f"{step},{split},{loss:.8f}\n")
+        self.write_wandb(step, split, loss)
+
+    def setup_wandb(self, n_params, rank_batch_sizes):
+        if not self.is_main or not self.config.get("wandb"):
+            return None
+        import wandb
+
+        run = wandb.init(
+            project="TinyBird",
+            name=self.run_dir.name,
+            dir=str(self.run_dir),
+            config=self.config | {"params": n_params, "local_batches": rank_batch_sizes},
+        )
+        self.write_log(f"wandb={run.url}")
+        return run
+
+    def write_wandb(self, step, split, loss):
+        if not self.wandb_run:
+            return
+        metrics = {f"{split}/loss": loss}
+        if split == "train":
+            metrics["train/lr"] = self.optimizer.param_groups[0]["lr"]
+        self.wandb_run.log(metrics, step=step)
+
+    def finish_wandb(self):
+        if self.wandb_run:
+            self.wandb_run.finish()
 
     def build_model(self):
         return SongMAE(self.config)
@@ -230,12 +270,24 @@ class Trainer:
     def forward_loss(self, batch):
         raise NotImplementedError
 
-    def mean_loss(self, loss):
-        value = loss.detach()
+    def batch_count(self, batch):
+        assert isinstance(batch, (list, tuple))
+        return int(batch[0].shape[0])
+
+    def trim_batch(self, batch):
+        if not self.distributed or self.batch_count(batch) <= self.batch_size:
+            return batch
+        trimmed = [field[:self.batch_size] for field in batch]
+        if isinstance(batch, tuple):
+            return tuple(trimmed)
+        return trimmed
+
+    def summarize_loss(self, loss, local_count):
+        count = torch.tensor(float(local_count), device=self.device)
+        value = torch.stack((loss.detach().float() * count, count))
         if self.distributed:
             dist.all_reduce(value, op=dist.ReduceOp.SUM)
-            value /= self.world_size
-        return value.item()
+        return (value[0] / value[1]).item(), value[1].item()
 
     def learning_rate(self, step):
         warmup = self.config.get("warmup_steps", 0)
@@ -252,15 +304,20 @@ class Trainer:
             group["lr"] = lr
 
     def step(self, batch, train=True, step=0):
+        batch = self.trim_batch(batch)
+        local_count = self.batch_count(batch)
         self.model.train() if train else self.model.eval()
         with torch.set_grad_enabled(train):
             with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
                 loss = self.forward_loss(batch)
-        mean_loss = self.mean_loss(loss)
+        mean_loss, global_count = self.summarize_loss(loss, local_count)
         if train:
             self.set_learning_rate(step)
             self.optimizer.zero_grad(set_to_none=True)
-            self.scaler.scale(loss).backward()
+            loss_scale = self.world_size * local_count / global_count
+            self.scaler.scale(loss * loss_scale).backward()
+            self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
             self.scaler.step(self.optimizer)
             self.scaler.update()
         return mean_loss
@@ -275,7 +332,7 @@ class Trainer:
         train_ds, val_ds = self.build_datasets()
         train_sampler = DistributedSampler(train_ds) if self.distributed else None
         val_sampler = DistributedSampler(val_ds, shuffle=False) if self.distributed else None
-        kw = dict(batch_size=self.batch_size, num_workers=self.config.get("num_workers", 4), pin_memory=True)
+        kw = dict(batch_size=self.loader_batch_size, num_workers=self.config.get("num_workers", 4), pin_memory=True)
         train_loader = DataLoader(train_ds, shuffle=train_sampler is None, sampler=train_sampler, **kw)
         val_loader = DataLoader(val_ds, shuffle=False, sampler=val_sampler, **kw)
         train_iter, val_iter = iter(train_loader), iter(val_loader)
@@ -300,13 +357,15 @@ class Trainer:
                 val_loss = self.step(val_batch, train=False)
                 self.write_loss(step, "val", val_loss)
                 self.log(step, train_loss, val_loss)
-                self.save_checkpoint(step)
                 if self.is_main:
                     self.save_reconstruction(val_batch, step)
+            if step % self.save_every == 0:
+                self.save_checkpoint(step)
 
         self.save_checkpoint(self.end_step)
         if self.is_main:
             self.write_log(f"saved loss curve: {save_loss_curve(self.losses_path, self.imgs_dir / 'loss_curve.png')}")
+        self.finish_wandb()
         self.barrier()
         if self.distributed:
             dist.destroy_process_group()
@@ -377,7 +436,9 @@ def add_train_args(parser):
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--num_workers", type=int)
     parser.add_argument("--weight_decay", type=float)
+    parser.add_argument("--grad_clip", type=float)
     parser.add_argument("--eval_every", type=int)
+    parser.add_argument("--save_every", type=int)
     parser.add_argument("--warmup_steps", type=int)
     parser.add_argument("--min_lr", type=float)
     parser.add_argument("--amp", action="store_true", default=None)

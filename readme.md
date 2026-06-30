@@ -32,6 +32,19 @@ limit, simplify or move code into a sibling folder instead of growing core.
   sometimes beside a corresponding spec folder, and copied into supervised run
   folders.
 
+## XCL Clean Split
+
+`src/dataset_utils/birdset/make_xcl_clean_split.py` is a small hack for the XCL
+train/test mistake where a few prohibited species were present in train. It
+does not rebuild the 600GB shard arrays. Instead, it writes new `index.tsv`
+files and symlinks the original shard `.npy`/`.txt` files into clean split
+folders.
+
+That is why `XCL_clean` and `XCL_val_clean` look tiny with `du -sh`: they mostly
+contain indexes and symlinks. Use `du -shL` to count the shard data behind the
+links. This is easy and fast, but the clean folders depend on the original
+`XCL` and `XCL_val` folders staying in place.
+
 ## Annotation Coverage
 
 A check means the annotation JSON contains that information.

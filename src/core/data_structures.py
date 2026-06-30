@@ -102,13 +102,15 @@ class TrainConfig(JsonDataclass):
     lr: float
     task: str = "unsupervised"
     weight_decay: float = 0.0
+    grad_clip: float = 1.0
     num_workers: int = 4
     eval_every: int = 500
+    save_every: int = 5_000
     warmup_steps: int = 0
     min_lr: float = 0.0
     amp: bool = False
-    amp_dtype: str = "bf16"
-    wandb: bool = False
+    amp_dtype: str = "fp16"
+    wandb: bool = True
     annotation_file: str | None = None
     recording_mode: str = "full_recordings"
 
@@ -116,6 +118,7 @@ class TrainConfig(JsonDataclass):
         assert self.task in ("unsupervised", "supervised")
         assert self.recording_mode in ("events", "full_recordings")
         assert self.amp_dtype in ("bf16", "fp16")
+        assert self.grad_clip > 0
         assert self.task == "unsupervised" or self.annotation_file
 
 

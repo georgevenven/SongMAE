@@ -4,7 +4,7 @@ set -euo pipefail
 SPEC_ROOT="/media/george-vengrovski/disk2/specs"
 ANN_ROOT="files/annotation jsons"
 WAV_ROOT="/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
-MODEL_DIR="runs/xcl_micro_500k_p4x4_default"
+MODEL_DIR="${MODEL_DIR:-runs/xcl_micro_500k_p4x4_default}"
 MODELS="${MODELS:-songmae,aves,hubert}"
 NUM_TIMEBINS="${NUM_TIMEBINS:-0}"
 MAX_POINTS="${MAX_POINTS:-100000}"
