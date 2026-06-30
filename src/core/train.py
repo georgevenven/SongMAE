@@ -25,7 +25,7 @@ RUNS_ROOT = PROJECT_ROOT / "runs"
 DEFAULT_CONFIG = {
     "task": "unsupervised",
     "steps": 500_000,
-    "lr": 3e-4,
+    "lr": 1e-4,
     "batch_size": 128,
     "num_workers": 8,
     "weight_decay": 0.01,
