@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "mask_p": 0.75,
     "mask_c": 0.1,
     "mask_type": "voronoi",
+    "qk_norm": True,
     "enc_hidden_d": 384,
     "enc_n_head": 6,
     "enc_n_layer": 6,
@@ -255,6 +256,116 @@ class Trainer:
             metrics["train/lr"] = self.optimizer.param_groups[0]["lr"]
         self.wandb_run.log(metrics, step=step)
 
+    @staticmethod
+    def tensor_stats(x):
+        x = x.detach()
+        n = x.numel()
+        flat = x.reshape(-1)
+        if n > 2_000_000:
+            flat = flat[::math.ceil(n / 2_000_000)]
+        flat = flat.float()
+        rms = flat.square().mean().sqrt().item()
+        return {
+            "std": flat.std(unbiased=False).item(),
+            "rms": rms,
+            "l2": rms * (n ** 0.5),
+            "max": x.abs().max().item(),
+        }
+
+    def qkv_activation_hook(self, name, layer):
+        def hook(_module, _inputs, output):
+            B, T, _ = output.shape
+            q, k, v = output.view(B, T, 3, layer.nhead, layer.head_dim).unbind(2)
+            for suffix, tensor in (("q_raw", q), ("k_raw", k), ("v", v)):
+                self.activation_stats[f"{name}.{suffix}"] = self.tensor_stats(tensor)
+
+        return hook
+
+    def activation_hooks(self):
+        if not self.is_main:
+            return []
+        model = self.raw_model()
+        self.activation_stats = {}
+        hooks = []
+
+        def save(name):
+            def hook(_module, _inputs, output):
+                self.activation_stats[name] = self.tensor_stats(output[0] if isinstance(output, tuple) else output)
+
+            return hook
+
+        for name in ("patch_conv", "encoder_to_decoder", "decoder_patch_conv", "decoder_deconv"):
+            hooks.append(getattr(model, name).register_forward_hook(save(name)))
+        for prefix, stack in (("enc", model.encoder), ("dec", model.decoder)):
+            for i, layer in enumerate(stack.layers):
+                name = f"{prefix}{i}"
+                hooks.append(layer.register_forward_hook(save(name)))
+                hooks.append(layer.qkv.register_forward_hook(self.qkv_activation_hook(name, layer)))
+        return hooks
+
+    def weight_metrics(self):
+        metrics = {}
+        model = self.raw_model()
+        param_sq = 0.0
+        param_max = 0.0
+        for param in model.parameters():
+            tensor = param.detach().float()
+            l2 = tensor.norm().item()
+            param_sq += l2 * l2
+            param_max = max(param_max, tensor.abs().max().item())
+
+        layer_types = (torch.nn.Linear, torch.nn.Conv2d, torch.nn.ConvTranspose2d, torch.nn.LayerNorm)
+        for name, module in model.named_modules():
+            if not isinstance(module, layer_types) or module.weight is None:
+                continue
+            weight = module.weight.detach().float()
+            metrics[f"weights/{name}/weight_l2"] = weight.norm().item()
+            if module.bias is not None:
+                metrics[f"weights/{name}/bias_l2"] = module.bias.detach().float().norm().item()
+
+        for prefix, stack in (("enc", model.encoder), ("dec", model.decoder)):
+            for i, layer in enumerate(stack.layers):
+                q, k, v = layer.qkv.weight.detach().float().chunk(3, dim=0)
+                metrics[f"weights/{prefix}{i}/q_l2"] = q.norm().item()
+                metrics[f"weights/{prefix}{i}/k_l2"] = k.norm().item()
+                metrics[f"weights/{prefix}{i}/v_l2"] = v.norm().item()
+
+        metrics["weights/global_l2"] = param_sq ** 0.5
+        metrics["weights/max_abs"] = param_max
+        return metrics
+
+    def stat_metrics(self):
+        metrics = self.weight_metrics()
+        for name, stats in getattr(self, "activation_stats", {}).items():
+            for key, value in stats.items():
+                metrics[f"activations/{name}/{key}"] = value
+        return metrics
+
+    def log_model_stats(self, step):
+        if not self.is_main:
+            return
+        metrics = self.stat_metrics()
+        if self.wandb_run:
+            self.wandb_run.log(metrics, step=step)
+        self.write_log(f"step {step:>7} | weights | global={metrics['weights/global_l2']:.2f} max={metrics['weights/max_abs']:.3f}")
+        for prefix, stack in (("enc", self.raw_model().encoder), ("dec", self.raw_model().decoder)):
+            for i, _layer in enumerate(stack.layers):
+                name = f"{prefix}{i}"
+                self.write_log(
+                    f"step {step:>7} | weights | {name} "
+                    f"q={metrics[f'weights/{name}/q_l2']:.2f} "
+                    f"k={metrics[f'weights/{name}/k_l2']:.2f} "
+                    f"v={metrics[f'weights/{name}/v_l2']:.2f}"
+                )
+        for name, stats in getattr(self, "activation_stats", {}).items():
+            if "." in name:
+                continue
+            self.write_log(
+                f"step {step:>7} | activations | {name} "
+                f"std={stats['std']:.3f} rms={stats['rms']:.3f} "
+                f"l2={stats['l2']:.1f} max={stats['max']:.3f}"
+            )
+
     def finish_wandb(self):
         if self.wandb_run:
             self.wandb_run.finish()
@@ -304,13 +415,18 @@ class Trainer:
         for group in self.optimizer.param_groups:
             group["lr"] = lr
 
-    def step(self, batch, train=True, step=0):
+    def step(self, batch, train=True, step=0, capture_activations=False):
         batch = self.trim_batch(batch)
         local_count = self.batch_count(batch)
         self.model.train() if train else self.model.eval()
+        hooks = self.activation_hooks() if capture_activations else []
         with torch.set_grad_enabled(train):
-            with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
-                loss = self.forward_loss(batch)
+            try:
+                with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
+                    loss = self.forward_loss(batch)
+            finally:
+                for hook in hooks:
+                    hook.remove()
         mean_loss, global_count = self.summarize_loss(loss, local_count)
         if train:
             self.set_learning_rate(step)
@@ -355,9 +471,10 @@ class Trainer:
                 except StopIteration:
                     val_iter = iter(val_loader)
                     val_batch = next(val_iter)
-                val_loss = self.step(val_batch, train=False)
+                val_loss = self.step(val_batch, train=False, capture_activations=True)
                 self.write_loss(step, "val", val_loss)
                 self.log(step, train_loss, val_loss)
+                self.log_model_stats(step)
                 if self.is_main:
                     self.save_reconstruction(val_batch, step)
             if step % self.save_every == 0:
@@ -380,7 +497,9 @@ class UnsupervisedTrainer(Trainer):
 
     def forward_loss(self, batch):
         x = batch[0].to(self.device, non_blocking=True)
-        valid_timebins = batch[2].to(self.device, non_blocking=True)
+        valid_timebins = None
+        if int(batch[2].min()) < self.config["num_timebins"]:
+            valid_timebins = batch[2].to(self.device, non_blocking=True)
         return self.model(x, valid_timebins=valid_timebins)
 
     def save_reconstruction(self, batch, step):
@@ -456,6 +575,7 @@ def add_model_args(parser):
     parser.add_argument("--mask_p", type=float)
     parser.add_argument("--mask_c", type=float)
     parser.add_argument("--mask_type", choices=["voronoi", "random"])
+    parser.add_argument("--qk_norm", action=argparse.BooleanOptionalAction)
     parser.add_argument("--enc_hidden_d", type=int)
     parser.add_argument("--enc_n_head", type=int)
     parser.add_argument("--enc_n_layer", type=int)

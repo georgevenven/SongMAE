@@ -4,11 +4,12 @@ from torch import nn
 
 
 class SDPABlock(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout):
+    def __init__(self, d_model, nhead, dim_feedforward, dropout, qk_norm=False):
         super().__init__()
         assert d_model % nhead == 0
         self.nhead = nhead
         self.head_dim = d_model // nhead
+        self.qk_norm = qk_norm
         self.attn_dropout = dropout
         self.norm1 = nn.LayerNorm(d_model)
         self.qkv = nn.Linear(d_model, 3 * d_model)
@@ -22,7 +23,12 @@ class SDPABlock(nn.Module):
 
     def attention(self, x, key_padding_mask=None):
         B, T, D = x.shape
+        scale = None
         q, k, v = self.qkv(x).view(B, T, 3, self.nhead, self.head_dim).unbind(2)
+        if self.qk_norm:
+            q = F.normalize(q, dim=-1)
+            k = F.normalize(k, dim=-1)
+            scale = self.head_dim ** 0.5
         q, k, v = [t.transpose(1, 2) for t in (q, k, v)]
         attn_mask = None if key_padding_mask is None else ~key_padding_mask[:, None, None, :]
         x = F.scaled_dot_product_attention(
@@ -32,12 +38,13 @@ class SDPABlock(nn.Module):
             attn_mask=attn_mask,
             dropout_p=self.attn_dropout if self.training else 0.0,
             is_causal=False,
+            scale=scale,
         )
         return x.transpose(1, 2).reshape(B, T, D)
 
     def forward_features(self, x, key_padding_mask=None, target_feature_type="end_of_block"):
         x = x + self.dropout1(self.out_proj(self.attention(self.norm1(x), key_padding_mask)))
-        ffn_out = self.linear2(self.dropout(F.relu(self.linear1(self.norm2(x)))))
+        ffn_out = self.linear2(self.dropout(F.gelu(self.linear1(self.norm2(x)))))
         ffn_out = self.dropout2(ffn_out)
         if target_feature_type == "ffn":
             return x + ffn_out, ffn_out
@@ -49,10 +56,10 @@ class SDPABlock(nn.Module):
 
 
 class SDPAStack(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout, n_layer):
+    def __init__(self, d_model, nhead, dim_feedforward, dropout, n_layer, qk_norm=False):
         super().__init__()
         self.layers = nn.ModuleList(
-            [SDPABlock(d_model, nhead, dim_feedforward, dropout) for _ in range(n_layer)]
+            [SDPABlock(d_model, nhead, dim_feedforward, dropout, qk_norm) for _ in range(n_layer)]
         )
 
     def forward(self, x, src_key_padding_mask=None):
@@ -91,6 +98,7 @@ class SongMAE(nn.Module):
             config["enc_dim_ff"],
             config["dropout"],
             config["enc_n_layer"],
+            config.get("qk_norm", False),
         )
         self.encoder_to_decoder = nn.Linear(d_enc, d_dec)
         self.mask_token = nn.Parameter(torch.randn(1, 1, d_dec))
@@ -100,6 +108,7 @@ class SongMAE(nn.Module):
             config["dec_dim_ff"],
             config["dropout"],
             config["dec_n_layer"],
+            config.get("qk_norm", False),
         )
         self.decoder_patch_conv = nn.Sequential(
             nn.Conv2d(d_dec, d_dec, kernel_size=3, padding=1),

@@ -71,6 +71,7 @@ class ModelConfig(JsonDataclass):
     mask_p: float
     mask_c: float
     mask_type: str = "voronoi"
+    qk_norm: bool = False
 
     def __post_init__(self):
         assert self.mels % self.patch_height == 0
