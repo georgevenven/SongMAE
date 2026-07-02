@@ -62,6 +62,7 @@ class RecordingAnnotation:
 
 _LABEL_PATTERN = re.compile(r"([A-Za-z]+\d+)")
 _BIRD_PATTERN = re.compile(r"(?:^|[^A-Za-z0-9])([Bb]\d{1,4})")
+SILENCE_GAP_MS = 250.0
 
 
 def find_not_mat_files(src_dir: Path) -> List[Path]:
@@ -169,6 +170,7 @@ def parse_not_mat(path: Path) -> RecordingAnnotation:
 
     if not segments:
         raise ValueError(f"All segments filtered out in {path}")
+    segments.sort(key=lambda seg: seg.onset_ms)
 
     recording_name = _basename(fname) if fname else path.with_suffix("").with_suffix("").name
     bird_id = infer_bird_id(path, fname)
@@ -188,35 +190,45 @@ def build_label_map(recordings: Sequence[RecordingAnnotation]) -> Dict[str, int]
     return {label: idx for idx, label in enumerate(sorted(labels))}
 
 
-def to_json_dict(recordings: Sequence[RecordingAnnotation]) -> Dict[str, object]:
-    label_map = build_label_map(recordings)
-    json_recordings = []
-
-    for rec in recordings:
-        units = [
+def event_json(segments: Sequence[Segment], label_map: Dict[str, int]) -> Dict[str, object]:
+    return {
+        "onset_ms": segments[0].onset_ms,
+        "offset_ms": segments[-1].offset_ms,
+        "units": [
             {
                 "onset_ms": seg.onset_ms,
                 "offset_ms": seg.offset_ms,
                 "id": label_map[seg.label],
             }
-            for seg in rec.segments
-        ]
-        event_onset = min(seg.onset_ms for seg in rec.segments)
-        event_offset = max(seg.offset_ms for seg in rec.segments)
+            for seg in segments
+        ],
+    }
+
+
+def split_events(segments: Sequence[Segment], label_map: Dict[str, int]) -> List[Dict[str, object]]:
+    events = []
+    start = 0
+    for i in range(1, len(segments)):
+        if segments[i].onset_ms - segments[i - 1].offset_ms > SILENCE_GAP_MS:
+            events.append(event_json(segments[start:i], label_map))
+            start = i
+    events.append(event_json(segments[start:], label_map))
+    return events
+
+
+def to_json_dict(recordings: Sequence[RecordingAnnotation]) -> Dict[str, object]:
+    label_map = build_label_map(recordings)
+    json_recordings = []
+
+    for rec in recordings:
         json_recordings.append(
             {
                 "recording": {
                     "filename": rec.filename,
                     "bird_id": rec.bird_id,
-                    "detected_vocalizations": len(units),
+                    "detected_vocalizations": len(rec.segments),
                 },
-                "detected_events": [
-                    {
-                        "onset_ms": event_onset,
-                        "offset_ms": event_offset,
-                        "units": units,
-                    }
-                ],
+                "detected_events": split_events(rec.segments, label_map),
             }
         )
 
