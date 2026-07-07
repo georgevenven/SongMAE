@@ -16,11 +16,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import umap
 from matplotlib import cm
+from sklearn.decomposition import PCA
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
 from src.core.embedding_store import EmbeddingStore
+from src.core.model import TARGET_FEATURE_TYPES
 
 RAW_MODELS = {"aves", "bird_mae", "hubert"}
 
@@ -66,6 +68,7 @@ def songmae_command(model, args, out_path):
     add_arg(cmd, "--bird", args.bird)
     add_arg(cmd, "--recording_stem", args.recording_stem)
     add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
+    add_arg(cmd, "--target_feature_type", args.target_feature_type)
     if model == "songmae_random":
         cmd.append("--random_init")
     return cmd
@@ -141,6 +144,19 @@ def zscore(features):
     return ((features - mean) / std).astype(np.float32, copy=False)
 
 
+def pca(features, args):
+    if args.pca_components <= 0:
+        return features
+    assert args.pca_components < min(features.shape), features.shape
+    model = PCA(
+        n_components=args.pca_components,
+        whiten=args.pca_whiten,
+        svd_solver="randomized",
+        random_state=args.seed,
+    )
+    return model.fit_transform(features).astype(np.float32, copy=False)
+
+
 def fit_umap(features, args):
     reducer = umap.UMAP(
         n_components=2,
@@ -186,11 +202,18 @@ def run_model(model, args):
     features, labels = limit_points(features, labels, args.max_points)
     if args.zscore:
         features = zscore(features)
+    features = pca(features, args)
     xy = fit_umap(features, args)
     np.save(model_dir / "umap_points.npy", xy)
     np.save(model_dir / "labels.npy", labels)
     scatter(xy, labels, model_dir / "umap")
-    return {"model": model, "points": int(xy.shape[0]), "dim": int(features.shape[1])}
+    return {
+        "model": model,
+        "points": int(xy.shape[0]),
+        "dim": int(features.shape[1]),
+        "pca_components": int(args.pca_components),
+        "pca_whiten": bool(args.pca_whiten),
+    }
 
 
 def parse_args():
@@ -213,10 +236,13 @@ def parse_args():
     parser.add_argument("--umap_neighbors", type=int, default=25)
     parser.add_argument("--umap_min_dist", type=float, default=0.1)
     parser.add_argument("--umap_metric", default="euclidean")
+    parser.add_argument("--pca_components", type=int, default=0)
+    parser.add_argument("--pca_whiten", action="store_true")
     parser.add_argument("--songmae_run_dir")
     parser.add_argument("--checkpoint")
     parser.add_argument("--num_timebins", type=int, default=12400)
     parser.add_argument("--encoder_layer_idx", type=int)
+    parser.add_argument("--target_feature_type", default="end_of_block", choices=TARGET_FEATURE_TYPES)
     parser.add_argument("--aves_model_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.pt"))
     parser.add_argument("--aves_config_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.model_config.json"))
     parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")

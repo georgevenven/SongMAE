@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import gzip
 import json
 import sys
 from dataclasses import dataclass
@@ -88,12 +89,57 @@ def raster_metrics(predictions, spans, units):
     y_true = np.concatenate(y_true)
     y_pred = np.concatenate(y_pred)
     labels = sorted(set(y_true.tolist()) | set(y_pred.tolist()))
+    index = {label: i for i, label in enumerate(labels)}
+    confusion = np.zeros((len(labels), len(labels)), dtype=np.int64)
+    for true, pred in zip(y_true.tolist(), y_pred.tolist()):
+        confusion[index[true], index[pred]] += 1
+    f1 = f1_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+    per_class = per_class_metrics(labels, f1, y_true, y_pred)
     return {
         "macro_f1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
         "fer": float(np.mean(y_true != y_pred)),
+        "macro_fer": float(np.mean([row["fer"] for row in per_class.values() if row["fer"] is not None])),
         "frames": int(y_true.size),
         "classes": len(labels),
+        "class_labels": [int(label) for label in labels],
+        "confusion_matrix": confusion.tolist(),
+        "per_class": per_class,
     }
+
+
+def per_class_metrics(labels, f1, y_true, y_pred):
+    rows = {}
+    for i, label in enumerate(labels):
+        mask = y_true == label
+        frames = int(mask.sum())
+        rows[str(label)] = {
+            "f1": float(f1[i]),
+            "fer": None if frames == 0 else float(np.mean(y_pred[mask] != label)),
+            "frames": frames,
+        }
+    return rows
+
+
+def write_prediction_runs(path, predictions, spans, units):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        for pred, (stem, start, end) in zip(predictions, spans):
+            if end <= start:
+                continue
+            y = ground_truth(units, stem, start, end)
+            run_start = 0
+            for i in range(1, y.size + 1):
+                if i < y.size and y[i] == y[run_start]:
+                    continue
+                row = {
+                    "recording_stem": stem,
+                    "start_ms": int(start + run_start),
+                    "end_ms": int(start + i),
+                    "true_label": int(y[run_start]),
+                    "pred_label": int(pred),
+                }
+                f.write(json.dumps(row, separators=(",", ":")) + "\n")
+                run_start = i
 
 
 def standardize(train_x, val_x):
@@ -378,6 +424,7 @@ def parse_args():
     parser.add_argument("--max_train_seconds", default="MAX", help="Whole-song train budget in seconds, or MAX.")
     parser.add_argument("--allow_unmatched_val_classes", action="store_true")
     parser.add_argument("--split_json")
+    parser.add_argument("--predictions_jsonl")
     return parser.parse_args()
 
 
@@ -429,6 +476,8 @@ def main():
         pred = predict_mlp(model, classes, val_x)
 
     metrics = raster_metrics(pred, val_spans, units)
+    if args.predictions_jsonl:
+        write_prediction_runs(args.predictions_jsonl, pred, val_spans, units)
     if args.save_plots:
         assert args.plot_dir, "--save_plots requires --plot_dir"
         save_spectrogram_prediction_vs_groundtruth(

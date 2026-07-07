@@ -3,6 +3,25 @@ import torch.nn.functional as F
 from torch import nn
 
 
+TARGET_FEATURE_TYPES = (
+    "block_input",
+    "norm1",
+    "q_raw",
+    "k_raw",
+    "q_norm",
+    "k_norm",
+    "v",
+    "attn",
+    "out_proj",
+    "attn_residual",
+    "norm2",
+    "linear1",
+    "gelu",
+    "ffn",
+    "end_of_block",
+)
+
+
 class SDPABlock(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward, dropout, qk_norm=False):
         super().__init__()
@@ -21,35 +40,64 @@ class SDPABlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-    def attention(self, x, key_padding_mask=None):
+    def attention_features(self, x, key_padding_mask=None):
         B, T, D = x.shape
         scale = None
-        q, k, v = self.qkv(x).view(B, T, 3, self.nhead, self.head_dim).unbind(2)
+        q_raw, k_raw, v = self.qkv(x).view(B, T, 3, self.nhead, self.head_dim).unbind(2)
+        q = q_raw
+        k = k_raw
         if self.qk_norm:
             q = F.normalize(q, dim=-1)
             k = F.normalize(k, dim=-1)
             scale = self.head_dim ** 0.5
-        q, k, v = [t.transpose(1, 2) for t in (q, k, v)]
+        q_heads, k_heads, v_heads = [t.transpose(1, 2) for t in (q, k, v)]
         attn_mask = None if key_padding_mask is None else ~key_padding_mask[:, None, None, :]
-        x = F.scaled_dot_product_attention(
-            q,
-            k,
-            v,
+        attn = F.scaled_dot_product_attention(
+            q_heads,
+            k_heads,
+            v_heads,
             attn_mask=attn_mask,
             dropout_p=self.attn_dropout if self.training else 0.0,
             is_causal=False,
             scale=scale,
         )
-        return x.transpose(1, 2).reshape(B, T, D)
+        return attn.transpose(1, 2).reshape(B, T, D), {
+            "q_raw": q_raw.reshape(B, T, D),
+            "k_raw": k_raw.reshape(B, T, D),
+            "q_norm": q.reshape(B, T, D),
+            "k_norm": k.reshape(B, T, D),
+            "v": v.reshape(B, T, D),
+        }
+
+    def attention(self, x, key_padding_mask=None):
+        return self.attention_features(x, key_padding_mask)[0]
 
     def forward_features(self, x, key_padding_mask=None, target_feature_type="end_of_block"):
-        x = x + self.dropout1(self.out_proj(self.attention(self.norm1(x), key_padding_mask)))
-        ffn_out = self.linear2(self.dropout(F.gelu(self.linear1(self.norm2(x)))))
-        ffn_out = self.dropout2(ffn_out)
-        if target_feature_type == "ffn":
-            return x + ffn_out, ffn_out
-        assert target_feature_type == "end_of_block"
-        return x + ffn_out, x + ffn_out
+        assert target_feature_type in TARGET_FEATURE_TYPES
+        block_input = x
+        norm1 = self.norm1(x)
+        attn, attn_features = self.attention_features(norm1, key_padding_mask)
+        out_proj = self.out_proj(attn)
+        attn_residual = x + self.dropout1(out_proj)
+        norm2 = self.norm2(attn_residual)
+        linear1 = self.linear1(norm2)
+        gelu = F.gelu(linear1)
+        ffn = self.dropout2(self.linear2(self.dropout(gelu)))
+        end_of_block = attn_residual + ffn
+        features = {
+            "block_input": block_input,
+            "norm1": norm1,
+            **attn_features,
+            "attn": attn,
+            "out_proj": out_proj,
+            "attn_residual": attn_residual,
+            "norm2": norm2,
+            "linear1": linear1,
+            "gelu": gelu,
+            "ffn": ffn,
+            "end_of_block": end_of_block,
+        }
+        return end_of_block, features[target_feature_type]
 
     def forward(self, x, src_key_padding_mask=None):
         return self.forward_features(x, src_key_padding_mask)[0]

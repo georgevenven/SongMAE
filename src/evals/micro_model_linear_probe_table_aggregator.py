@@ -14,22 +14,23 @@ SPECIES = [
     ("american_robin", "Robin"),
 ]
 
-PATCH_ROWS = [
-    ("128x1", "xcl_micro_500k_p128x1_default"),
-    ("16x1", "xcl_micro_500k_p16x1_default"),
-    ("32x1", "xcl_micro_500k_p32x1_default"),
-    ("32x4", "xcl_micro_500k_p32x4_default"),
-    ("4x4", "xcl_micro_500k_p4x4_default"),
-]
-
-EMPTY_ROWS = [
-    ("Masking (32x1)", None),
-    ("Random", None),
-    ("Voronoi", None),
-    ("Voronoi C parameter (best fine shape)", None),
-    ("C=0.05", None),
-    ("C=0.1", None),
-    ("C=0.2", None),
+ROWS = [
+    ("Base 100k 16x1 qknorm gelu", "xcl_base_100k_p16x1_qknorm_gelu_lr1e-4_bs128"),
+    ("Micro 100k 16x1 default", "Xcl_micro_100k_p16x1_default"),
+    ("Micro 100k 32x1 default", "Xcl_micro_100k_p32x1_default"),
+    ("Micro 100k 32x4 qknorm gelu", "xcl_micro_100k_p32x4_qknorm_gelu_lr1e-4_bs128"),
+    ("Micro 100k 16x1 C=0.05", "Xcl_micro_100k_p16x1_c005"),
+    ("Micro 100k 4x4 default", "Xcl_micro_100k_p4x4_default"),
+    ("Micro 100k 16x1 C=0.10", "Xcl_micro_100k_p16x1_c010"),
+    ("Micro 100k 16x4 default", "Xcl_micro_100k_p16x4_default"),
+    ("Micro 100k 16x1 C=0.20", "Xcl_micro_100k_p16x1_c020"),
+    ("Micro 100k 128x1 default", "Xcl_micro_100k_p128x1_default"),
+    ("Micro 100k 32x1 random", "xcl_micro_100k_p32x1_random"),
+    ("Micro 100k 32x1 C=0.025", "Xcl_micro_100k_p32x1_c0025"),
+    ("Micro 100k 32x1 C=0.05", "Xcl_micro_100k_p32x1_c005"),
+    ("Micro 100k 32x1 C=0.10", "Xcl_micro_100k_p32x1_c010"),
+    ("Micro 100k 32x1 C=0.20", "Xcl_micro_100k_p32x1_c020"),
+    ("Base 100k 32x1 C=0.10", "xcl_base_100k_p32x1_c010"),
 ]
 
 
@@ -71,12 +72,7 @@ def row_values(runs, model):
 
 
 def table_rows(runs):
-    rows = [("Patch shape (Voronoi, C=0.1)", [None] * (len(SPECIES) + 1))]
-    for label, model in PATCH_ROWS:
-        rows.append((label, row_values(runs, model)))
-    for label, _ in EMPTY_ROWS:
-        rows.append((label, [None] * (len(SPECIES) + 1)))
-    return rows
+    return [(label, row_values(runs, model)) for label, model in ROWS]
 
 
 def print_markdown(rows):

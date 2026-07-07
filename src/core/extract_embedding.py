@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from .data_loader import SpectrogramDatasetSupervised
 from .embedding_store import EmbeddingFolderWriter
+from .model import TARGET_FEATURE_TYPES
 from .utils import create_label_arr, downsample_labels, load_spec, normalize_spectrogram, timebins_to_ms
 from .utils import load_model_state
 
@@ -86,6 +87,7 @@ def _extract_segment_arrays(
     num_patches_height,
     num_patches_time,
     encoder_layer_idx,
+    target_feature_type,
 ):
     spec_tensor = torch.from_numpy(spec_segment).unsqueeze(0).to(device)
     labels_tensor = torch.from_numpy(labels_segment).to(device)
@@ -108,6 +110,7 @@ def _extract_segment_arrays(
         encoded, _ = model.forward_encoder_inference(
             batched_spec,
             encoder_layer_idx=encoder_layer_idx,
+            target_feature_type=target_feature_type,
             valid_timebins=valid_timebins,
         )
 
@@ -165,6 +168,7 @@ def extract_recording_embeddings_with_state(args, model_state):
             num_patches_height=num_patches_height,
             num_patches_time=num_patches_time,
             encoder_layer_idx=args.get("encoder_layer_idx"),
+            target_feature_type=args.get("target_feature_type", "end_of_block"),
         )
         if state is None:
             continue
@@ -228,6 +232,7 @@ def _extract_one(raw_segment, args, model_state):
         num_patches_height=model_state["num_patches_height"],
         num_patches_time=model_state["num_patches_time"],
         encoder_layer_idx=args.get("encoder_layer_idx"),
+        target_feature_type=args.get("target_feature_type", "end_of_block"),
     )
 
 
@@ -301,6 +306,8 @@ def _metadata(extracted, args, model_state):
         "num_patches_time": model_state["num_patches_time"],
         "num_patches_height": model_state["num_patches_height"],
         "checkpoint": args.get("checkpoint") or "",
+        "encoder_layer_idx": args.get("encoder_layer_idx"),
+        "target_feature_type": args.get("target_feature_type", "end_of_block"),
         "model_num_timebins": model_state["model_num_timebins"],
         "mels": int(model_state["config"]["mels"]),
     }
@@ -392,6 +399,11 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="If set, extract embeddings from this encoder layer index.",
+    )
+    parser.add_argument(
+        "--target_feature_type",
+        default="end_of_block",
+        choices=TARGET_FEATURE_TYPES,
     )
     args = parser.parse_args()
     main(vars(args))

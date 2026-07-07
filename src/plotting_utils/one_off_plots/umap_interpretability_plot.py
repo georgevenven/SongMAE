@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from src.core.extract_embedding import extract_recording_embeddings
+from src.core.model import TARGET_FEATURE_TYPES
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,10 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recording_stem", default=None)
     parser.add_argument("--bird", default=None)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--neighbors", type=int, default=25)
+    parser.add_argument("--neighbors", type=int, default=100)
     parser.add_argument("--min_dist", type=float, default=0.1)
-    parser.add_argument("--metric", default="euclidean")
+    parser.add_argument("--metric", default="cosine")
     parser.add_argument("--encoder_layer_idx", type=int, default=None)
+    parser.add_argument("--target_feature_type", default="attn_residual", choices=TARGET_FEATURE_TYPES)
     parser.add_argument("--random_init", action="store_true")
     return parser.parse_args()
 
@@ -62,7 +64,6 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
     labels = segment["labels_downsampled"]
     gt_colors = label_colors(labels)
     pos_colors = position_colors(xy)
-    title = f"{segment['recording_stem']} event {segment['song_id']}"
 
     plt.rcParams.update({
         "font.size": 16,
@@ -99,12 +100,11 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
 
     ax_spec = fig.add_subplot(grid[1, :])
     ax_spec.imshow(segment["spectrograms"].T, aspect="auto", origin="lower", cmap="viridis")
-    ax_spec.set_title(title, fontweight="bold")
     ax_spec.set_ylabel("Mel Freq. Bin", fontweight="bold")
     ax_spec.set_xticks([])
     ax_spec.set_yticks([])
 
-    for row, colors, label in [(2, gt_colors, "Ground Truth Label"), (3, pos_colors, "UMAP Pos")]:
+    for row, colors, label in [(2, gt_colors, "Ground Truth Label"), (3, pos_colors, "Embedding Position")]:
         ax = fig.add_subplot(grid[row, :])
         ax.imshow(colors[np.newaxis, :, :], aspect="auto")
         ax.set_xlabel(label, fontweight="bold")
@@ -132,6 +132,7 @@ def main() -> None:
         "recording_stem": args.recording_stem,
         "recording_mode": "events",
         "encoder_layer_idx": args.encoder_layer_idx,
+        "target_feature_type": args.target_feature_type,
         "random_init": args.random_init,
         "max_segments": 1,
     })
