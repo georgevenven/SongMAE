@@ -17,15 +17,12 @@ MAX_PROBE_SECONDS="${MAX_PROBE_SECONDS:-3600}"
 PROBE_TIMEBINS_PER_SECOND="${PROBE_TIMEBINS_PER_SECOND:-200}"
 PROBE_NUM_TIMEBINS="${PROBE_NUM_TIMEBINS:-$((MAX_PROBE_SECONDS * PROBE_TIMEBINS_PER_SECOND))}"
 
-AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
-AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
-AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
-HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-large-ll60k}"
+BIRDAVES_MODEL_PATH="${BIRDAVES_MODEL_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.pt}"
+BIRDAVES_CONFIG_PATH="${BIRDAVES_CONFIG_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.model_config.json}"
+BIRDAVES_AUDIO_SR="${BIRDAVES_AUDIO_SR:-16000}"
+HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
 HUBERT_AUDIO_SR="${HUBERT_AUDIO_SR:-16000}"
 WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
-
-# TEMP: compare final embeddings with encoder layer index 5 attention residual, just before norm2/FFN.
-REPRESENTATIONS=("final||" "attn_residual_l5|5|attn_residual")
 
 # Hardcoded for now because these evals need matching annotation, spec, and wav roots.
 # Positional args filter this list, e.g. `bash shell/linear_probe_across_models.sh zf`.
@@ -33,12 +30,10 @@ DATASETS=(
   "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  "cassins_vireo|files/annotation jsons/cassins_vireo_annotations.json|/media/george-vengrovski/disk2/specs/cassins_vireo_5ms|/media/george-vengrovski/disk2/raw_data/cassins_vireo/data/figshare_3081814/wav_files|events"
-  "american_robin|files/annotation jsons/american_robin_annotations.json|/media/george-vengrovski/disk2/specs/american_robin_5ms|/media/george-vengrovski/disk2/raw_data/american_robin/data/rmbl_robin/RMBL-Robin/data|events"
 )
 
 usage() {
-  echo "Usage: $0 [zf|bf|canary|cassins_vireo|american_robin ...]" 1>&2
+  echo "Usage: $0 [zf|bf|canary ...]" 1>&2
 }
 
 selected_dataset() {
@@ -66,13 +61,6 @@ birds = {
 for bird in sorted(bird for bird in birds if bird):
     print(bird)
 PY
-}
-
-strict_split_dataset() {
-  case "$1" in
-    cassins_vireo|american_robin) return 1 ;;
-    *) return 0 ;;
-  esac
 }
 
 has_train_coverage() {
@@ -117,22 +105,22 @@ default_models() {
     compgen -G "$run/weights/model_step_*.pth" > /dev/null || continue
     basename "$run"
   done
-  printf '%s\n' aves hubert
+  printf '%s\n' birdaves_biox_base hubert_base_ls960
 }
 
 model_slug() {
   case "$1" in
-    aves|AVES|birdaves|BirdAVES) echo aves ;;
-    hubert|HuBERT|HUBERT) echo hubert ;;
+    birdaves|BirdAVES|birdaves_biox_base) echo birdaves_biox_base ;;
+    hubert_base|hubert_base_ls960|HuBERT) echo hubert_base_ls960 ;;
     *) basename "$1" ;;
   esac
 }
 
 extract_embeddings() {
-  local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7" layer_idx="$8" feature_type="$9"
+  local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7"
   local cmd run_dir
   case "$model" in
-    aves|AVES|birdaves|BirdAVES)
+    birdaves|BirdAVES|birdaves_biox_base)
       "$PYTHON_BIN" src/external_models/aves.py \
         --spec_dir "$spec_dir" \
         --wav_dir "$wav_dir" \
@@ -140,13 +128,14 @@ extract_embeddings() {
         --out_dir "$out_dir" \
         --bird "$bird" \
         --recording_mode "$mode" \
-        --aves_model_path "$AVES_MODEL_PATH" \
-        --aves_config_path "$AVES_CONFIG_PATH" \
-        --audio_sr "$AVES_AUDIO_SR" \
+        --aves_model_path "$BIRDAVES_MODEL_PATH" \
+        --aves_config_path "$BIRDAVES_CONFIG_PATH" \
+        --audio_sr "$BIRDAVES_AUDIO_SR" \
+        --model_name birdaves_biox_base \
         --wav_exts "$WAV_EXTS" \
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
-    hubert|HuBERT|HUBERT)
+    hubert_base|hubert_base_ls960|HuBERT)
       "$PYTHON_BIN" src/external_models/hubert.py \
         --spec_dir "$spec_dir" \
         --wav_dir "$wav_dir" \
@@ -178,7 +167,6 @@ extract_embeddings() {
         --num_timebins "$PROBE_NUM_TIMEBINS"
       )
       if [[ -n "${SONGMAE_CHECKPOINT:-}" ]]; then cmd+=(--checkpoint "$SONGMAE_CHECKPOINT"); fi
-      if [[ -n "$layer_idx" ]]; then cmd+=(--encoder_layer_idx "$layer_idx" --target_feature_type "$feature_type"); fi
       "${cmd[@]}"
       ;;
   esac
@@ -207,60 +195,50 @@ for row in "${DATASETS[@]}"; do
     fi
     for model in "${MODEL_LIST[@]}"; do
       model_name="$(model_slug "$model")"
-      for representation in "${REPRESENTATIONS[@]}"; do
-        IFS="|" read -r rep_name layer_idx feature_type <<< "$representation"
-        [[ "$rep_name" != "final" && "$model_name" =~ ^(aves|hubert)$ ]] && continue
-        out_name="$model_name"
-        [[ "$rep_name" != "final" ]] && out_name="${model_name}__${rep_name}"
-        run_dir="$OUT_ROOT/$dataset/$bird/$out_name"
-        embed_dir="$run_dir/embeddings"
-        metrics_path="$run_dir/metrics.json"
-        metrics_tmp="$run_dir/metrics.tmp"
-        predictions_path="$run_dir/predictions.jsonl.gz"
-        split_path="$run_dir/split.json"
-        if [[ -f "$metrics_path" && "$OVERWRITE" != "1" ]]; then
-          echo "exists: $metrics_path"
-          continue
-        fi
+      run_dir="$OUT_ROOT/$dataset/$bird/$model_name"
+      embed_dir="$run_dir/embeddings"
+      metrics_path="$run_dir/metrics.json"
+      metrics_tmp="$run_dir/metrics.tmp"
+      predictions_path="$run_dir/predictions.jsonl.gz"
+      split_path="$run_dir/split.json"
+      if [[ -f "$metrics_path" && "$OVERWRITE" != "1" ]]; then
+        echo "exists: $metrics_path"
+        continue
+      fi
 
-        rm -rf "$run_dir"
-        mkdir -p "$embed_dir"
-        echo "running: dataset=$dataset bird=$bird model=$out_name"
-        if ! extract_embeddings "$model" "$json" "$spec_dir" "$wav_dir" "$recording_mode" "$bird" "$embed_dir" "$layer_idx" "$feature_type"; then
-          echo "extract failed: dataset=$dataset bird=$bird model=$out_name" 1>&2
-          continue
+      rm -rf "$run_dir"
+      mkdir -p "$embed_dir"
+      echo "running: dataset=$dataset bird=$bird model=$model_name"
+      if ! extract_embeddings "$model" "$json" "$spec_dir" "$wav_dir" "$recording_mode" "$bird" "$embed_dir"; then
+        echo "extract failed: dataset=$dataset bird=$bird model=$model_name" 1>&2
+        continue
+      fi
+      plot_args=()
+      if [[ "$SAVE_PLOTS" == "1" ]]; then
+        plot_args=(--save_plots --plot_dir "$run_dir/prediction_plots")
+      fi
+      if ! "$PYTHON_BIN" src/evals/syllable_classification.py \
+        --embeddings "$embed_dir" \
+        --annotations "$json" \
+        --model "$PROBE_MODEL" \
+        --val_fraction "$VAL_FRACTION" \
+        --seed "$SEED" \
+        --split_json "$split_path" \
+        --predictions_jsonl "$predictions_path" \
+        "${plot_args[@]}" > "$metrics_tmp"; then
+        rm -f "$metrics_tmp"
+        if [[ "$CLEAN_EMBEDDINGS" == "1" ]]; then
+          rm -rf "$embed_dir"
+          echo "cleaned: $embed_dir"
         fi
-        plot_args=()
-        if [[ "$SAVE_PLOTS" == "1" ]]; then
-          plot_args=(--save_plots --plot_dir "$run_dir/prediction_plots")
+        echo "probe failed: dataset=$dataset bird=$bird model=$model_name" 1>&2
+      else
+        mv "$metrics_tmp" "$metrics_path"
+        if [[ "$CLEAN_EMBEDDINGS" == "1" ]]; then
+          rm -rf "$embed_dir"
+          echo "cleaned: $embed_dir"
         fi
-        split_args=(--split_json "$split_path")
-        if ! strict_split_dataset "$dataset"; then
-          split_args+=(--allow_unmatched_val_classes)
-        fi
-        if ! "$PYTHON_BIN" src/evals/syllable_classification.py \
-          --embeddings "$embed_dir" \
-          --annotations "$json" \
-          --model "$PROBE_MODEL" \
-          --val_fraction "$VAL_FRACTION" \
-          --seed "$SEED" \
-          "${split_args[@]}" \
-          --predictions_jsonl "$predictions_path" \
-          "${plot_args[@]}" > "$metrics_tmp"; then
-          rm -f "$metrics_tmp"
-          if [[ "$CLEAN_EMBEDDINGS" == "1" ]]; then
-            rm -rf "$embed_dir"
-            echo "cleaned: $embed_dir"
-          fi
-          echo "probe failed: dataset=$dataset bird=$bird model=$out_name" 1>&2
-        else
-          mv "$metrics_tmp" "$metrics_path"
-          if [[ "$CLEAN_EMBEDDINGS" == "1" ]]; then
-            rm -rf "$embed_dir"
-            echo "cleaned: $embed_dir"
-          fi
-        fi
-      done
+      fi
     done
   done < <(birds_in_json "$json")
 done

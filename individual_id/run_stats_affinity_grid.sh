@@ -6,7 +6,7 @@ set -o pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-RUN_DIR="${RUN_DIR:-$ROOT/github_assets/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8}"
+RUN_DIR="${RUN_DIR:-$ROOT/runs/xcl_base_100k_p32x1_c010}"
 CHECKPOINT="${CHECKPOINT:-model_step_499999.pth}"
 OUT_ROOT="${OUT_ROOT:-results/individual_id_umap/stats_affinity_grid_pca512_maxpts25000}"
 MAX_POINTS="${MAX_POINTS:-25000}"

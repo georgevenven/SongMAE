@@ -265,7 +265,7 @@ def main():
     parser.add_argument("--knn_candidate_chunk_size", type=int, default=0)
     parser.add_argument("--subset_repeats", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--run_dir", default=str(ROOT / "github_assets/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8"))
+    parser.add_argument("--run_dir", default=str(ROOT / "runs/xcl_base_100k_p32x1_c010"))
     parser.add_argument("--checkpoint", default="model_step_499999.pth")
     parser.add_argument("--species", default=",".join(SPECIES))
     parser.add_argument("--cpu", action="store_true")

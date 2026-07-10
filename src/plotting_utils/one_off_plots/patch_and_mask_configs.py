@@ -1,10 +1,10 @@
 """One-off: how patch shape and the Voronoi mask scale C carve a spectrogram.
 
-The SongMAE ablation story in one collage. A single 5 s canary song is turned
-into a 128 mel x 1000 timebin spectrogram (5 ms/timebin, the default), then for
-each candidate tokenization (rows) we show the faithful SongMAE Voronoi mask at
-each C value (columns), with masked patches blacked out. Lower C -> fewer seeds
--> larger contiguous holes; higher C -> many tiny local masks.
+The SongMAE ablation story in one landscape figure per patch shape. A single
+5 s canary song is turned into a 128 mel x 1000 timebin spectrogram
+(5 ms/timebin, the default), then each C value is shown as a row with masked
+patches blacked out. Lower C -> fewer seeds -> larger contiguous holes; higher
+C -> many tiny local masks.
 
 The point of crossing patch shape with C: the *same* C is not the *same* masking
 difficulty across tokenizations. Approx masked tokens per Voronoi seed is
@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 
 from src.core.audio2spec import compute_spectrogram
 from src.core.model import SongMAE
-from src.plotting_utils.plotting_utils import masked_cmap, save_fig, SPEC_DPI
+from src.plotting_utils.plotting_utils import masked_cmap, save_fig
 
 AUDIO_FILE = Path(
     "/media/george-vengrovski/disk2/raw_data/canary/yarden_data/llb3_songs/"
@@ -41,13 +41,14 @@ N_FFT = 1024
 N_MELS = 128
 
 # Patch shapes (mel_height, time_width) — the main tokenization ablation.
-PATCH_SHAPES = [(128, 1), (32, 1), (16, 1), (8, 1), (32, 4), (4, 4)]
+PATCH_SHAPES = [(128, 1), (32, 1), (16, 1), (32, 4), (4, 4)]
 # Voronoi mask scales — the C interaction ablation.
-C_VALUES = [0.05, 0.1, 0.2]
+C_VALUES = [0.025, 0.05, 0.1, 0.2]
 MASK_P = 0.75          # SongMAE default mask fraction
 SEED = 0               # deterministic masks
+FIGSIZE = (8.8, 11.0)
 
-OUT_DIR = Path(__file__).resolve().parents[3] / "imgs"
+OUT_DIR = Path(__file__).resolve().parents[3] / "imgs" / "patch_and_mask_configs"
 SPEC_CMAP = "viridis"
 
 
@@ -88,67 +89,48 @@ def expand_mask(mask_grid, patch_shape, shape):
 
 def show(ax, image, vmin, vmax, cmap=SPEC_CMAP):
     ax.imshow(image, origin="lower", aspect="auto", interpolation="none",
-              cmap=cmap, vmin=vmin, vmax=vmax)
-    ax.set_xticks([])
-    ax.set_yticks([])
+              cmap=cmap, vmin=vmin, vmax=vmax, extent=(0, DUR_S, 0, N_MELS))
+    ax.set_yticks([0, 64, 128])
+    ax.set_ylabel("Mels", fontsize=13, labelpad=6)
+    ax.tick_params(axis="y", labelsize=11, length=4)
     for spine in ax.spines.values():
         spine.set_visible(False)
+    ax.spines["left"].set_visible(True)
 
 
-def masked_per_seed(c):
-    """Approx masked tokens per Voronoi seed: 0.75 (1 - C) / C."""
-    return MASK_P * (1.0 - c) / c
+def plot_patch_shape(spec, patch_shape, vmin, vmax, mcmap):
+    ph, pw = patch_shape
+    H, W = spec.shape[0] // ph, spec.shape[1] // pw
+    model = build_model(patch_shape, spec.shape[1])
+    fig, axes = plt.subplots(len(C_VALUES), 1, figsize=FIGSIZE, sharex=True)
+    for ax, c in zip(axes, C_VALUES):
+        ax.set_title(
+            f"Voronoi Masking, Percent Seed Patches (C) = {c:g}",
+            fontsize=14, pad=5,
+        )
+        torch.manual_seed(SEED)
+        model.mask_c = c
+        mask_grid = model.voronoi_mask((H, W), "cpu").numpy()
+        pix_mask = expand_mask(mask_grid, patch_shape, spec.shape)
+        show(ax, np.ma.array(spec, mask=pix_mask), vmin, vmax, cmap=mcmap)
+
+    axes[-1].set_xticks(np.arange(0, DUR_S + 1))
+    axes[-1].set_xlabel("Time (s)", fontsize=14, labelpad=5)
+    axes[-1].tick_params(axis="x", labelsize=12, length=4)
+    axes[-1].spines["bottom"].set_visible(True)
+    unit = "timebin" if pw == 1 else "timebins"
+    fig.suptitle(f"Patch Shape: {ph} mels × {pw} {unit}", fontsize=18)
+    fig.tight_layout(rect=(0, 0, 1, 0.96), h_pad=0.8)
+    return save_fig(fig, OUT_DIR / f"p{ph}x{pw}.png")
 
 
 def main():
-    torch.manual_seed(SEED)
     spec = load_spec()
     vmax = float(spec.max())
     vmin = vmax - 60.0          # 60 dB window for contrast (floor is ~-98 dB)
     mcmap = masked_cmap(SPEC_CMAP)
-
-    n_rows = len(PATCH_SHAPES)
-    n_cols = len(C_VALUES)
-    fig, axes = plt.subplots(
-        n_rows, n_cols, figsize=(14.0 * n_cols, 2.6 * n_rows + 0.8),
-        squeeze=False,
-    )
-
-    # column headers
-    for j, c in enumerate(C_VALUES):
-        axes[0][j].set_title(
-            f"C = {c:g}\n(~{masked_per_seed(c):.1f} masked tok/seed)",
-            fontsize=14, pad=10,
-        )
-
-    for i, patch_shape in enumerate(PATCH_SHAPES):
-        ph, pw = patch_shape
-        H, W = spec.shape[0] // ph, spec.shape[1] // pw
-        model = build_model(patch_shape, spec.shape[1])
-
-        # row label: patch shape + resulting token grid
-        axes[i][0].set_ylabel(
-            f"{ph}x{pw}\n{H}x{W} = {H * W} tok",
-            rotation=0, ha="right", va="center", fontsize=14, labelpad=48,
-        )
-
-        # faithful Voronoi mask at each C
-        for j, c in enumerate(C_VALUES):
-            torch.manual_seed(SEED)
-            mask_grid = model.voronoi_mask((H, W), p=MASK_P, c=c).cpu().numpy()
-            pix_mask = expand_mask(mask_grid, patch_shape, spec.shape)
-            shown = np.ma.array(spec, mask=pix_mask)
-            show(axes[i][j], shown, vmin, vmax, cmap=mcmap)
-
-    fig.suptitle(
-        "SongMAE tokenization x Voronoi mask scale  "
-        f"(canary, 5 s, {N_MELS} mel x {spec.shape[1]} timebin, 5 ms/bin, "
-        f"masked patches in black, p={MASK_P:g})",
-        fontsize=13, y=0.99,
-    )
-    fig.tight_layout(rect=(0.04, 0, 1, 0.97))
-    out = save_fig(fig, OUT_DIR / "patch_and_mask_configs.png")
-    print(f"wrote {out}")
+    for patch_shape in PATCH_SHAPES:
+        print(f"wrote {plot_patch_shape(spec, patch_shape, vmin, vmax, mcmap)}")
 
 
 if __name__ == "__main__":

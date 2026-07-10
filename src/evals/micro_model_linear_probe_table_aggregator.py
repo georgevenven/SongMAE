@@ -3,104 +3,112 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
-
 
 SPECIES = [
     ("canary", "Canary"),
     ("zf", "Zebra"),
     ("bf", "Bengalese"),
-    ("cassins_vireo", "Cassin's vireo"),
-    ("american_robin", "Robin"),
 ]
 
-ROWS = [
-    ("Base 100k 16x1 qknorm gelu", "xcl_base_100k_p16x1_qknorm_gelu_lr1e-4_bs128"),
-    ("Micro 100k 16x1 default", "Xcl_micro_100k_p16x1_default"),
-    ("Micro 100k 32x1 default", "Xcl_micro_100k_p32x1_default"),
-    ("Micro 100k 32x4 qknorm gelu", "xcl_micro_100k_p32x4_qknorm_gelu_lr1e-4_bs128"),
-    ("Micro 100k 16x1 C=0.05", "Xcl_micro_100k_p16x1_c005"),
-    ("Micro 100k 4x4 default", "Xcl_micro_100k_p4x4_default"),
-    ("Micro 100k 16x1 C=0.10", "Xcl_micro_100k_p16x1_c010"),
-    ("Micro 100k 16x4 default", "Xcl_micro_100k_p16x4_default"),
-    ("Micro 100k 16x1 C=0.20", "Xcl_micro_100k_p16x1_c020"),
-    ("Micro 100k 128x1 default", "Xcl_micro_100k_p128x1_default"),
-    ("Micro 100k 32x1 random", "xcl_micro_100k_p32x1_random"),
-    ("Micro 100k 32x1 C=0.025", "Xcl_micro_100k_p32x1_c0025"),
-    ("Micro 100k 32x1 C=0.05", "Xcl_micro_100k_p32x1_c005"),
-    ("Micro 100k 32x1 C=0.10", "Xcl_micro_100k_p32x1_c010"),
-    ("Micro 100k 32x1 C=0.20", "Xcl_micro_100k_p32x1_c020"),
-    ("Base 100k 32x1 C=0.10", "xcl_base_100k_p32x1_c010"),
+TITLE = "Linear Probe Ablations"
+
+SECTIONS = [
+    (
+        "Masking strategy (32x1; Voronoi C=0.1)",
+        [
+            ("Random", "xcl_micro_100k_p32x1_random"),
+            ("Voronoi", "Xcl_micro_100k_p32x1_default"),
+        ],
+    ),
+    (
+        "Patch shape (Voronoi, C=0.1)",
+        [
+            ("128x1", "Xcl_micro_100k_p128x1_default"),
+            ("32x1", "Xcl_micro_100k_p32x1_default"),
+            ("16x1", "Xcl_micro_100k_p16x1_default"),
+            ("32x4", "xcl_micro_100k_p32x4_qknorm_gelu_lr1e-4_bs128"),
+            ("4x4", "Xcl_micro_100k_p4x4_default"),
+        ],
+    ),
+    (
+        "Voronoi C parameter (32x1)",
+        [
+            ("C=0.025", "Xcl_micro_100k_p32x1_c0025"),
+            ("C=0.05", "Xcl_micro_100k_p32x1_c005"),
+            ("C=0.1", "Xcl_micro_100k_p32x1_c010"),
+            ("C=0.2", "Xcl_micro_100k_p32x1_c020"),
+        ],
+    ),
 ]
 
 
 def load_runs(root):
     runs = {}
     for path in sorted(root.glob("*/*/*/metrics.json")):
-        species, bird, model = path.parts[-4:-1]
+        species, _, model = path.parts[-4:-1]
         data = json.loads(path.read_text())
-        runs.setdefault((species, model), []).append((bird, float(data["macro_f1"]), float(data["fer"])))
+        runs.setdefault((species, model), []).append(float(data["macro_fer"]))
     return runs
 
 
 def average(values):
     if not values:
         return None
-    arr = np.asarray(values, dtype=np.float64)
-    return float(arr.mean())
+    return sum(values) / len(values)
 
 
 def species_cell(runs, species, model):
-    rows = runs.get((species, model), [])
-    if not rows:
-        return None
-    return average([row[1] for row in rows]), average([row[2] for row in rows])
+    return average(runs.get((species, model), []))
 
 
 def format_cell(value):
     if value is None:
-        return "- / -"
-    return f"{100.0 * value[0]:.2f} / {100.0 * value[1]:.2f}"
+        return "-"
+    return f"{100.0 * value:.2f}"
 
 
 def row_values(runs, model):
     values = [species_cell(runs, species, model) for species, _ in SPECIES]
-    f1 = average([value[0] for value in values if value is not None])
-    fer = average([value[1] for value in values if value is not None])
-    mean = None if f1 is None else (f1, fer)
-    return values + [mean]
+    return values + [average([value for value in values if value is not None])]
 
 
-def table_rows(runs):
-    return [(label, row_values(runs, model)) for label, model in ROWS]
-
-
-def print_markdown(rows):
+def print_markdown(runs):
     headers = ["Config"] + [label for _, label in SPECIES] + ["Mean"]
+    section = ["-"] * (len(headers) - 1)
+    print(TITLE)
+    print()
     print("| " + " | ".join(headers) + " |")
     print("| " + " | ".join(["---"] * len(headers)) + " |")
-    for label, values in rows:
-        print("| " + " | ".join([label] + [format_cell(value) for value in values]) + " |")
+    for label, rows in SECTIONS:
+        print("| " + " | ".join([label] + section) + " |")
+        for row_label, model in rows:
+            values = [format_cell(value) for value in row_values(runs, model)]
+            print("| " + " | ".join([row_label] + values) + " |")
 
 
-def print_tsv(rows):
+def print_tsv(runs):
     headers = ["Config"] + [label for _, label in SPECIES] + ["Mean"]
+    section = ["-"] * (len(headers) - 1)
+    print("\t".join([TITLE] + section))
     print("\t".join(headers))
-    for label, values in rows:
-        print("\t".join([label] + [format_cell(value) for value in values]))
+    for label, rows in SECTIONS:
+        print("\t".join([label] + section))
+        for row_label, model in rows:
+            values = [format_cell(value) for value in row_values(runs, model)]
+            print("\t".join([row_label] + values))
 
 
 def main():
     parser = argparse.ArgumentParser(description="Aggregate micro-model syllable linear probe results.")
     parser.add_argument("--results_root", default="results/syllable_linear_probe")
-    parser.add_argument("--format", choices=["markdown", "tsv"], default="markdown")
+    parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()
 
-    rows = table_rows(load_runs(Path(args.results_root)))
-    if args.format == "markdown":
-        print_markdown(rows)
+    runs = load_runs(Path(args.results_root))
+    if args.format == "tsv":
+        print_tsv(runs)
     else:
-        print_tsv(rows)
+        print_markdown(runs)
 
 
 if __name__ == "__main__":

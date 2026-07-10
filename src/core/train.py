@@ -57,6 +57,16 @@ DEFAULT_CONFIG = {
 }
 
 MODEL_PRESETS = {
+    "large": {
+        "enc_hidden_d": 768,
+        "enc_n_head": 12,
+        "enc_n_layer": 12,
+        "enc_dim_ff": 3072,
+        "dec_hidden_d": 256,
+        "dec_n_head": 4,
+        "dec_n_layer": 1,
+        "dec_dim_ff": 1024,
+    },
     "base": {
         "enc_hidden_d": 384,
         "enc_n_head": 6,

@@ -475,7 +475,7 @@ def main():
     parser.add_argument("--species_display_name", default=None)
     parser.add_argument("--annotation_json", default="files/annotation jsons/european_starling_annotations.json")
     parser.add_argument("--spec_dir", default="/media/george-vengrovski/disk2/specs/european_starling_64hop_32khz_prefixed")
-    parser.add_argument("--run_dir", default=str(ROOT / "github_assets/xcl_voronoi_mask_no_normalize_32h_10w_5s_fp8"))
+    parser.add_argument("--run_dir", default=str(ROOT / "runs/xcl_base_100k_p32x1_c010"))
     parser.add_argument("--checkpoint", default="model_step_499999.pth")
     parser.add_argument("--recording_svd_npz", default="results/individual_id_knn_graph_metrics/bird_knn_matrix_laplacian_cap30/european_starling/knn_attribution_matrices.npz")
     parser.add_argument("--recording_feature_mode", default="svd", choices=["svd", "pca", "umap", "affinity_row"])

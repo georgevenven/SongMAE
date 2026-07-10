@@ -37,17 +37,20 @@ def min_input_samples(model):
     return length
 
 
-def load_audio(item, audio_sr):
-    wav, sr = torchaudio.load(str(item["wav_path"]))
-    if wav.ndim == 2:
-        wav = wav[0]
-    if sr != audio_sr:
-        wav = torchaudio.functional.resample(wav, sr, audio_sr)
+def load_audio(item, audio_sr, cache):
+    path = str(item["wav_path"])
+    if cache.get("path") != path:
+        wav, sr = torchaudio.load(path)
+        if wav.ndim == 2:
+            wav = wav[0]
+        if sr != audio_sr:
+            wav = torchaudio.functional.resample(wav, sr, audio_sr)
+        cache.update({"path": path, "wav": wav.to(torch.float32).contiguous()})
+    wav = cache["wav"]
     start = int(round(item["start_ms"] / 1000.0 * audio_sr))
     end = int(round(item["end_ms"] / 1000.0 * audio_sr))
     end = max(start, min(end, int(wav.shape[0])))
-    wav = wav[start:end].to(torch.float32).contiguous()
-    return wav
+    return wav[start:end]
 
 
 def extract_features(model, wav, layer_idx, min_samples, device):
@@ -79,10 +82,11 @@ def save_embeddings(args):
 
     rows = []
     used = 0
+    audio_cache = {}
     for item in limited_items(dataset, args.num_timebins):
         embeddings = extract_features(
             model,
-            load_audio(item, args.audio_sr),
+            load_audio(item, args.audio_sr, audio_cache),
             args.encoder_layer_idx,
             min_samples,
             device,
@@ -95,7 +99,13 @@ def save_embeddings(args):
         used, keep_going = append_limited(rows, row, args.max_points, used)
         if not keep_going:
             break
-    save_concatenated_embeddings(args.out_dir, rows, model_name="aves", audio_sr=args.audio_sr)
+    save_concatenated_embeddings(
+        args.out_dir,
+        rows,
+        model_name=args.model_name,
+        audio_sr=args.audio_sr,
+        encoder_layer_idx=args.encoder_layer_idx,
+    )
 
 
 def parse_args():
@@ -106,6 +116,7 @@ def parse_args():
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--aves_model_path", required=True)
     parser.add_argument("--aves_config_path", required=True)
+    parser.add_argument("--model_name", default="birdaves_biox_base")
     parser.add_argument("--audio_sr", type=int, default=16000)
     parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
     parser.add_argument("--recording_stem")

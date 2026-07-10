@@ -69,6 +69,8 @@ def songmae_command(model, args, out_path):
     add_arg(cmd, "--recording_stem", args.recording_stem)
     add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
     add_arg(cmd, "--target_feature_type", args.target_feature_type)
+    if getattr(args, "minimal", False):
+        cmd.append("--minimal")
     if model == "songmae_random":
         cmd.append("--random_init")
     return cmd
@@ -91,6 +93,8 @@ def raw_command(model, args, out_dir):
         args.recording_mode,
         "--max_points",
         args.max_points,
+        "--num_timebins",
+        args.num_timebins,
         "--wav_exts",
         args.wav_exts,
     ]
@@ -141,6 +145,17 @@ def limit_points(features, labels, max_points):
 def zscore(features):
     mean = features.mean(axis=0, keepdims=True)
     std = np.maximum(features.std(axis=0, keepdims=True), 1e-8)
+    return ((features - mean) / std).astype(np.float32, copy=False)
+
+
+def row_l2(features):
+    norm = np.maximum(np.linalg.norm(features, axis=1, keepdims=True), 1e-8)
+    return (features / norm).astype(np.float32, copy=False)
+
+
+def row_zscore(features):
+    mean = features.mean(axis=1, keepdims=True)
+    std = np.maximum(features.std(axis=1, keepdims=True), 1e-8)
     return ((features - mean) / std).astype(np.float32, copy=False)
 
 
@@ -203,6 +218,12 @@ def run_model(model, args):
     if args.zscore:
         features = zscore(features)
     features = pca(features, args)
+    if args.pca_zscore:
+        features = zscore(features)
+    if args.pca_row_zscore:
+        features = row_zscore(features)
+    if args.pca_row_l2:
+        features = row_l2(features)
     xy = fit_umap(features, args)
     np.save(model_dir / "umap_points.npy", xy)
     np.save(model_dir / "labels.npy", labels)
@@ -213,6 +234,9 @@ def run_model(model, args):
         "dim": int(features.shape[1]),
         "pca_components": int(args.pca_components),
         "pca_whiten": bool(args.pca_whiten),
+        "pca_zscore": bool(args.pca_zscore),
+        "pca_row_zscore": bool(args.pca_row_zscore),
+        "pca_row_l2": bool(args.pca_row_l2),
     }
 
 
@@ -231,22 +255,25 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--deterministic", action="store_true")
     parser.add_argument("--reuse", action="store_true")
-    parser.add_argument("--zscore", dest="zscore", action="store_true", default=True)
+    parser.add_argument("--zscore", dest="zscore", action="store_true", default=False)
     parser.add_argument("--no_zscore", dest="zscore", action="store_false")
-    parser.add_argument("--umap_neighbors", type=int, default=25)
-    parser.add_argument("--umap_min_dist", type=float, default=0.1)
-    parser.add_argument("--umap_metric", default="euclidean")
-    parser.add_argument("--pca_components", type=int, default=0)
+    parser.add_argument("--umap_neighbors", type=int, default=200)
+    parser.add_argument("--umap_min_dist", type=float, default=0.0)
+    parser.add_argument("--umap_metric", default="cosine")
+    parser.add_argument("--pca_components", type=int, default=256)
     parser.add_argument("--pca_whiten", action="store_true")
+    parser.add_argument("--pca_zscore", action="store_true")
+    parser.add_argument("--pca_row_zscore", action="store_true")
+    parser.add_argument("--pca_row_l2", action="store_true")
     parser.add_argument("--songmae_run_dir")
     parser.add_argument("--checkpoint")
     parser.add_argument("--num_timebins", type=int, default=12400)
-    parser.add_argument("--encoder_layer_idx", type=int)
-    parser.add_argument("--target_feature_type", default="end_of_block", choices=TARGET_FEATURE_TYPES)
-    parser.add_argument("--aves_model_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.pt"))
-    parser.add_argument("--aves_config_path", default=str(ROOT / "files" / "aves-base-bio.torchaudio.model_config.json"))
+    parser.add_argument("--encoder_layer_idx", type=int, default=-1)
+    parser.add_argument("--target_feature_type", default="attn_residual", choices=TARGET_FEATURE_TYPES)
+    parser.add_argument("--aves_model_path", default=str(ROOT / "files" / "birdaves-biox-base.torchaudio.pt"))
+    parser.add_argument("--aves_config_path", default=str(ROOT / "files" / "birdaves-biox-base.torchaudio.model_config.json"))
     parser.add_argument("--bird_mae_model_name", default="DBD-research-group/Bird-MAE-Base")
-    parser.add_argument("--hubert_model_name", default="facebook/hubert-large-ll60k")
+    parser.add_argument("--hubert_model_name", default="facebook/hubert-base-ls960")
     return parser.parse_args()
 
 

@@ -6,8 +6,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_classification_train_sweep}"
-MODELS="${MODELS:-xcl_micro_500k_p16x1_default xcl_micro_500k_p32x1_default xcl_micro_500k_p32x4_default xcl_micro_500k_p128x1_default xcl_micro_500k_p4x4_default xcl_tiny_500k_p32x4_default xcl_base_500k_p32x4_default aves hubert}"
+OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_classification_train_sweep}"smoke
 CLASSIFIER="${CLASSIFIER:-mlp}"
 FEATURE_KEY="${FEATURE_KEY:-encoded_embeddings}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
@@ -22,36 +21,28 @@ MAX_PROBE_SECONDS="${MAX_PROBE_SECONDS:-3600}"
 PROBE_TIMEBINS_PER_SECOND="${PROBE_TIMEBINS_PER_SECOND:-200}"
 PROBE_NUM_TIMEBINS="${PROBE_NUM_TIMEBINS:-$((MAX_PROBE_SECONDS * PROBE_TIMEBINS_PER_SECOND))}"
 
-SONGMAE_RUN_DIR="${SONGMAE_RUN_DIR:-$ROOT/runs/xcl_full_500k_bs256_5s_p32x10}"
-XCL_TINY_P32X4_RUN_DIR="${XCL_TINY_P32X4_RUN_DIR:-$ROOT/runs/xcl_tiny_500k_p32x4_default}"
-XCL_BASE_P32X4_RUN_DIR="${XCL_BASE_P32X4_RUN_DIR:-$ROOT/runs/xcl_base_500k_p32x4_default}"
-XCL_MICRO_P128X1_RUN_DIR="${XCL_MICRO_P128X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p128x1_default}"
-XCL_MICRO_P16X1_RUN_DIR="${XCL_MICRO_P16X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p16x1_default}"
-XCL_MICRO_P32X1_RUN_DIR="${XCL_MICRO_P32X1_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x1_default}"
-XCL_MICRO_P32X4_RUN_DIR="${XCL_MICRO_P32X4_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x4_default}"
-XCL_MICRO_P4X4_RUN_DIR="${XCL_MICRO_P4X4_RUN_DIR:-$ROOT/runs/xcl_micro_500k_p4x4_default}"
-AVES_MODEL_PATH="${AVES_MODEL_PATH:-$ROOT/files/aves-base-bio.torchaudio.pt}"
-AVES_CONFIG_PATH="${AVES_CONFIG_PATH:-$ROOT/files/aves-base-bio.torchaudio.model_config.json}"
-AVES_AUDIO_SR="${AVES_AUDIO_SR:-16000}"
-HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-large-ll60k}"
+BIRDAVES_MODEL_PATH="${BIRDAVES_MODEL_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.pt}"
+BIRDAVES_CONFIG_PATH="${BIRDAVES_CONFIG_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.model_config.json}"
+BIRDAVES_AUDIO_SR="${BIRDAVES_AUDIO_SR:-16000}"
+HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
 HUBERT_AUDIO_SR="${HUBERT_AUDIO_SR:-16000}"
 WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
 
+# Hardcoded for now because these evals need matching annotation, spec, and wav roots.
+# Positional args filter this list, e.g. `bash shell/syllable_classification_train_sweep.sh zf`.
 DATASETS=(
   "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
   "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae|events"
-  "cassins_vireo|files/annotation jsons/cassins_vireo_annotations.json|/media/george-vengrovski/disk2/specs/cassins_vireo_5ms|/media/george-vengrovski/disk2/raw_data/cassins_vireo/data/figshare_3081814/wav_files|events"
-  "american_robin|files/annotation jsons/american_robin_annotations.json|/media/george-vengrovski/disk2/specs/american_robin_5ms|/media/george-vengrovski/disk2/raw_data/american_robin/data/rmbl_robin/RMBL-Robin/data|events"
 )
 
 usage() {
-  echo "Usage: $0 [zf|bf|canary|cassins_vireo|american_robin ...]" 1>&2
+  echo "Usage: $0 [zf|bf|canary ...]" 1>&2
 }
 
 selected_dataset() {
   local dataset="$1"
-  if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+  if [[ "$#" -eq 1 && "${#TARGETS[@]}" -eq 0 ]]; then
     return 0
   fi
   for target in "${TARGETS[@]}"; do
@@ -74,13 +65,6 @@ birds = {
 for bird in sorted(bird for bird in birds if bird):
     print(bird)
 PY
-}
-
-strict_split_dataset() {
-  case "$1" in
-    cassins_vireo|american_robin) return 1 ;;
-    *) return 0 ;;
-  esac
 }
 
 has_train_coverage() {
@@ -118,41 +102,29 @@ sys.exit(0 if ok else 1)
 PY
 }
 
-songmae_run_dir() {
+default_models() {
+  local run
+  for run in "$ROOT"/runs/*; do
+    [[ -f "$run/config.json" ]] || continue
+    compgen -G "$run/weights/model_step_*.pth" > /dev/null || continue
+    basename "$run"
+  done
+  printf '%s\n' birdaves_biox_base hubert_base_ls960
+}
+
+model_slug() {
   case "$1" in
-    songmae|songmae_random) echo "$SONGMAE_RUN_DIR" ;;
-    xcl_tiny_500k_p32x4_default) echo "$XCL_TINY_P32X4_RUN_DIR" ;;
-    xcl_base_500k_p32x4_default) echo "$XCL_BASE_P32X4_RUN_DIR" ;;
-    xcl_micro_500k_p128x1_default) echo "$XCL_MICRO_P128X1_RUN_DIR" ;;
-    xcl_micro_500k_p16x1_default) echo "$XCL_MICRO_P16X1_RUN_DIR" ;;
-    xcl_micro_500k_p32x1_default) echo "$XCL_MICRO_P32X1_RUN_DIR" ;;
-    xcl_micro_500k_p32x4_default) echo "$XCL_MICRO_P32X4_RUN_DIR" ;;
-    xcl_micro_500k_p4x4_default) echo "$XCL_MICRO_P4X4_RUN_DIR" ;;
-    *) return 1 ;;
+    birdaves|BirdAVES|birdaves_biox_base) echo birdaves_biox_base ;;
+    hubert_base|hubert_base_ls960|HuBERT) echo hubert_base_ls960 ;;
+    *) basename "$1" ;;
   esac
 }
 
 extract_embeddings() {
   local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7"
-  local cmd
+  local cmd run_dir
   case "$model" in
-    songmae|songmae_random|xcl_tiny_500k_p32x4_default|xcl_base_500k_p32x4_default|xcl_micro_500k_p128x1_default|xcl_micro_500k_p16x1_default|xcl_micro_500k_p32x1_default|xcl_micro_500k_p32x4_default|xcl_micro_500k_p4x4_default)
-      cmd=(
-        "$PYTHON_BIN" -m src.core.extract_embedding
-        --run_dir "$(songmae_run_dir "$model")"
-        --spec_dir "$spec_dir"
-        --json_path "$json"
-        --bird "$bird"
-        --recording_mode "$mode"
-        --out_dir "$out_dir"
-        --minimal
-        --num_timebins "$PROBE_NUM_TIMEBINS"
-      )
-      if [[ -n "${SONGMAE_CHECKPOINT:-}" ]]; then cmd+=(--checkpoint "$SONGMAE_CHECKPOINT"); fi
-      if [[ "$model" == "songmae_random" ]]; then cmd+=(--random_init); fi
-      "${cmd[@]}"
-      ;;
-    aves)
+    birdaves|BirdAVES|birdaves_biox_base)
       "$PYTHON_BIN" src/external_models/aves.py \
         --spec_dir "$spec_dir" \
         --wav_dir "$wav_dir" \
@@ -160,13 +132,14 @@ extract_embeddings() {
         --out_dir "$out_dir" \
         --bird "$bird" \
         --recording_mode "$mode" \
-        --aves_model_path "$AVES_MODEL_PATH" \
-        --aves_config_path "$AVES_CONFIG_PATH" \
-        --audio_sr "$AVES_AUDIO_SR" \
+        --aves_model_path "$BIRDAVES_MODEL_PATH" \
+        --aves_config_path "$BIRDAVES_CONFIG_PATH" \
+        --model_name birdaves_biox_base \
+        --audio_sr "$BIRDAVES_AUDIO_SR" \
         --wav_exts "$WAV_EXTS" \
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
-    hubert)
+    hubert_base|hubert_base_ls960|HuBERT)
       "$PYTHON_BIN" src/external_models/hubert.py \
         --spec_dir "$spec_dir" \
         --wav_dir "$wav_dir" \
@@ -180,8 +153,25 @@ extract_embeddings() {
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     *)
-      echo "Unknown model: $model" 1>&2
-      return 1
+      run_dir="$model"
+      [[ -f "$run_dir/config.json" ]] || run_dir="$ROOT/runs/$model"
+      if [[ ! -f "$run_dir/config.json" ]]; then
+        echo "Unknown model: $model" 1>&2
+        return 1
+      fi
+      cmd=(
+        "$PYTHON_BIN" -m src.core.extract_embedding
+        --run_dir "$run_dir"
+        --spec_dir "$spec_dir"
+        --json_path "$json"
+        --bird "$bird"
+        --recording_mode "$mode"
+        --out_dir "$out_dir"
+        --minimal
+        --num_timebins "$PROBE_NUM_TIMEBINS"
+      )
+      if [[ -n "${SONGMAE_CHECKPOINT:-}" ]]; then cmd+=(--checkpoint "$SONGMAE_CHECKPOINT"); fi
+      "${cmd[@]}"
       ;;
   esac
 }
@@ -201,7 +191,11 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 TARGETS=("$@")
-read -r -a MODEL_LIST <<< "$MODELS"
+if [[ -n "${MODELS:-}" ]]; then
+  read -r -a MODEL_LIST <<< "$MODELS"
+else
+  mapfile -t MODEL_LIST < <(default_models)
+fi
 read -r -a BUDGETS <<< "$TRAIN_SECONDS"
 mkdir -p "$OUT_ROOT"
 
@@ -214,7 +208,8 @@ for row in "${DATASETS[@]}"; do
       continue
     fi
     for model in "${MODEL_LIST[@]}"; do
-      model_dir="$OUT_ROOT/$dataset/$bird/$model"
+      model_name="$(model_slug "$model")"
+      model_dir="$OUT_ROOT/$dataset/$bird/$model_name"
       embed_dir="$model_dir/embeddings"
       if [[ "$OVERWRITE" != "1" ]] && all_metrics_exist "$model_dir"; then
         for budget in "${BUDGETS[@]}"; do
@@ -226,9 +221,9 @@ for row in "${DATASETS[@]}"; do
         rm -rf "$model_dir"
       fi
       mkdir -p "$embed_dir"
-      echo "extracting: dataset=$dataset bird=$bird model=$model"
+      echo "extracting: dataset=$dataset bird=$bird model=$model_name"
       if ! extract_embeddings "$model" "$json" "$spec_dir" "$wav_dir" "$recording_mode" "$bird" "$embed_dir"; then
-        echo "extract failed: dataset=$dataset bird=$bird model=$model" 1>&2
+        echo "extract failed: dataset=$dataset bird=$bird model=$model_name" 1>&2
         if [[ "$CLEAN_EMBEDDINGS" == "1" ]]; then
           rm -rf "$embed_dir"
         fi
@@ -247,10 +242,7 @@ for row in "${DATASETS[@]}"; do
 
         mkdir -p "$run_dir"
         split_args=(--split_json "$split_json")
-        if ! strict_split_dataset "$dataset"; then
-          split_args+=(--allow_unmatched_val_classes)
-        fi
-        echo "running: dataset=$dataset bird=$bird model=$model train=$budget"
+        echo "running: dataset=$dataset bird=$bird model=$model_name train=$budget"
         if "$PYTHON_BIN" src/evals/syllable_classification.py \
           --embeddings "$embed_dir" \
           --annotations "$json" \
@@ -266,7 +258,7 @@ for row in "${DATASETS[@]}"; do
           mv "$tmp" "$metrics"
         else
           rm -f "$tmp"
-          echo "failed: dataset=$dataset bird=$bird model=$model train=$budget" 1>&2
+          echo "failed: dataset=$dataset bird=$bird model=$model_name train=$budget" 1>&2
         fi
       done
 
