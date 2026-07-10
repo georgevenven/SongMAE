@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Generate the SongMAE supplemental temporal-resolution table.
+
+Values are percentages of nonnegative inter-syllable gaps shorter than each
+resolution. The mean weights each species equally.
+"""
 
 from __future__ import annotations
 
@@ -7,20 +12,12 @@ import json
 from pathlib import Path
 
 
-DEFAULT_ANNOTATIONS = [
-    Path("files/annotation jsons/bf_annotations.json"),
-    Path("files/annotation jsons/canary_annotations.json"),
-    Path("files/annotation jsons/zf_annotations.json"),
+SPECIES = [
+    ("Canary", Path("files/annotation jsons/canary_annotations.json")),
+    ("Zebra", Path("files/annotation jsons/zf_annotations.json")),
+    ("Bengalese", Path("files/annotation jsons/bf_annotations.json")),
 ]
-
-
-def percentile(values, q):
-    assert values
-    values = sorted(values)
-    pos = (len(values) - 1) * q / 100
-    lo = int(pos)
-    hi = min(lo + 1, len(values) - 1)
-    return values[lo] + (values[hi] - values[lo]) * (pos - lo)
+RESOLUTIONS_MS = (1, 2, 5, 10, 20, 200)
 
 
 def load_gaps(path):
@@ -28,75 +25,54 @@ def load_gaps(path):
     assert data["metadata"]["units"] == "ms"
 
     gaps = []
-    overlaps = []
-    shortest = []
-
     for rec in data["recordings"]:
-        filename = rec["recording"]["filename"]
-        bird_id = rec["recording"].get("bird_id", "")
-
-        for event_idx, event in enumerate(rec["detected_events"]):
+        for event in rec["detected_events"]:
             units = sorted(event["units"], key=lambda unit: unit["onset_ms"])
             for left, right in zip(units, units[1:]):
                 gap = right["onset_ms"] - left["offset_ms"]
-                row = (gap, filename, bird_id, event_idx, left["id"], right["id"])
-                if gap < 0:
-                    overlaps.append(row)
-                else:
+                if gap >= 0:
                     gaps.append(gap)
-                    shortest.append(row)
+    assert gaps
+    return gaps
 
-    return gaps, overlaps, sorted(shortest)[:10]
+
+def percentage_below(gaps, resolution_ms):
+    return 100 * sum(gap < resolution_ms for gap in gaps) / len(gaps)
 
 
-def print_stats(name, gaps, overlaps, shortest):
-    print(f"\n{name}")
-    print(f"  gaps: {len(gaps)}")
-    print(f"  overlaps: {len(overlaps)}")
-    if not gaps:
+def format_percentage(value):
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def print_table(gaps_by_species, markdown):
+    headers = ["Temporal resolution (ms)"] + [f"{name} (%)" for name, _ in SPECIES] + ["Mean (%)"]
+    rows = []
+    for resolution_ms in RESOLUTIONS_MS:
+        values = [percentage_below(gaps_by_species[name], resolution_ms) for name, _ in SPECIES]
+        values.append(sum(values) / len(values))
+        rows.append([f"{resolution_ms:g}"] + [format_percentage(value) for value in values])
+
+    if not markdown:
+        print("\t".join(headers))
+        for row in rows:
+            print("\t".join(row))
         return
 
-    print(
-        "  ms: "
-        f"min={min(gaps):.3f} "
-        f"p1={percentile(gaps, 1):.3f} "
-        f"p5={percentile(gaps, 5):.3f} "
-        f"p10={percentile(gaps, 10):.3f} "
-        f"median={percentile(gaps, 50):.3f}"
-    )
-    for threshold in (0.5, 1, 2, 4, 5, 8, 10, 20):
-        count = sum(gap < threshold for gap in gaps)
-        print(f"  gaps < {threshold:>4g} ms: {count:>6} ({count / len(gaps):6.2%})")
-
-    print("  shortest:")
-    for gap, filename, bird_id, event_idx, left_id, right_id in shortest:
-        print(
-            f"    {gap:8.3f} ms  {bird_id}  {filename}  "
-            f"event={event_idx}  {left_id}->{right_id}"
-        )
+    print("| " + " | ".join(headers) + " |")
+    print("| " + " | ".join(["---"] * len(headers)) + " |")
+    for row in rows:
+        print("| " + " | ".join(row) + " |")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Measure adjacent unit gaps in TinyBird annotation JSON files.")
-    parser.add_argument("annotations", nargs="*", type=Path, default=DEFAULT_ANNOTATIONS)
+    parser = argparse.ArgumentParser(
+        description="Print the percent of inter-syllable gaps below each temporal resolution."
+    )
+    parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()
 
-    all_gaps = []
-    all_overlaps = []
-    all_shortest = []
-
-    for path in args.annotations:
-        gaps, overlaps, shortest = load_gaps(path)
-        print_stats(path.name, gaps, overlaps, shortest)
-        all_gaps.extend(gaps)
-        all_overlaps.extend(overlaps)
-        all_shortest.extend(
-            (gap, f"{path.name}:{filename}", bird_id, event_idx, left_id, right_id)
-            for gap, filename, bird_id, event_idx, left_id, right_id in shortest
-        )
-
-    if len(args.annotations) > 1:
-        print_stats("all_annotations", all_gaps, all_overlaps, sorted(all_shortest)[:10])
+    gaps_by_species = {name: load_gaps(path) for name, path in SPECIES}
+    print_table(gaps_by_species, args.format == "markdown")
 
 
 if __name__ == "__main__":

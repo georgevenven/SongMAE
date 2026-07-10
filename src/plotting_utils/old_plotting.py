@@ -32,7 +32,6 @@ __all__ = [
     "save_data2vec_latent_plot",
     "plot_loss_curves",
     "save_supervised_prediction_plot",
-    "plot_theoretical_resolution_limit",
     "plot_species_f1_curves",
 ]
 
@@ -493,67 +492,6 @@ def save_supervised_prediction_plot(
     plt.close(fig)
     
     return save_path
-
-def plot_theoretical_resolution_limit(results_csv: str, output_dir: str) -> None:
-    import csv
-    import matplotlib.ticker as ticker
-
-    data = []
-    try:
-        with open(results_csv, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                row['samples'] = float(row['samples'])
-                row['metric_value'] = float(row['metric_value'])
-                data.append(row)
-    except FileNotFoundError:
-        print(f"Results file not found: {results_csv}")
-        return
-
-    if not data:
-        print("No data found in results CSV.")
-        return
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Filter to only classification results
-    classify_data = [d for d in data if d.get('task') == 'classify']
-    if not classify_data:
-        print("No classification data found.")
-        return
-
-    # Group by individual and species
-    individuals = sorted(set(d['individual'] for d in classify_data))
-    species_list = sorted(set(d['species'] for d in classify_data))
-    colors = plt.cm.tab10(np.linspace(0, 1, len(species_list)))
-    species_color = dict(zip(species_list, colors))
-
-    # One plot per individual
-    for individual in individuals:
-        fig, ax = plt.subplots()
-
-        for species in species_list:
-            sp_data = [d for d in classify_data if d['species'] == species and d['individual'] == individual]
-            if not sp_data:
-                continue
-            sp_data = sorted(sp_data, key=lambda x: x['samples'])
-
-            x = [d['samples'] for d in sp_data]
-            y = [d['metric_value'] for d in sp_data]
-
-            # Compute theoretical resolution in ms (128 hop at 32kHz: 4ms per timebin)
-            # We assume samples = seconds of training data. This is a heuristic; adjust if needed.
-            ax.plot(x, y, marker='o', linewidth=2, label=species, color=species_color[species])
-
-        ax.set_xlabel("Training Data (seconds)")
-        ax.set_ylabel("FER (%)")
-        ax.set_title(f"{individual} - Classification FER")
-        ax.grid(True, alpha=0.2)
-        ax.legend()
-        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-        fig.savefig(os.path.join(output_dir, f"theoretical_resolution_limit_{individual}.png"), bbox_inches='tight')
-        plt.close(fig)
-
 
 def plot_species_f1_curves(
     results_dir: str,

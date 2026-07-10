@@ -9,15 +9,15 @@ ROOT = Path(__file__).resolve().parents[3]
 SPECIES = ("zf", "bf", "canary")
 SPECIES_LABELS = {"zf": "Zebra Finch", "bf": "Bengalese Finch", "canary": "Canary"}
 MODEL_STYLES = {
-    "songmae_32x1": ("SongMAE", "#0072B2", "-"),
+    "songmae_32x4": ("SongMAE", "#0072B2", "-"),
     "birdaves-base": ("BirdAVES", "#D55E00", "--"),
     "hubert-base": ("HuBERT", "#009E73", ":"),
 }
 RUNS = (
     (
-        "songmae_32x1",
-        "SongMAE 32x1 (PCA-256)",
-        ROOT / "results/knn_archive_delete_when_new_results_arrive/syllable_knn_songmae32x1_layers_pca256",
+        "songmae_32x4",
+        "SongMAE (raw)",
+        ROOT / "results/syllable_knn_xcl_base_100k_p32x4_c010_layers_rawdims",
         1,
     ),
     ("birdaves-base", "BirdAVES-base (raw)", ROOT / "results/syllable_knn_birdaves_biox_base_layers_rawdims", 1),
@@ -25,10 +25,20 @@ RUNS = (
 )
 
 
+def is_end_of_block_summary(summary):
+    relative = summary.parts
+    layer_idx = next((i for i, part in enumerate(relative) if part.startswith("layer_")), None)
+    if layer_idx is None:
+        return False
+    return layer_idx + 1 >= len(relative) - 1 or relative[layer_idx + 1] == "end_of_block"
+
+
 def layer_purity(path, offset):
     values = defaultdict(list)
     for summary in path.glob("**/summary.json"):
         species = summary.relative_to(path).parts[0]
+        if not is_end_of_block_summary(summary):
+            continue
         layer = int(next(part[6:] for part in summary.parts if part.startswith("layer_")))
         if species not in SPECIES or layer < 0:
             continue

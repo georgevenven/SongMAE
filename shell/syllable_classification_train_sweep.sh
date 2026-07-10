@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_classification_train_sweep}"smoke
+OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_classification_train_sweep}"
 CLASSIFIER="${CLASSIFIER:-mlp}"
 FEATURE_KEY="${FEATURE_KEY:-encoded_embeddings}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
