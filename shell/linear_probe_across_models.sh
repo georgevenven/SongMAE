@@ -7,7 +7,7 @@ ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_linear_probe_majority}"
-PROBE_MODEL="${PROBE_MODEL:-logreg}"
+PROBE_MODEL="${PROBE_MODEL:-linear}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
 SEED="${SEED:-42}"
 OVERWRITE="${OVERWRITE:-0}"

@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -145,12 +144,6 @@ def write_prediction_runs(path, predictions, spans, units):
                 }
                 f.write(json.dumps(row, separators=(",", ":")) + "\n")
                 run_start = i
-
-
-def standardize(train_x, val_x):
-    mean = train_x.mean(axis=0, keepdims=True)
-    std = np.maximum(train_x.std(axis=0, keepdims=True), 1e-6)
-    return (train_x - mean) / std, (val_x - mean) / std
 
 
 @dataclass(frozen=True)
@@ -369,11 +362,6 @@ def split_masks(groups, y, split):
     return train, val
 
 
-def fit_logreg(train_x, train_y):
-    model = LogisticRegression(max_iter=5000)
-    return model.fit(train_x, train_y)
-
-
 class MLP(torch.nn.Module):
     def __init__(self, in_dim, classes):
         super().__init__()
@@ -423,14 +411,16 @@ def feature_batch(x, indices, mean, std, device):
 
 
 def fit_torch_classifier(x, y, indices, args):
-    assert args.model in {"mlp", "scalar_mix"}
+    assert args.model in {"linear", "mlp", "scalar_mix"}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     classes = np.array(sorted(set(y[indices].tolist())), dtype=np.int64)
 
     torch.manual_seed(args.seed)
     if device.type == "cuda":
         torch.cuda.manual_seed_all(args.seed)
-    if args.model == "mlp":
+    if args.model == "linear":
+        model = torch.nn.Linear(x.shape[1], len(classes)).to(device)
+    elif args.model == "mlp":
         model = MLP(x.shape[1], len(classes)).to(device)
     else:
         model = ScalarMixMLP(x.shape[1], x.shape[2], len(classes)).to(device)
@@ -467,7 +457,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Fit a simple syllable classifier on extracted embeddings.")
     parser.add_argument("--embeddings", required=True, help="Embedding folder; split by song_id.")
     parser.add_argument("--annotations", required=True)
-    parser.add_argument("--model", choices=["logreg", "mlp", "scalar_mix"], default="logreg")
+    parser.add_argument("--model", choices=["linear", "mlp", "scalar_mix"], default="linear")
     parser.add_argument("--val_fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--save_plots", action="store_true")
@@ -517,28 +507,22 @@ def main():
     assert int(val.sum()) > 0, "Validation split has no embedding tokens."
     train_indices = np.flatnonzero(train)
     val_indices = np.flatnonzero(val)
-    train_y = y[train_indices]
     val_spans = [spans[index] for index in val_indices]
     val_groups = [groups[index] for index in val_indices]
     scored_val_groups = sorted(set(val_groups))
     train_tokens = int(train.sum())
     val_tokens = int(val.sum())
 
-    if args.model == "logreg":
-        train_x, val_x = standardize(x[train_indices], x[val_indices])
-        pred = fit_logreg(train_x, train_y).predict(val_x)
-        adaptation = {}
-    else:
-        model, classes, mean, std = fit_torch_classifier(x, y, train_indices, args)
-        pred = predict_torch_classifier(model, classes, x, val_indices, args.batch_size, mean, std)
-        adaptation = {
-            "encoder_scope": "frozen_final_layer" if args.model == "mlp" else "frozen_scalar_mix",
-            "classifier": "mlp_1024_256",
-            "standardized": True,
-        }
-        if args.model == "scalar_mix":
-            adaptation["layer_weights"] = model.weights.softmax(dim=0).detach().cpu().tolist()
-            adaptation["layer_gamma"] = float(model.gamma.detach().cpu())
+    model, classes, mean, std = fit_torch_classifier(x, y, train_indices, args)
+    pred = predict_torch_classifier(model, classes, x, val_indices, args.batch_size, mean, std)
+    adaptation = {
+        "encoder_scope": "frozen_scalar_mix" if args.model == "scalar_mix" else "frozen_final_layer",
+        "classifier": "linear" if args.model == "linear" else "mlp_1024_256",
+        "standardized": True,
+    }
+    if args.model == "scalar_mix":
+        adaptation["layer_weights"] = model.weights.softmax(dim=0).detach().cpu().tolist()
+        adaptation["layer_gamma"] = float(model.gamma.detach().cpu())
 
     metrics = raster_metrics(pred, val_spans, units)
     metrics.update(adaptation)

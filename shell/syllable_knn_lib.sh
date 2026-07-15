@@ -85,6 +85,7 @@ run_knn() {
       ;;
     *)
       args+=(--model songmae --name "$model" --songmae_run_dir "$(songmae_run_dir "$model")" --target_feature_type "$target")
+      [[ -n "${SONGMAE_CHECKPOINT:-}" ]] && args+=(--checkpoint "$SONGMAE_CHECKPOINT")
       ;;
   esac
 

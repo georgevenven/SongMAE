@@ -72,6 +72,18 @@ class ScalarMixTests(unittest.TestCase):
         self.assertEqual(next(model.parameters()).device.type, expected_device)
         self.assertEqual(predictions.shape, y.shape)
 
+    def test_linear_uses_shared_torch_loop(self):
+        x = np.random.default_rng(0).normal(size=(8, 4)).astype(np.float32)
+        y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+        indices = np.arange(y.size)
+        args = SimpleNamespace(model="linear", seed=0, lr=1e-3, epochs=1, batch_size=4)
+        model, classes, mean, std = fit_torch_classifier(x, y, indices, args)
+        predictions = predict_torch_classifier(model, classes, x, indices, args.batch_size, mean, std)
+        expected_device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.assertIsInstance(model, torch.nn.Linear)
+        self.assertEqual(model.weight.device.type, expected_device)
+        self.assertEqual(predictions.shape, y.shape)
+
     def test_final_layer_standardization_matches_mlp(self):
         x = np.random.default_rng(0).normal(size=(8, 3, 4)).astype(np.float32)
         indices = np.arange(x.shape[0])
