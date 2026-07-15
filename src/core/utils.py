@@ -114,6 +114,34 @@ def timebins_to_ms(timebin_value, audio_params):
     return float(timebin_value) * hop_size / sr * 1000
 
 
+def majority_label(labels):
+    labels = np.asarray(labels, dtype=np.int64)
+    assert labels.ndim == 1 and labels.size
+    values, counts = np.unique(labels, return_counts=True)
+    winners = set(values[counts == counts.max()].tolist())
+    center = int(labels[labels.size // 2])
+    if center in winners:
+        return center
+    return next(int(label) for label in labels if int(label) in winners)
+
+
+def labels_by_edges(labels, edges):
+    if torch.is_tensor(labels):
+        labels = labels.detach().cpu().numpy()
+    labels = np.asarray(labels, dtype=np.int64)
+    edges = np.asarray(edges, dtype=np.int64)
+    assert labels.ndim == 1 and edges.ndim == 1
+    assert edges[0] == 0 and edges[-1] == labels.size
+    assert np.all(edges[1:] > edges[:-1])
+    return np.asarray([majority_label(labels[start:end]) for start, end in zip(edges[:-1], edges[1:])])
+
+
+def patch_labels(labels, width):
+    count = (len(labels) + width - 1) // width
+    edges = np.minimum(np.arange(count + 1) * width, len(labels))
+    return labels_by_edges(labels, edges)
+
+
 def load_json_events(json_path, audio_params, selected_bird=None):
     data = json.loads(Path(json_path).read_text())
     event_map = {}
@@ -163,12 +191,8 @@ def downsample_labels(labels, output_length):
     assert labels.ndim == 1
     assert output_length > 0
     assert labels.size >= output_length
-    out = np.full((output_length,), -1, dtype=np.int64)
-    for index, chunk in enumerate(np.array_split(labels, output_length)):
-        values = chunk[chunk >= 0]
-        if values.size:
-            out[index] = int(values.max())
-    return out
+    edges = np.rint(np.linspace(0, labels.size, output_length + 1)).astype(np.int64)
+    return labels_by_edges(labels, edges)
 
 
 def resolve_run_dir(run_dir):

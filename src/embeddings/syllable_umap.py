@@ -1,7 +1,5 @@
 import argparse
 import json
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -23,6 +21,7 @@ sys.path.append(str(ROOT))
 
 from src.core.embedding_store import EmbeddingStore
 from src.core.model import TARGET_FEATURE_TYPES
+from src.embeddings.extract import extract
 
 RAW_MODELS = {"aves", "bird_mae", "hubert"}
 
@@ -33,99 +32,6 @@ def split_models(models):
     for model in out:
         assert model in {"songmae", "songmae_random", *RAW_MODELS}, f"unknown model: {model}"
     return out
-
-
-def add_arg(cmd, flag, value):
-    if value is not None:
-        cmd.extend([flag, str(value)])
-
-
-def run(cmd):
-    print(" ".join(map(str, cmd)))
-    subprocess.run([str(part) for part in cmd], check=True)
-
-
-def songmae_command(model, args, out_path):
-    assert args.songmae_run_dir, "--songmae_run_dir is required for model=songmae"
-    cmd = [
-        sys.executable,
-        "-m",
-        "src.core.extract_embedding",
-        "--spec_dir",
-        args.spec_dir,
-        "--run_dir",
-        args.songmae_run_dir,
-        "--out_dir",
-        out_path,
-        "--json_path",
-        args.annotation_file,
-        "--num_timebins",
-        args.num_timebins,
-        "--recording_mode",
-        args.recording_mode,
-    ]
-    add_arg(cmd, "--checkpoint", args.checkpoint)
-    add_arg(cmd, "--bird", args.bird)
-    add_arg(cmd, "--recording_stem", args.recording_stem)
-    add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
-    add_arg(cmd, "--target_feature_type", args.target_feature_type)
-    if getattr(args, "minimal", False):
-        cmd.append("--minimal")
-    if model == "songmae_random":
-        cmd.append("--random_init")
-    return cmd
-
-
-def raw_command(model, args, out_dir):
-    assert args.wav_dir, f"--wav_dir is required for model={model}"
-    cmd = [
-        sys.executable,
-        ROOT / "src" / "external_models" / f"{model}.py",
-        "--spec_dir",
-        args.spec_dir,
-        "--wav_dir",
-        args.wav_dir,
-        "--annotation_file",
-        args.annotation_file,
-        "--out_dir",
-        out_dir,
-        "--recording_mode",
-        args.recording_mode,
-        "--max_points",
-        args.max_points,
-        "--num_timebins",
-        args.num_timebins,
-        "--wav_exts",
-        args.wav_exts,
-    ]
-    add_arg(cmd, "--bird", args.bird)
-    add_arg(cmd, "--recording_stem", args.recording_stem)
-    if model == "aves":
-        cmd.extend(["--aves_model_path", args.aves_model_path, "--aves_config_path", args.aves_config_path])
-        add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
-    if model == "bird_mae":
-        cmd.extend(["--model_name", args.bird_mae_model_name])
-    if model == "hubert":
-        cmd.extend(["--model_name", args.hubert_model_name])
-        add_arg(cmd, "--encoder_layer_idx", args.encoder_layer_idx)
-    return cmd
-
-
-def extract(model, args, model_dir):
-    if model in {"songmae", "songmae_random"}:
-        out_path = model_dir / "embeddings"
-        if not (args.reuse and out_path.is_dir()):
-            model_dir.mkdir(parents=True, exist_ok=True)
-            run(songmae_command(model, args, out_path))
-        return out_path
-
-    out_path = model_dir / "embeddings"
-    if not args.reuse:
-        shutil.rmtree(out_path, ignore_errors=True)
-    if not (args.reuse and out_path.is_dir()):
-        model_dir.mkdir(parents=True, exist_ok=True)
-        run(raw_command(model, args, out_path))
-    return out_path
 
 
 def load_arrays(path):
@@ -144,7 +50,7 @@ def limit_points(features, labels, max_points):
 
 def zscore(features):
     mean = features.mean(axis=0, keepdims=True)
-    std = np.maximum(features.std(axis=0, keepdims=True), 1e-8)
+    std = np.maximum(features.std(axis=0, keepdims=True), 1e-6)
     return ((features - mean) / std).astype(np.float32, copy=False)
 
 
@@ -255,7 +161,8 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--deterministic", action="store_true")
     parser.add_argument("--reuse", action="store_true")
-    parser.add_argument("--zscore", dest="zscore", action="store_true", default=False)
+    parser.add_argument("--minimal", action="store_true")
+    parser.add_argument("--zscore", dest="zscore", action="store_true", default=True)
     parser.add_argument("--no_zscore", dest="zscore", action="store_false")
     parser.add_argument("--umap_neighbors", type=int, default=50)
     parser.add_argument("--umap_min_dist", type=float, default=0.0)

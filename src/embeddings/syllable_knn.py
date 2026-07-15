@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from sklearn.decomposition import PCA
 
 HERE = Path(__file__).resolve().parent
 if sys.path and Path(sys.path[0]).resolve() == HERE:
@@ -17,7 +16,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
 from src.core.embedding_store import EmbeddingStore  # noqa: E402
-from src.embeddings.syllable_umap import extract, zscore  # noqa: E402
+from src.core.model import TARGET_FEATURE_TYPES  # noqa: E402
+from src.embeddings.extract import extract  # noqa: E402
+
+
+CONTEXT_TIMEBINS = 1000
 
 
 def ints(text):
@@ -61,15 +64,10 @@ def unit(x):
     return x
 
 
-def pca(features, args):
-    args.effective_pca_components = int(features.shape[1])
-    if args.pca_components <= 0:
-        return features
-    n = min(args.pca_components, min(features.shape) - 1)
-    assert n > 0, features.shape
-    args.effective_pca_components = int(n)
-    model = PCA(n_components=n, whiten=args.pca_whiten, svd_solver="randomized", random_state=args.seed)
-    return model.fit_transform(features).astype(np.float32, copy=False)
+def standardize(reference, query):
+    mean = reference.mean(axis=0, keepdims=True)
+    std = np.maximum(reference.std(axis=0, keepdims=True), 1e-6)
+    return (reference - mean) / std, (query - mean) / std
 
 
 def topk(query, ref, k, chunk_size, cpu):
@@ -93,44 +91,59 @@ def drop_same_event(candidates, query_events, ref_events, k):
 
 
 def add_args(parser):
-    for name in "spec_dir annotation_file out_dir model bird".split():
+    for name in "spec_dir annotation_file out_dir bird".split():
         parser.add_argument(f"--{name}", required=True)
+    parser.add_argument("--model", required=True, choices=["songmae", "aves", "hubert"])
     for name in "name wav_dir recording_stem songmae_run_dir checkpoint embedding_dir".split():
         parser.add_argument(f"--{name}")
-    parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
     for name, default in [
         ("wav_exts", ".wav,.flac,.ogg,.mp3"),
         ("k_values", "1,5,10,20,50,100"),
-        ("target_feature_type", "attn_residual"),
         ("aves_model_path", str(ROOT / "files" / "birdaves-biox-base.torchaudio.pt")),
         ("aves_config_path", str(ROOT / "files" / "birdaves-biox-base.torchaudio.model_config.json")),
-        ("bird_mae_model_name", "DBD-research-group/Bird-MAE-Base"),
         ("hubert_model_name", "facebook/hubert-base-ls960"),
     ]:
         parser.add_argument(f"--{name}", default=default)
+    parser.add_argument("--target_feature_type", default="end_of_block", choices=TARGET_FEATURE_TYPES)
     for name, default in [
-        ("max_points", 0), ("num_timebins", 0), ("max_ref_points", 200000),
+        ("num_timebins", 0), ("max_ref_points", 200000),
         ("ref_min_per_class", 1000), ("max_queries", 5000), ("query_per_class", 200),
         ("search_k", 1000), ("seed", 42), ("knn_chunk_size", 512),
-        ("pca_components", 0), ("encoder_layer_idx", -1),
+        ("encoder_layer_idx", -1),
     ]:
         parser.add_argument(f"--{name}", type=int, default=default)
-    for name in "cpu reuse zscore post_pca_zscore pca_whiten".split():
-        parser.add_argument(f"--{name}", action="store_true")
+    parser.add_argument("--cpu", action="store_true")
+
+
+def validate_protocol(store, args):
+    metadata = store.metadata
+    assert metadata["encoder_layer_idx"] == args.encoder_layer_idx
+    assert not metadata.get("all_layers", False)
+    if args.model == "songmae":
+        assert metadata["target_feature_type"] == args.target_feature_type
+        assert metadata["model_num_timebins"] == CONTEXT_TIMEBINS
+        return
+    assert metadata["chunk_timebins"] == CONTEXT_TIMEBINS
+    assert metadata["feature_center_timebins"] == 2.5
+    assert metadata["feature_stride_timebins"] == 4.0
+    expected = "birdaves_biox_base" if args.model == "aves" else args.hubert_model_name
+    assert metadata["model_name"] == expected
 
 
 def main():
     parser = argparse.ArgumentParser(description="Cross-event syllable kNN purity.")
     add_args(parser)
     args = parser.parse_args()
-    assert args.recording_mode == "events"
-    assert args.model in {"songmae", "songmae_random", "aves", "hubert", "bird_mae"}
-
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    args.recording_mode = "events"
     args.minimal = True
+    args.max_points = 0
+    args.reuse = False
+    args.chunk_timebins = CONTEXT_TIMEBINS
     source = Path(args.embedding_dir) if args.embedding_dir else extract(args.model, args, out_dir)
     store = EmbeddingStore(source)
+    validate_protocol(store, args)
     labels0 = store["labels_downsampled"].astype(np.int64, copy=False)
     events0 = store["song_id"].astype(np.int64, copy=False)
     good = np.flatnonzero(labels0 >= 0)
@@ -140,14 +153,10 @@ def main():
     query_idx = stratified_queries(labels, args.max_queries, args.query_per_class, args.seed)
     used = np.unique(np.concatenate([ref_idx, query_idx]))
     features = np.asarray(store["encoded_embeddings"][good[used]], dtype=np.float32)
-    if args.zscore:
-        features = zscore(features)
-    features = pca(features, args)
-    if args.post_pca_zscore:
-        features = zscore(features)
 
     ref_pos, query_pos = np.searchsorted(used, ref_idx), np.searchsorted(used, query_idx)
-    ref, query = unit(features[ref_pos]), unit(features[query_pos])
+    ref, query = standardize(features[ref_pos], features[query_pos])
+    ref, query = unit(ref), unit(query)
     max_k, search_k = max(ints(args.k_values)), min(ref.shape[0], max(args.search_k, max(ints(args.k_values))))
     while True:
         candidates, device = topk(query, ref, search_k, args.knn_chunk_size, args.cpu)
@@ -180,7 +189,12 @@ def main():
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    summary = vars(args) | {"device": device, "search_k_used": int(search_k), "rows": rows}
+    summary = vars(args) | {
+        "standardization": "reference_feature_zscore",
+        "device": device,
+        "search_k_used": int(search_k),
+        "rows": rows,
+    }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
 

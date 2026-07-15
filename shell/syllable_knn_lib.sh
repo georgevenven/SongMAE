@@ -7,7 +7,6 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 
 K_VALUES="${K_VALUES:-1,5,10,20,50,100}"
 NUM_TIMEBINS="${NUM_TIMEBINS:-200000}"
-MAX_POINTS="${MAX_POINTS:-200000}"
 MAX_REF_POINTS="${MAX_REF_POINTS:-200000}"
 REF_MIN_PER_CLASS="${REF_MIN_PER_CLASS:-1000}"
 MAX_QUERIES="${MAX_QUERIES:-5000}"
@@ -56,7 +55,7 @@ cleanup_embeddings() {
 }
 
 run_knn() {
-  local model="$1" out_dir="$2" json="$3" spec_dir="$4" wav_dir="$5" bird="$6" layer="$7" pca="$8" target="$9" embedding_dir="${10:-}"
+  local model="$1" out_dir="$2" json="$3" spec_dir="$4" wav_dir="$5" bird="$6" layer="$7" target="$8" embedding_dir="${9:-}"
   [[ "$OVERWRITE" == "1" ]] && rm -rf "$out_dir"
   if [[ -f "$out_dir/summary.json" ]]; then
     cleanup_embeddings "$out_dir"
@@ -68,12 +67,12 @@ run_knn() {
   local args=(
     "$PYTHON_BIN" src/embeddings/syllable_knn.py
     --spec_dir "$spec_dir" --annotation_file "$json" --out_dir "$out_dir"
-    --bird "$bird" --recording_mode events --encoder_layer_idx "$layer"
-    --num_timebins "$NUM_TIMEBINS" --max_points "$MAX_POINTS"
+    --bird "$bird" --encoder_layer_idx "$layer"
+    --num_timebins "$NUM_TIMEBINS"
     --k_values "$K_VALUES" --max_ref_points "$MAX_REF_POINTS"
     --ref_min_per_class "$REF_MIN_PER_CLASS" --max_queries "$MAX_QUERIES"
     --query_per_class "$QUERY_PER_CLASS" --search_k "$SEARCH_K"
-    --pca_components "$pca" --wav_exts "$WAV_EXTS" --reuse
+    --wav_exts "$WAV_EXTS"
   )
   [[ -n "$embedding_dir" ]] && args+=(--embedding_dir "$embedding_dir")
 

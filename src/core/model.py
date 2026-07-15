@@ -307,6 +307,7 @@ class SongMAE(nn.Module):
         average_top_k=None,
         target_feature_type="end_of_block",
         valid_timebins=None,
+        return_all_layers=False,
     ):
         z, H, W = self.conv_features(x)
         z = z.flatten(2).transpose(1, 2)
@@ -318,6 +319,10 @@ class SongMAE(nn.Module):
         for layer in self.encoder.layers:
             out, feature = self._forward_encoder_layer(layer, out, target_feature_type, key_padding)
             layer_features.append(feature)
+
+        if return_all_layers:
+            assert encoder_layer_idx is None and average_top_k is None
+            return torch.stack(layer_features, dim=1), z
 
         if average_top_k is not None:
             top_k = int(average_top_k)

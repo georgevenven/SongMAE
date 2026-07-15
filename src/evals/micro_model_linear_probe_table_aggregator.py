@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT))
+
+from src.evals.syllable_metrics import macro_fer_breakdown
 
 
 SPECIES = [
@@ -39,6 +45,15 @@ SECTIONS = [
             ("C=0.2", "Xcl_micro_100k_p32x1_c020"),
         ],
     ),
+    (
+        "Voronoi C parameter (32x4)",
+        [
+            ("C=0.025", "xcl_micro_100k_p32x4_c0025"),
+            ("C=0.05", "xcl_micro_100k_p32x4_c005"),
+            ("C=0.1", "xcl_micro_100k_p32x4_c010"),
+            ("C=0.2", "xcl_micro_100k_p32x4_c020"),
+        ],
+    ),
 ]
 
 
@@ -47,14 +62,16 @@ def load_runs(root):
     for path in sorted(root.glob("*/*/*/metrics.json")):
         species, _, model = path.parts[-4:-1]
         data = json.loads(path.read_text())
-        runs.setdefault((species, model), []).append(float(data["macro_fer"]))
+        rates = macro_fer_breakdown(data["class_labels"], data["confusion_matrix"])
+        assert abs(rates["macro_fer"] - data["macro_fer"]) < 1e-12, path
+        runs.setdefault((species, model), []).append(rates)
     return runs
 
 
 def average(values):
     if not values:
         return None
-    return sum(values) / len(values)
+    return {key: sum(value[key] for value in values) / len(values) for key in values[0]}
 
 
 def species_cell(runs, species, model):
@@ -64,7 +81,10 @@ def species_cell(runs, species, model):
 def format_cell(value):
     if value is None:
         return "-"
-    return f"{100.0 * value:.2f}"
+    return (
+        f'{100.0 * value["macro_fer"]:.2f} '
+        f'({100.0 * value["macro_parsing_error"]:.2f}/{100.0 * value["macro_identity_error"]:.2f})'
+    )
 
 
 def row_values(runs, model):
@@ -73,7 +93,7 @@ def row_values(runs, model):
 
 
 def print_markdown(runs):
-    headers = ["Config"] + [label for _, label in SPECIES] + ["Mean"]
+    headers = ["Config"] + [f"{label} Macro FER (P/I)" for _, label in SPECIES] + ["Mean Macro FER (P/I)"]
     section = ["-"] * (len(headers) - 1)
     print(TITLE)
     print()
@@ -87,7 +107,7 @@ def print_markdown(runs):
 
 
 def print_tsv(runs):
-    headers = ["Config"] + [label for _, label in SPECIES] + ["Mean"]
+    headers = ["Config"] + [f"{label} Macro FER (P/I)" for _, label in SPECIES] + ["Mean Macro FER (P/I)"]
     section = ["-"] * (len(headers) - 1)
     print("\t".join([TITLE] + section))
     print("\t".join(headers))

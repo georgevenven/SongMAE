@@ -64,8 +64,8 @@ class WavFromSpectrogramDataset(Dataset):
         spec_path, event = self.spec_dataset.samples[index]
         wav_stem = spec_path.with_suffix("").name
         assert wav_stem in self.wav_paths, f"missing wav for spec: {spec_path}"
-        start = 0 if event is None else int(event["on_timebins"])
-        end = int(labels.numel()) if event is None else int(event["off_timebins"])
+        start = 0 if event is None else max(0, int(event["on_timebins"]))
+        end = start + int(labels.numel())
         return {
             "spec_path": spec_path,
             "wav_path": self.wav_paths[wav_stem],
@@ -100,6 +100,22 @@ def limited_items(dataset, num_timebins):
         used += count
 
 
+def chunked_items(dataset, num_timebins, chunk_timebins):
+    size = int(chunk_timebins or 0)
+    for item in limited_items(dataset, num_timebins):
+        labels = item["labels"]
+        count = int(labels.numel())
+        if size <= 0:
+            yield item
+            continue
+        for start in range(0, count, size):
+            chunk = dict(item)
+            chunk["labels"] = labels[start : start + size]
+            chunk["start_ms"] = item["start_ms"] + timebins_to_ms(start, dataset.audio_params)
+            chunk["end_ms"] = item["start_ms"] + timebins_to_ms(min(start + size, count), dataset.audio_params)
+            yield chunk
+
+
 def append_limited(rows, row, max_points, used):
     count = int(row["encoded_embeddings"].shape[0])
     max_points = int(max_points or 0)
@@ -114,7 +130,10 @@ def append_limited(rows, row, max_points, used):
     if count > remaining:
         row = dict(row)
         item = dict(row["item"])
-        item["end_ms"] = item["start_ms"] + (item["end_ms"] - item["start_ms"]) * remaining / count
+        if "token_edges" in row:
+            row["token_edges"] = row["token_edges"][: remaining + 1]
+        else:
+            item["end_ms"] = item["start_ms"] + (item["end_ms"] - item["start_ms"]) * remaining / count
         row["item"] = item
         row["encoded_embeddings"] = row["encoded_embeddings"][:remaining]
         row["labels_downsampled"] = row["labels_downsampled"][:remaining]
@@ -127,12 +146,39 @@ def append_limited(rows, row, max_points, used):
     return used, used < max_points
 
 
+def convolution_geometry(kernels, strides, samples_per_timebin):
+    assert len(kernels) == len(strides) and samples_per_timebin > 0
+    receptive_field = 1
+    step = 1
+    for kernel, stride in zip(kernels, strides):
+        receptive_field += (int(kernel) - 1) * step
+        step *= int(stride)
+    return receptive_field / (2 * samples_per_timebin), step / samples_per_timebin
+
+
+def convolution_feature_map(labels, output_length, geometry):
+    if hasattr(labels, "detach"):
+        labels = labels.detach().cpu().numpy()
+    labels = np.asarray(labels, dtype=np.int64)
+    assert labels.ndim == 1 and labels.size > 0 and output_length > 0
+
+    first_center, stride = geometry
+    centers = first_center + np.arange(output_length) * stride
+    indices = np.minimum(centers.astype(np.int64), labels.size - 1)
+    edges = np.empty(output_length + 1, dtype=np.float64)
+    edges[0], edges[-1] = 0, labels.size
+    if output_length > 1:
+        edges[1:-1] = (centers[:-1] + centers[1:]) / 2
+    assert np.all(edges[1:] > edges[:-1])
+    return labels[indices], edges
+
+
 def save_concatenated_embeddings(out_dir, rows, **metadata):
     assert rows
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    features, labels, stems, song_ids, starts, ends = [], [], [], [], [], []
+    features, labels, original_labels, stems, song_ids, starts, ends = [], [], [], [], [], [], []
     segment_stems, segment_song_ids, segment_starts, segment_ends = [], [], [], []
     spec_paths, wav_paths = [], []
     grids = []
@@ -143,10 +189,22 @@ def save_concatenated_embeddings(out_dir, rows, **metadata):
         y = row["labels_downsampled"]
         assert x.shape[0] == y.shape[0]
         count = x.shape[0]
-        edges = np.linspace(item["start_ms"], item["end_ms"], count + 1)
+        label_count = int(item["labels"].numel())
+        source_edges = row.get("token_edges")
+        if source_edges is not None:
+            source_edges = np.asarray(source_edges)
+            assert source_edges.shape == (count + 1,)
+        elif label_count >= count:
+            source_edges = np.rint(np.linspace(0, label_count, count + 1)).astype(np.int64)
+        else:
+            source_edges = np.linspace(0, label_count, count + 1)
+        edges = item["start_ms"] + source_edges * (
+            (item["end_ms"] - item["start_ms"]) / label_count
+        )
 
         features.append(x.astype(np.float32, copy=False))
         labels.append(y.astype(np.int64, copy=False))
+        original_labels.append(item["labels"].numpy().astype(np.int64, copy=False))
         stems.append(np.full(count, item["recording_stem"]))
         song_ids.append(np.full(count, item["song_id"], dtype=np.int64))
         starts.append(edges[:-1].astype(np.float32, copy=False))
@@ -164,7 +222,7 @@ def save_concatenated_embeddings(out_dir, rows, **metadata):
     arrays = {
         "encoded_embeddings": np.concatenate(features, axis=0),
         "labels_downsampled": np.concatenate(labels, axis=0),
-        "labels_original": np.concatenate(labels, axis=0),
+        "labels_original": np.concatenate(original_labels, axis=0),
         "recording_stem": np.concatenate(stems, axis=0),
         "song_id": np.concatenate(song_ids, axis=0),
         "token_start_ms": np.concatenate(starts, axis=0),

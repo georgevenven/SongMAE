@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
 from src.core.embedding_store import EmbeddingStore
+from src.evals.syllable_metrics import macro_fer_breakdown
 from src.plotting_utils.spectrogram_prediction_vs_groundtruth import (
     load_plot_specs,
     save_spectrogram_prediction_vs_groundtruth,
@@ -41,14 +42,18 @@ def token_groups(data, stems, count):
     return [f"{stem}:{song}" for stem, song in zip(stems, song_ids.tolist())]
 
 
-def load_embeddings(path, feature_key):
+def load_embeddings(path, all_layers=False):
     data = EmbeddingStore(path)
-    x = data[feature_key].astype(np.float32, copy=False)
+    x = data["encoded_embeddings"]
+    if all_layers:
+        assert x.ndim == 3, "encoded_embeddings must have shape [tokens, layers, dimensions]"
+    else:
+        if x.ndim == 3:
+            x = x[:, -1]
+        x = x.astype(np.float32, copy=False)
     y = class_labels(data["labels_downsampled"])
-    if x.shape[0] != y.shape[0]:
-        assert feature_key == "spectrograms", f"{feature_key} rows do not match labels"
-        x = np.asarray([chunk.mean(axis=0) for chunk in np.array_split(x, y.shape[0])], dtype=np.float32)
-    x = x.reshape(x.shape[0], -1)
+    if not all_layers:
+        x = x.reshape(x.shape[0], -1)
     assert x.shape[0] == y.shape[0], path
     stems, starts, ends = token_spans(data, x.shape[0])
     spans = list(zip(stems.tolist(), starts.tolist(), ends.tolist()))
@@ -98,7 +103,7 @@ def raster_metrics(predictions, spans, units):
     return {
         "macro_f1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
         "fer": float(np.mean(y_true != y_pred)),
-        "macro_fer": float(np.mean([row["fer"] for row in per_class.values() if row["fer"] is not None])),
+        **macro_fer_breakdown(labels, confusion),
         "frames": int(y_true.size),
         "classes": len(labels),
         "class_labels": [int(label) for label in labels],
@@ -365,7 +370,7 @@ def split_masks(groups, y, split):
 
 
 def fit_logreg(train_x, train_y):
-    model = LogisticRegression(class_weight="balanced", max_iter=1000)
+    model = LogisticRegression(max_iter=5000)
     return model.fit(train_x, train_y)
 
 
@@ -384,42 +389,91 @@ class MLP(torch.nn.Module):
         return self.net(x)
 
 
-def fit_mlp(train_x, train_y, args):
-    classes = np.array(sorted(set(train_y.tolist())), dtype=np.int64)
-    targets = np.searchsorted(classes, train_y)
-    model = MLP(train_x.shape[1], len(classes))
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    x = torch.from_numpy(train_x.astype(np.float32, copy=False))
-    y = torch.from_numpy(targets)
+class ScalarMixMLP(torch.nn.Module):
+    def __init__(self, layers, dimensions, classes):
+        super().__init__()
+        self.weights = torch.nn.Parameter(torch.zeros(layers))
+        self.gamma = torch.nn.Parameter(torch.ones(()))
+        self.head = MLP(dimensions, classes)
+
+    def forward(self, x):
+        mixed = self.gamma * torch.einsum("l,bld->bd", self.weights.softmax(dim=0), x)
+        return self.head(mixed)
+
+
+def feature_stats(x, indices, batch_size):
+    total = 0
+    sums = np.zeros(x.shape[1:], dtype=np.float64)
+    squares = np.zeros(x.shape[1:], dtype=np.float64)
+    for start in range(0, indices.size, batch_size):
+        batch = np.asarray(x[indices[start : start + batch_size]], dtype=np.float32)
+        sums += batch.sum(axis=0, dtype=np.float64)
+        squares += np.square(batch, dtype=np.float64).sum(axis=0)
+        total += batch.shape[0]
+    mean = sums / total
+    std = np.sqrt(np.maximum(squares / total - mean**2, 1e-12))
+    return mean.astype(np.float32), std.astype(np.float32)
+
+
+def feature_batch(x, indices, mean, std, device):
+    batch = np.asarray(x[indices], dtype=np.float32)
+    batch -= mean
+    batch /= std
+    return torch.from_numpy(batch).to(device)
+
+
+def fit_torch_classifier(x, y, indices, args):
+    assert args.model in {"mlp", "scalar_mix"}
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    classes = np.array(sorted(set(y[indices].tolist())), dtype=np.int64)
+
+    torch.manual_seed(args.seed)
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
+    if args.model == "mlp":
+        model = MLP(x.shape[1], len(classes)).to(device)
+    else:
+        model = ScalarMixMLP(x.shape[1], x.shape[2], len(classes)).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    generator = torch.Generator().manual_seed(args.seed)
+    mean, std = feature_stats(x, indices, args.batch_size)
+    model.train()
     for _ in range(args.epochs):
-        order = torch.randperm(x.shape[0])
-        for start in range(0, x.shape[0], args.batch_size):
-            idx = order[start : start + args.batch_size]
-            loss = torch.nn.functional.cross_entropy(model(x[idx]), y[idx])
-            opt.zero_grad()
+        order = torch.randperm(indices.size, generator=generator).numpy()
+        for start in range(0, indices.size, args.batch_size):
+            batch_indices = indices[order[start : start + args.batch_size]]
+            batch_targets = torch.from_numpy(np.searchsorted(classes, y[batch_indices])).to(device)
+            loss = torch.nn.functional.cross_entropy(
+                model(feature_batch(x, batch_indices, mean, std, device)), batch_targets
+            )
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            opt.step()
-    return model, classes
+            optimizer.step()
+    return model, classes, mean, std
 
 
-def predict_mlp(model, classes, val_x):
-    with torch.no_grad():
-        logits = model(torch.from_numpy(val_x.astype(np.float32, copy=False)))
-    return classes[logits.argmax(dim=1).numpy()]
+@torch.no_grad()
+def predict_torch_classifier(model, classes, x, indices, batch_size, mean, std):
+    model.eval()
+    device = next(model.parameters()).device
+    predictions = []
+    for start in range(0, indices.size, batch_size):
+        batch = feature_batch(x, indices[start : start + batch_size], mean, std, device)
+        predictions.append(model(batch).argmax(dim=1).cpu().numpy())
+    return classes[np.concatenate(predictions)]
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fit a simple syllable classifier on extracted embeddings.")
     parser.add_argument("--embeddings", required=True, help="Embedding folder; split by song_id.")
     parser.add_argument("--annotations", required=True)
-    parser.add_argument("--model", choices=["logreg", "mlp"], default="logreg")
-    parser.add_argument("--feature_key", default="encoded_embeddings")
+    parser.add_argument("--model", choices=["logreg", "mlp", "scalar_mix"], default="logreg")
     parser.add_argument("--val_fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--save_plots", action="store_true")
     parser.add_argument("--plot_dir")
     parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch_size", type=int, default=4096)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--max_train_seconds", default="MAX", help="Whole-song train budget in seconds, or MAX.")
     parser.add_argument("--allow_unmatched_val_classes", action="store_true")
@@ -442,7 +496,7 @@ def main():
 
     # spans is one (recording_stem, token_start_ms, token_end_ms) tuple per feature row.
     # feature row is a singular example, aka (11289, 1536) a detected event with latents
-    x, y, spans, groups = load_embeddings(args.embeddings, args.feature_key)
+    x, y, spans, groups = load_embeddings(args.embeddings, args.model == "scalar_mix")
     units = load_units(args.annotations)
     budget = max_train_seconds(args.max_train_seconds)
 
@@ -457,25 +511,37 @@ def main():
             require_all_classes=not args.allow_unmatched_val_classes,
         ),
     )
+
     train, val = split_masks(groups, y, split)
     assert len(set(y[train].tolist())) >= 2, "Train split has fewer than two classes."
     assert int(val.sum()) > 0, "Validation split has no embedding tokens."
-    train_x, train_y = x[train], y[train]
-    val_x = x[val]
-    val_spans = [spans[index] for index in np.flatnonzero(val)]
-    val_groups = [groups[index] for index in np.flatnonzero(val)]
+    train_indices = np.flatnonzero(train)
+    val_indices = np.flatnonzero(val)
+    train_y = y[train_indices]
+    val_spans = [spans[index] for index in val_indices]
+    val_groups = [groups[index] for index in val_indices]
     scored_val_groups = sorted(set(val_groups))
     train_tokens = int(train.sum())
     val_tokens = int(val.sum())
-    train_x, val_x = standardize(train_x, val_x)
 
     if args.model == "logreg":
+        train_x, val_x = standardize(x[train_indices], x[val_indices])
         pred = fit_logreg(train_x, train_y).predict(val_x)
+        adaptation = {}
     else:
-        model, classes = fit_mlp(train_x, train_y, args)
-        pred = predict_mlp(model, classes, val_x)
+        model, classes, mean, std = fit_torch_classifier(x, y, train_indices, args)
+        pred = predict_torch_classifier(model, classes, x, val_indices, args.batch_size, mean, std)
+        adaptation = {
+            "encoder_scope": "frozen_final_layer" if args.model == "mlp" else "frozen_scalar_mix",
+            "classifier": "mlp_1024_256",
+            "standardized": True,
+        }
+        if args.model == "scalar_mix":
+            adaptation["layer_weights"] = model.weights.softmax(dim=0).detach().cpu().tolist()
+            adaptation["layer_gamma"] = float(model.gamma.detach().cpu())
 
     metrics = raster_metrics(pred, val_spans, units)
+    metrics.update(adaptation)
     if args.predictions_jsonl:
         write_prediction_runs(args.predictions_jsonl, pred, val_spans, units)
     if args.save_plots:

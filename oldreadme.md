@@ -38,7 +38,7 @@ train_name/
 
 Recommended starting points:
 
-- The `32 mel bins x 10 timebins, 5 second context` model (`32h x 10w x 5s`) is the default coarse setting for the individual-identification workflows in `individual_id/`.
+- The `32 mel bins x 10 timebins, 5 second context` model (`32h x 10w x 5s`) is the default coarse setting for the individual-identification workflows in `experimental_code/individual_id/`.
 - The `128 mel bins x 1 timebin` model (`128h x 1w`) is the better fine-grained setting here for tasks such as birdsong syllable clustering.
 
 Each exported folder in `github_assets/` also includes an `audio_params.json` copied from the matching spectrogram pipeline. Those files record the preprocessing and normalization expected by the checkpoints: `mels=128`, `sr=32000`, `hop_size=64`, `fft=1024`, plus the spectrogram `mean` and `std`. The checkpoint loader itself uses `config.json`, but the paired `audio_params.json` is useful because it documents the feature settings these runs were trained with and is reused by parts of the data pipeline that load normalization stats from the run directory.

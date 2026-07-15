@@ -15,7 +15,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
-sys.path.append(str(ROOT / "individual_id"))
+sys.path.append(str(ROOT / "experimental_code" / "individual_id"))
 
 from src.core import extract_embedding
 from individual_identification_linear_probe import (

@@ -1,6 +1,7 @@
 """Plot the labeling error imposed by coarse temporal resolution."""
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -10,8 +11,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
 
-
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.append(str(ROOT))
+
+from src.core.utils import majority_label  # noqa: E402
+
+
 ANNOTATIONS = ROOT / "files/annotation jsons/bf_annotations.json"
 SPEC_DIR = Path("/media/george-vengrovski/disk2/specs/legacy_specs_2ms/bf_64hop_32khz")
 RECORDING = "1_bird2"
@@ -29,7 +34,7 @@ def coarsen(labels, width):
     coarse = np.empty_like(labels)
     for start in range(0, len(labels), width):
         stop = min(start + width, len(labels))
-        coarse[start:stop] = np.bincount(labels[start:stop]).argmax()
+        coarse[start:stop] = majority_label(labels[start:stop])
     return coarse
 
 

@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_linear_probe}"
+OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_linear_probe_majority}"
 PROBE_MODEL="${PROBE_MODEL:-logreg}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
 SEED="${SEED:-42}"
@@ -16,6 +16,9 @@ CLEAN_EMBEDDINGS="${CLEAN_EMBEDDINGS:-1}"
 MAX_PROBE_SECONDS="${MAX_PROBE_SECONDS:-3600}"
 PROBE_TIMEBINS_PER_SECOND="${PROBE_TIMEBINS_PER_SECOND:-200}"
 PROBE_NUM_TIMEBINS="${PROBE_NUM_TIMEBINS:-$((MAX_PROBE_SECONDS * PROBE_TIMEBINS_PER_SECOND))}"
+EXTERNAL_CHUNK_TIMEBINS="${EXTERNAL_CHUNK_TIMEBINS:-1000}"
+INCLUDE_BIRDS="${INCLUDE_BIRDS:-}"
+EXCLUDE_BIRDS="${EXCLUDE_BIRDS:-}"
 
 BIRDAVES_MODEL_PATH="${BIRDAVES_MODEL_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.pt}"
 BIRDAVES_CONFIG_PATH="${BIRDAVES_CONFIG_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.model_config.json}"
@@ -133,6 +136,7 @@ extract_embeddings() {
         --audio_sr "$BIRDAVES_AUDIO_SR" \
         --model_name birdaves_biox_base \
         --wav_exts "$WAV_EXTS" \
+        --chunk_timebins "$EXTERNAL_CHUNK_TIMEBINS" \
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     hubert_base|hubert_base_ls960|HuBERT)
@@ -146,6 +150,7 @@ extract_embeddings() {
         --model_name "$HUBERT_MODEL_NAME" \
         --audio_sr "$HUBERT_AUDIO_SR" \
         --wav_exts "$WAV_EXTS" \
+        --chunk_timebins "$EXTERNAL_CHUNK_TIMEBINS" \
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     *)
@@ -190,6 +195,8 @@ for row in "${DATASETS[@]}"; do
   selected_dataset "$dataset" || continue
 
   while IFS= read -r bird; do
+    [[ -z "$INCLUDE_BIRDS" || " $INCLUDE_BIRDS " == *" $bird "* ]] || continue
+    [[ " $EXCLUDE_BIRDS " != *" $bird "* ]] || continue
     if ! has_train_coverage "$json" "$bird"; then
       continue
     fi

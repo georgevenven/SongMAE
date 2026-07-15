@@ -8,7 +8,6 @@ ROOT="$(pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/results/syllable_classification_train_sweep}"
 CLASSIFIER="${CLASSIFIER:-mlp}"
-FEATURE_KEY="${FEATURE_KEY:-encoded_embeddings}"
 VAL_FRACTION="${VAL_FRACTION:-0.2}"
 SEED="${SEED:-42}"
 EPOCHS="${EPOCHS:-20}"
@@ -247,7 +246,6 @@ for row in "${DATASETS[@]}"; do
           --embeddings "$embed_dir" \
           --annotations "$json" \
           --model "$CLASSIFIER" \
-          --feature_key "$FEATURE_KEY" \
           --val_fraction "$VAL_FRACTION" \
           --seed "$SEED" \
           --epochs "$EPOCHS" \

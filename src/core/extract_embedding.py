@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from .data_loader import SpectrogramDatasetSupervised
 from .embedding_store import EmbeddingFolderWriter
 from .model import TARGET_FEATURE_TYPES
-from .utils import create_label_arr, downsample_labels, load_spec, normalize_spectrogram, timebins_to_ms
+from .utils import create_label_arr, load_spec, normalize_spectrogram, patch_labels, timebins_to_ms
 from .utils import load_model_state
 
 
@@ -88,7 +88,9 @@ def _extract_segment_arrays(
     num_patches_time,
     encoder_layer_idx,
     target_feature_type,
+    all_layers,
 ):
+    assert not (all_layers and encoder_layer_idx is not None)
     spec_tensor = torch.from_numpy(spec_segment).unsqueeze(0).to(device)
     labels_tensor = torch.from_numpy(labels_segment).to(device)
 
@@ -112,15 +114,28 @@ def _extract_segment_arrays(
             encoder_layer_idx=encoder_layer_idx,
             target_feature_type=target_feature_type,
             valid_timebins=valid_timebins,
+            return_all_layers=all_layers,
         )
 
-    hidden_dim = encoded.shape[2]
     assert encoded.shape[0] == batch_size
-    assert encoded.shape[1] == num_patches_height * num_patches_time
-
-    encoded_grid = encoded.permute(0, 2, 1).reshape(batch_size, hidden_dim, num_patches_height, num_patches_time)
-    encoded_grid = encoded_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height, hidden_dim)
-    encoded_flat = encoded_grid.reshape(encoded_grid.shape[0], -1)
+    if all_layers:
+        _, _, tokens, hidden_dim = encoded.shape
+        assert tokens == num_patches_height * num_patches_time
+        encoded_grid = encoded.reshape(
+            batch_size, encoded.shape[1], num_patches_height, num_patches_time, hidden_dim
+        )
+        encoded_grid = encoded_grid.permute(0, 3, 1, 2, 4).reshape(
+            -1, encoded.shape[1], num_patches_height, hidden_dim
+        )
+        encoded_flat = encoded_grid.flatten(2)
+    else:
+        hidden_dim = encoded.shape[2]
+        assert encoded.shape[1] == num_patches_height * num_patches_time
+        encoded_grid = encoded.permute(0, 2, 1).reshape(
+            batch_size, hidden_dim, num_patches_height, num_patches_time
+        )
+        encoded_grid = encoded_grid.permute(0, 3, 2, 1).reshape(-1, num_patches_height, hidden_dim)
+        encoded_flat = encoded_grid.flatten(1)
     spec_flat = batched_spec.squeeze(1).permute(0, 2, 1).reshape(-1, mel)
 
     if pad_amount > 0:
@@ -134,10 +149,12 @@ def _extract_segment_arrays(
     if encoded_flat.shape[0] == 0:
         return None
 
+    labels_downsampled = patch_labels(labels_tensor, patch_width)
+    assert labels_downsampled.shape[0] == encoded_flat.shape[0]
     out = {
         "encoded_embeddings": encoded_flat.cpu().numpy().astype(np.float32, copy=False),
         "encoded_embeddings_grid": encoded_grid.cpu().numpy().astype(np.float32, copy=False),
-        "labels_downsampled": downsample_labels(labels_tensor, encoded_flat.shape[0]),
+        "labels_downsampled": labels_downsampled,
         "labels_original": labels_tensor.cpu().numpy().astype(np.int64, copy=False),
         "spectrograms": spec_flat.cpu().numpy().astype(np.float32, copy=False),
     }
@@ -169,6 +186,7 @@ def extract_recording_embeddings_with_state(args, model_state):
             num_patches_time=num_patches_time,
             encoder_layer_idx=args.get("encoder_layer_idx"),
             target_feature_type=args.get("target_feature_type", "end_of_block"),
+            all_layers=bool(args.get("all_layers")),
         )
         if state is None:
             continue
@@ -233,6 +251,7 @@ def _extract_one(raw_segment, args, model_state):
         num_patches_time=model_state["num_patches_time"],
         encoder_layer_idx=args.get("encoder_layer_idx"),
         target_feature_type=args.get("target_feature_type", "end_of_block"),
+        all_layers=bool(args.get("all_layers")),
     )
 
 
@@ -307,18 +326,22 @@ def _metadata(extracted, args, model_state):
         "num_patches_height": model_state["num_patches_height"],
         "checkpoint": args.get("checkpoint") or "",
         "encoder_layer_idx": args.get("encoder_layer_idx"),
+        "all_layers": bool(args.get("all_layers")),
         "target_feature_type": args.get("target_feature_type", "end_of_block"),
         "model_num_timebins": model_state["model_num_timebins"],
         "mels": int(model_state["config"]["mels"]),
     }
 
 
-def _write_segment(writer, token_start, timebin_start, segment_index, raw_segment, state):
+def _write_segment(writer, token_start, timebin_start, segment_index, raw_segment, state, patch_width):
     token_count = state["encoded_embeddings"].shape[0]
     timebin_count = state["labels_original"].shape[0]
     token_end = token_start + token_count
     timebin_end = timebin_start + timebin_count
-    edges = np.linspace(raw_segment["start_ms"], raw_segment["end_ms"], token_count + 1)
+    edges = np.minimum(np.arange(token_count + 1) * patch_width, timebin_count)
+    edges = raw_segment["start_ms"] + edges * (
+        (raw_segment["end_ms"] - raw_segment["start_ms"]) / timebin_count
+    )
 
     writer.arrays["encoded_embeddings"][token_start:token_end] = state["encoded_embeddings"]
     writer.arrays["labels_downsampled"][token_start:token_end] = state["labels_downsampled"]
@@ -357,11 +380,14 @@ def write_recording_embedding_folder(args):
         _metadata(extracted, args, model_state),
     )
 
-    token_start, timebin_start = _write_segment(writer, 0, 0, 0, raw_segments[0], first_state)
+    patch_width = model_state["patch_width"]
+    token_start, timebin_start = _write_segment(writer, 0, 0, 0, raw_segments[0], first_state, patch_width)
     for segment_index, raw_segment in enumerate(raw_segments[1:], start=1):
         state = _extract_one(raw_segment, args, model_state)
         assert state is not None, "No valid patches extracted for a non-empty segment."
-        token_start, timebin_start = _write_segment(writer, token_start, timebin_start, segment_index, raw_segment, state)
+        token_start, timebin_start = _write_segment(
+            writer, token_start, timebin_start, segment_index, raw_segment, state, patch_width
+        )
 
     assert token_start == writer.arrays["encoded_embeddings"].shape[0]
     if "spectrograms" in writer.arrays:
@@ -387,6 +413,7 @@ if __name__ == "__main__":
     parser.add_argument("--json_path", type=str, default=None)
     parser.add_argument("--bird", type=str, default=None)
     parser.add_argument("--random_init", action="store_true")
+    parser.add_argument("--all_layers", action="store_true")
     parser.add_argument("--recording_stem", type=str, default=None)
     parser.add_argument(
         "--recording_mode",

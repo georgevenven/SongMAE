@@ -16,7 +16,7 @@ for row in "${DATASETS[@]}"; do
   while IFS= read -r bird; do
     for layer in "${LAYER_LIST[@]}"; do
       out_dir="$(knn_out_dir "$OUT_ROOT" "$species" "$bird" "$MODEL" "$layer" "$TARGET_FEATURE_TYPE")"
-      run_knn "$MODEL" "$out_dir" "$json" "$spec_dir" "$wav_dir" "$bird" "$layer" "0" "$TARGET_FEATURE_TYPE" | tee -a "$OUT_ROOT/run.log"
+      run_knn "$MODEL" "$out_dir" "$json" "$spec_dir" "$wav_dir" "$bird" "$layer" "$TARGET_FEATURE_TYPE" | tee -a "$OUT_ROOT/run.log"
       cleanup_embeddings "$out_dir"
     done
   done < <(birds_in_json "$json")
