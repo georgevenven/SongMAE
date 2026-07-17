@@ -13,15 +13,16 @@ MODEL_STYLES = {
     "birdaves-base": ("BirdAVES", "#D55E00", "--"),
     "hubert-base": ("HuBERT", "#009E73", ":"),
 }
+RESULTS_ROOT = ROOT / "results/knn/all_birds_models_all_layers_zscore"
 RUNS = (
     (
         "songmae_32x4",
-        "SongMAE (raw)",
-        ROOT / "results/syllable_knn_xcl_base_100k_p32x4_c010_layers_rawdims",
-        1,
+        "SongMAE",
+        RESULTS_ROOT,
+        "xcl_large_500k_p32x4_c010",
     ),
-    ("birdaves-base", "BirdAVES-base (raw)", ROOT / "results/syllable_knn_birdaves_biox_base_layers_rawdims", 1),
-    ("hubert-base", "HuBERT-base (raw)", ROOT / "results/syllable_knn_hubert_base_ls960_layers_rawdims", 0),
+    ("birdaves-base", "BirdAVES-base (raw)", RESULTS_ROOT, "birdaves_biox_base"),
+    ("hubert-base", "HuBERT-base (raw)", RESULTS_ROOT, "hubert_base_ls960"),
 )
 
 
@@ -33,10 +34,13 @@ def is_end_of_block_summary(summary):
     return layer_idx + 1 >= len(relative) - 1 or relative[layer_idx + 1] == "end_of_block"
 
 
-def layer_purity(path, offset):
+def layer_purity(path, model):
     values = defaultdict(list)
     for summary in path.glob("**/summary.json"):
-        species = summary.relative_to(path).parts[0]
+        relative = summary.relative_to(path)
+        if len(relative.parts) < 5 or relative.parts[2] != model:
+            continue
+        species = relative.parts[0]
         if not is_end_of_block_summary(summary):
             continue
         layer = int(next(part[6:] for part in summary.parts if part.startswith("layer_")))
@@ -44,7 +48,7 @@ def layer_purity(path, offset):
             continue
         data = json.loads(summary.read_text())
         for row in data["rows"]:
-            values[species, layer + offset, row["k"]].append(100 * row["macro_same_purity"])
+            values[species, layer, row["k"]].append(100 * row["macro_same_purity"])
 
     means = {key: sum(rows) / len(rows) for key, rows in values.items()}
     layers = sorted({layer for _, layer, _ in means})
@@ -117,13 +121,70 @@ def plot_rows(output_dir, k_values, layers_by_model, models):
     print(output)
 
 
+def plot_average_row(output_dir, k_values, layers_by_model, models):
+    fig, axes = plt.subplots(1, 4, figsize=(10.8, 2.7), sharex=True, sharey=True)
+    colors = plt.colormaps["viridis"]
+    norm = plt.Normalize(0, 11)
+    for ax, (name, curves) in zip(axes[:3], layers_by_model.items()):
+        layers = sorted(curves)
+        for i, layer in enumerate(layers):
+            ax.plot(
+                range(len(k_values)),
+                curves[layer],
+                marker="o",
+                markersize=3,
+                linewidth=1.6,
+                color=colors(i / (len(layers) - 1)),
+            )
+        ax.set_title(MODEL_STYLES[name][0], fontsize=11)
+
+    colorbar_ax = axes[0].inset_axes([0.08, 0.08, 0.05, 0.44])
+    colorbar = fig.colorbar(
+        plt.cm.ScalarMappable(norm=norm, cmap=colors),
+        cax=colorbar_ax,
+    )
+    colorbar.set_ticks([0, 11], labels=["0", "11"])
+    colorbar.ax.tick_params(labelsize=5, pad=1, length=2)
+    colorbar.set_label("Block", fontsize=6, labelpad=-1)
+
+    ax = axes[3]
+    for name, (layer, means) in models.items():
+        purity = [sum(means[species, layer, k] for species in SPECIES) / len(SPECIES) for k in k_values]
+        label, color, style = MODEL_STYLES[name]
+        ax.plot(
+            range(len(k_values)),
+            purity,
+            marker="o",
+            markersize=3.5,
+            linewidth=2,
+            color=color,
+            linestyle=style,
+            label=f"{label}\n(block {layer})",
+        )
+    ax.set_title("Best Layer Purity", fontsize=11)
+    ax.legend(loc="lower left", fontsize=7, framealpha=0.85, borderpad=0.3, handlelength=1.5)
+
+    for ax in axes:
+        ax.set_ylim(70, 100)
+        ax.set_xticks(range(len(k_values)), [str(k) for k in k_values])
+        ax.grid(alpha=0.18)
+    axes[0].set_ylabel("Macro kNN purity (%)")
+    fig.supxlabel("Neighbors (k)", y=0.03)
+    fig.subplots_adjust(left=0.06, right=0.99, bottom=0.22, top=0.9, wspace=0.18)
+    output = output_dir / "layer_and_average_row.png"
+    fig.savefig(output, dpi=300, bbox_inches="tight")
+    fig.savefig(output.with_suffix(".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(output)
+
+
 def main():
     output_dir = ROOT / "imgs/layer_purity_inspection"
     output_dir.mkdir(parents=True, exist_ok=True)
     models = {}
     layers_by_model = {}
-    for name, title, path, offset in RUNS:
-        k_values, curves, means = layer_purity(path, offset)
+    for name, title, path, model in RUNS:
+        k_values, curves, means = layer_purity(path, model)
         layers_by_model[name] = curves
         layers = sorted(curves)
         best_layer = max(layers, key=lambda layer: curves[layer][k_values.index(10)])
@@ -144,6 +205,7 @@ def main():
         print(output)
     plot_species(output_dir, k_values, models)
     plot_rows(output_dir, k_values, layers_by_model, models)
+    plot_average_row(output_dir, k_values, layers_by_model, models)
 
 
 if __name__ == "__main__":

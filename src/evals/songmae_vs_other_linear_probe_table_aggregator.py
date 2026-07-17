@@ -17,8 +17,8 @@ SPECIES = [
 ]
 
 ROWS = [
-    ("Base 16x4", "xcl_base_100k_p16x4_c010"),
-    ("Base 32x1", "xcl_base_100k_p32x1_c010"),
+    ("Large 32x4", "xcl_large_500k_p32x4_c010"),
+    ("Large 32x1", "xcl_large_500k_p32x1_c010"),
     ("BirdAVES", "birdaves_biox_base"),
     ("HuBERT base", "hubert_base_ls960"),
 ]

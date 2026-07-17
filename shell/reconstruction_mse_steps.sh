@@ -8,10 +8,11 @@ ROOT="$(pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 RUN_DIR="${RUN_DIR:-$ROOT/runs/xcl_micro_500k_p32x4_default}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/results/mse_v_steps}"
-CHECKPOINT_INTERVAL="${CHECKPOINT_INTERVAL:-5}"
+STEP_INTERVAL="${STEP_INTERVAL:-50000}"
 NUM_SAMPLES="${NUM_SAMPLES:-1000}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
 SEED="${SEED:-42}"
+OVERWRITE="${OVERWRITE:-0}"
 
 DATASETS=(
   "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms"
@@ -19,21 +20,26 @@ DATASETS=(
   "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms"
 )
 
-mapfile -t CHECKPOINTS < <(find "$RUN_DIR/weights" -maxdepth 1 -name "model_step_*.pth" | sort)
+mapfile -t CHECKPOINTS < <(find "$RUN_DIR/weights" -maxdepth 1 -name "model_step_*.pth" | sort -V)
 test "${#CHECKPOINTS[@]}" -gt 0
-last=$((${#CHECKPOINTS[@]} - 1))
 
-for i in "${!CHECKPOINTS[@]}"; do
-  if (( i % CHECKPOINT_INTERVAL != 0 && i != last )); then
-    continue
-  fi
-  checkpoint="$(basename "${CHECKPOINTS[$i]}")"
+for path in "${CHECKPOINTS[@]}"; do
+  checkpoint="$(basename "$path")"
   step="${checkpoint#model_step_}"
   step="${step%.pth}"
+  step_number=$((10#$step))
+  if (( step_number % STEP_INTERVAL != 0 && (step_number + 1) % STEP_INTERVAL != 0 )); then
+    continue
+  fi
   for row in "${DATASETS[@]}"; do
     IFS="|" read -r species annotations spec_dir <<< "$row"
+    summary="$OUT_ROOT/$species/step_$step/MSE analysis/summary.json"
+    if [[ -f "$summary" && "$OVERWRITE" != "1" ]]; then
+      echo "exists: $summary"
+      continue
+    fi
     echo "running: species=$species checkpoint=$checkpoint"
-    "$PYTHON_BIN" src/evals/eval_reconstructions.py \
+    "$PYTHON_BIN" -m src.evals.eval_reconstructions \
       --run_dir "$RUN_DIR" \
       --checkpoint "$checkpoint" \
       --spec_dir "$spec_dir" \

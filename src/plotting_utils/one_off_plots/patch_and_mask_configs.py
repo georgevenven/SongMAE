@@ -12,8 +12,8 @@ difficulty across tokenizations. Approx masked tokens per Voronoi seed is
 on patch geometry. So 4x4 at C=0.1 is small 2D blobs (easy to interpolate) while
 128x1 at C=0.1 is basically temporal dropout.
 
-The masks come straight from src.core.model.SongMAE.voronoi_mask so the figure
-matches what training actually does.
+The masks come straight from SongMAE's masking methods so the figures match
+what training actually does.
 
 Run:  python -m src.plotting_utils.one_off_plots.patch_and_mask_configs
 """
@@ -42,6 +42,7 @@ N_MELS = 128
 
 # Patch shapes (mel_height, time_width) — the main tokenization ablation.
 PATCH_SHAPES = [(128, 1), (32, 1), (16, 1), (32, 4), (4, 4)]
+SINGLE_PATCH_SHAPE = (32, 1)
 # Voronoi mask scales — the C interaction ablation.
 C_VALUES = [0.025, 0.05, 0.1, 0.2]
 MASK_P = 0.75          # SongMAE default mask fraction
@@ -63,7 +64,7 @@ def load_spec():
 
 
 def build_model(patch_shape, n_time):
-    """Minimal SongMAE just so we can call the real voronoi_mask method."""
+    """Minimal SongMAE just so we can call its real masking methods."""
     ph, pw = patch_shape
     config = {
         "patch_size": (ph, pw),
@@ -124,6 +125,41 @@ def plot_patch_shape(spec, patch_shape, vmin, vmax, mcmap):
     return save_fig(fig, OUT_DIR / f"p{ph}x{pw}.png")
 
 
+def plot_single(spec, mask, title, filename, vmin, vmax, mcmap):
+    fig, ax = plt.subplots(figsize=(8.8, 3.2))
+    ax.set_title(title, fontsize=14, pad=5)
+    show(ax, np.ma.array(spec, mask=expand_mask(mask, SINGLE_PATCH_SHAPE, spec.shape)),
+         vmin, vmax, cmap=mcmap)
+    ax.set_xticks(np.arange(0, DUR_S + 1))
+    ax.set_xlabel("Time (s)", fontsize=14, labelpad=5)
+    ax.tick_params(axis="x", labelsize=12, length=4)
+    ax.spines["bottom"].set_visible(True)
+    fig.suptitle("Patch Shape: 32 mels × 1 timebin", fontsize=18)
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    return save_fig(fig, OUT_DIR / filename)
+
+
+def plot_random(spec, vmin, vmax, mcmap):
+    ph, pw = SINGLE_PATCH_SHAPE
+    H, W = spec.shape[0] // ph, spec.shape[1] // pw
+    model = build_model(SINGLE_PATCH_SHAPE, spec.shape[1])
+    torch.manual_seed(SEED)
+    mask = model.random_mask((H, W), "cpu").numpy()
+    return plot_single(spec, mask, f"Random Masking, {MASK_P:.0%} Masked Patches",
+                       "p32x1_random.png", vmin, vmax, mcmap)
+
+
+def plot_c010(spec, vmin, vmax, mcmap):
+    ph, pw = SINGLE_PATCH_SHAPE
+    H, W = spec.shape[0] // ph, spec.shape[1] // pw
+    model = build_model(SINGLE_PATCH_SHAPE, spec.shape[1])
+    torch.manual_seed(SEED)
+    model.mask_c = 0.1
+    mask = model.voronoi_mask((H, W), "cpu").numpy()
+    return plot_single(spec, mask, "Voronoi Masking, Percent Seed Patches (C) = 0.1",
+                       "p32x1_c010.png", vmin, vmax, mcmap)
+
+
 def main():
     spec = load_spec()
     vmax = float(spec.max())
@@ -131,6 +167,8 @@ def main():
     mcmap = masked_cmap(SPEC_CMAP)
     for patch_shape in PATCH_SHAPES:
         print(f"wrote {plot_patch_shape(spec, patch_shape, vmin, vmax, mcmap)}")
+    print(f"wrote {plot_random(spec, vmin, vmax, mcmap)}")
+    print(f"wrote {plot_c010(spec, vmin, vmax, mcmap)}")
 
 
 if __name__ == "__main__":

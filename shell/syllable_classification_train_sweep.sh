@@ -122,6 +122,8 @@ model_slug() {
 extract_embeddings() {
   local model="$1" json="$2" spec_dir="$3" wav_dir="$4" mode="$5" bird="$6" out_dir="$7"
   local cmd run_dir
+  local layer_args=()
+  [[ "$CLASSIFIER" == "scalar_mix" ]] && layer_args=(--all_layers)
   case "$model" in
     birdaves|BirdAVES|birdaves_biox_base)
       "$PYTHON_BIN" src/external_models/aves.py \
@@ -136,6 +138,7 @@ extract_embeddings() {
         --model_name birdaves_biox_base \
         --audio_sr "$BIRDAVES_AUDIO_SR" \
         --wav_exts "$WAV_EXTS" \
+        "${layer_args[@]}" \
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     hubert_base|hubert_base_ls960|HuBERT)
@@ -149,6 +152,7 @@ extract_embeddings() {
         --model_name "$HUBERT_MODEL_NAME" \
         --audio_sr "$HUBERT_AUDIO_SR" \
         --wav_exts "$WAV_EXTS" \
+        "${layer_args[@]}" \
         --num_timebins "$PROBE_NUM_TIMEBINS"
       ;;
     *)
@@ -167,6 +171,7 @@ extract_embeddings() {
         --recording_mode "$mode"
         --out_dir "$out_dir"
         --minimal
+        "${layer_args[@]}"
         --num_timebins "$PROBE_NUM_TIMEBINS"
       )
       if [[ -n "${SONGMAE_CHECKPOINT:-}" ]]; then cmd+=(--checkpoint "$SONGMAE_CHECKPOINT"); fi
