@@ -29,7 +29,8 @@ class SyllableKnnTests(unittest.TestCase):
         ])
         self.assertEqual(args.target_feature_type, "end_of_block")
         self.assertEqual(args.encoder_layer_idx, -1)
-        for name in ("pca_components", "pca_whiten", "zscore", "reuse", "max_points"):
+        self.assertEqual(args.pca_components, 128)
+        for name in ("pca_whiten", "zscore", "reuse", "max_points"):
             self.assertFalse(hasattr(args, name))
 
     def test_import_does_not_load_umap_or_sklearn(self):

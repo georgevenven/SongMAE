@@ -109,7 +109,7 @@ def add_args(parser):
         ("num_timebins", 0), ("max_ref_points", 200000),
         ("ref_min_per_class", 1000), ("max_queries", 5000), ("query_per_class", 200),
         ("search_k", 1000), ("seed", 42), ("knn_chunk_size", 512),
-        ("encoder_layer_idx", -1),
+        ("encoder_layer_idx", -1), ("pca_components", 128),
     ]:
         parser.add_argument(f"--{name}", type=int, default=default)
     parser.add_argument("--cpu", action="store_true")
@@ -156,6 +156,12 @@ def main():
 
     ref_pos, query_pos = np.searchsorted(used, ref_idx), np.searchsorted(used, query_idx)
     ref, query = standardize(features[ref_pos], features[query_pos])
+    if args.pca_components > 0:
+        from sklearn.decomposition import PCA
+
+        assert args.pca_components <= min(ref.shape), ref.shape
+        pca = PCA(args.pca_components, svd_solver="randomized", random_state=args.seed)
+        ref, query = pca.fit_transform(ref), pca.transform(query)
     ref, query = unit(ref), unit(query)
     max_k, search_k = max(ints(args.k_values)), min(ref.shape[0], max(args.search_k, max(ints(args.k_values))))
     while True:
@@ -191,6 +197,7 @@ def main():
         writer.writerows(rows)
     summary = vars(args) | {
         "standardization": "reference_feature_zscore",
+        "pca_fit": "reference_only",
         "device": device,
         "search_k_used": int(search_k),
         "rows": rows,

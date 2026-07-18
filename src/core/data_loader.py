@@ -170,3 +170,29 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
 
     def __len__(self):
         return len(self.samples)
+
+
+def balanced_event_indices(dataset, minimum, seed):
+    if not minimum:
+        return list(range(len(dataset)))
+    labels = [{int(unit[2]) + 1 for unit in event["units"]} for _, event in dataset.samples]
+    classes = sorted(set().union(*labels))
+    available = {label: sum(label in row for row in labels) for label in classes}
+    assert min(available.values()) >= minimum
+    rng = np.random.default_rng(seed)
+    selected = []
+    counts = {label: 0 for label in classes}
+    while min(counts.values()) < minimum:
+        missing = {label for label in classes if counts[label] < minimum}
+        candidates = [i for i, row in enumerate(labels) if i not in selected and row & missing]
+        scores = [
+            sum((minimum - counts[label]) / available[label] for label in labels[i] & missing)
+            for i in candidates
+        ]
+        best = np.flatnonzero(np.asarray(scores) == max(scores))
+        index = candidates[int(rng.choice(best))]
+        selected.append(index)
+        for label in labels[index]:
+            counts[label] += 1
+    remaining = sorted(set(range(len(dataset))) - set(selected))
+    return selected + rng.permutation(remaining).tolist()

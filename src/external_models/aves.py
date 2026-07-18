@@ -20,6 +20,7 @@ from src.external_models.data_loader import (
     save_concatenated_embeddings,
     WavFromSpectrogramDataset,
 )
+from src.core.data_loader import balanced_event_indices
 
 
 def load_model(config_path, model_path):
@@ -95,7 +96,8 @@ def save_embeddings(args):
     rows = []
     used = 0
     audio_cache = {}
-    for item in chunked_items(dataset, args.num_timebins, args.chunk_timebins):
+    indices = balanced_event_indices(dataset.spec_dataset, args.balanced_events, args.event_seed)
+    for item in chunked_items(dataset, args.num_timebins, args.chunk_timebins, indices):
         embeddings = extract_features(
             model,
             load_audio(item, args.audio_sr, audio_cache),
@@ -127,6 +129,8 @@ def save_embeddings(args):
         chunk_timebins=args.chunk_timebins,
         feature_center_timebins=geometry[0],
         feature_stride_timebins=geometry[1],
+        balanced_events=args.balanced_events,
+        event_seed=args.event_seed,
     )
 
 
@@ -149,6 +153,8 @@ def parse_args():
     parser.add_argument("--chunk_timebins", type=int, default=1000)
     parser.add_argument("--num_timebins", type=int, default=0)
     parser.add_argument("--max_points", type=int, default=0)
+    parser.add_argument("--balanced_events", type=int, default=0)
+    parser.add_argument("--event_seed", type=int, default=42)
     return parser.parse_args()
 
 

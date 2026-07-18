@@ -80,10 +80,10 @@ class WavFromSpectrogramDataset(Dataset):
         return len(self.spec_dataset)
 
 
-def limited_items(dataset, num_timebins):
+def limited_items(dataset, num_timebins, indices=None):
     max_timebins = int(num_timebins or 0)
     used = 0
-    for index in range(len(dataset)):
+    for index in indices if indices is not None else range(len(dataset)):
         item = dataset[index]
         labels = item["labels"]
         count = int(labels.numel())
@@ -100,9 +100,9 @@ def limited_items(dataset, num_timebins):
         used += count
 
 
-def chunked_items(dataset, num_timebins, chunk_timebins):
+def chunked_items(dataset, num_timebins, chunk_timebins, indices=None):
     size = int(chunk_timebins or 0)
-    for item in limited_items(dataset, num_timebins):
+    for item in limited_items(dataset, num_timebins, indices):
         labels = item["labels"]
         count = int(labels.numel())
         if size <= 0:

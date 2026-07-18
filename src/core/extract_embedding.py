@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .data_loader import SpectrogramDatasetSupervised
+from .data_loader import balanced_event_indices, SpectrogramDatasetSupervised
 from .embedding_store import EmbeddingFolderWriter
 from .model import TARGET_FEATURE_TYPES
 from .utils import create_label_arr, load_spec, normalize_spectrogram, patch_labels, timebins_to_ms
@@ -35,7 +35,8 @@ def load_recording_segments(args):
     cached_path = None
     cached_spec = None
     cached_labels = None
-    for idx in range(len(ds)):
+    indices = balanced_event_indices(ds, args.get("balanced_events"), args.get("event_seed", 42))
+    for idx in indices:
         if max_segments > 0 and len(segments) >= max_segments:
             break
         if max_timebins > 0 and collected_timebins >= max_timebins:
@@ -328,6 +329,8 @@ def _metadata(extracted, args, model_state):
         "encoder_layer_idx": args.get("encoder_layer_idx"),
         "all_layers": bool(args.get("all_layers")),
         "target_feature_type": args.get("target_feature_type", "end_of_block"),
+        "balanced_events": int(args.get("balanced_events") or 0),
+        "event_seed": int(args.get("event_seed", 42)),
         "model_num_timebins": model_state["model_num_timebins"],
         "mels": int(model_state["config"]["mels"]),
     }
@@ -396,6 +399,8 @@ def write_recording_embedding_folder(args):
 
 
 def main(args):
+    if args.get("random_init"):
+        torch.manual_seed(args["random_seed"])
     if args.get("out_dir"):
         write_recording_embedding_folder(args)
         return None
@@ -413,6 +418,9 @@ if __name__ == "__main__":
     parser.add_argument("--json_path", type=str, default=None)
     parser.add_argument("--bird", type=str, default=None)
     parser.add_argument("--random_init", action="store_true")
+    parser.add_argument("--random_seed", type=int, default=42)
+    parser.add_argument("--balanced_events", type=int, default=0)
+    parser.add_argument("--event_seed", type=int, default=42)
     parser.add_argument("--all_layers", action="store_true")
     parser.add_argument("--recording_stem", type=str, default=None)
     parser.add_argument(
