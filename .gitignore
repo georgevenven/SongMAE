@@ -16,6 +16,7 @@ individual_id/temp/
 shell/shell_archive/
 /tmp
 /TMLR_compiler/
+/linear_probe_archive_delete_later/
 /home/george-vengrovski/Documents/projects/TinyBird/individual_id/temp
 scripts/concat_eval_f1_score_files.py
 processed_results.zip

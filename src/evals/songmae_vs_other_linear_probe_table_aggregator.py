@@ -18,7 +18,7 @@ SPECIES = [
 
 ROWS = [
     ("Large 32x4", "xcl_large_500k_p32x4_c010"),
-    ("Large 32x1", "xcl_large_500k_p32x1_c010"),
+    ("Large 32x1", "xcl_large_500k_p32x1_c005"),
     ("BirdAVES", "birdaves_biox_base"),
     ("HuBERT base", "hubert_base_ls960"),
 ]
@@ -74,7 +74,9 @@ def print_rows(rows, tsv):
 
 def main():
     parser = argparse.ArgumentParser(description="Aggregate SongMAE-vs-other syllable linear probe results.")
-    parser.add_argument("--results_root", default="results/syllable_linear_probe")
+    parser.add_argument(
+        "--results_root", default="results/linear_probe_models_kmax_pca128_logreg"
+    )
     parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()
 

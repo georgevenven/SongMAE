@@ -22,7 +22,7 @@ from src.core.data_loader import balanced_event_indices
 
 
 def load_model(model_name):
-    from transformers import AutoFeatureExtractor, HubertModel
+    from transformers import AutoConfig, AutoFeatureExtractor, HubertModel
     from transformers.utils import WEIGHTS_NAME
     from transformers.utils.hub import cached_file
 
@@ -31,7 +31,9 @@ def load_model(model_name):
     prefix = "encoder.pos_conv_embed.conv."
     state[prefix + "parametrizations.weight.original0"] = state.pop(prefix + "weight_g")
     state[prefix + "parametrizations.weight.original1"] = state.pop(prefix + "weight_v")
-    model = HubertModel.from_pretrained(model_name, state_dict=state)
+    model = HubertModel(AutoConfig.from_pretrained(model_name))
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    assert not missing and not unexpected
     model.eval()
     return feature_extractor, model
 
