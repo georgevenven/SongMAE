@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
-OUT_ROOT=${OUT_ROOT:-$ROOT/results/linear_probe_micro_ablations_kmax_pca128_logreg}
+OUT_ROOT=${OUT_ROOT:-$ROOT/results/linear_probe_micro_ablations_kmax_pca128_logreg_c0001}
 
 LINEAR_PROBE_MODELS=(
   "xcl_micro_100k_p32x1_random|songmae|runs/xcl_micro_100k_p32x1_random|model_step_099999.pth"

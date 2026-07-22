@@ -8,7 +8,11 @@ from pathlib import Path
 import numpy as np
 
 from src.core.embedding_store import save_embedding_arrays
-from src.evals.syllable_classification import load_embeddings, make_folds, standardize
+from src.evals.syllable_classification import (
+    load_embeddings,
+    make_folds,
+    standardize,
+)
 
 
 class SyllableClassificationTests(unittest.TestCase):
@@ -98,7 +102,7 @@ class SyllableClassificationTests(unittest.TestCase):
                     "--annotations",
                     str(annotations),
                     "--pca_components",
-                    "2",
+                    "0",
                     "--max_iter",
                     "100",
                 ],
@@ -109,8 +113,9 @@ class SyllableClassificationTests(unittest.TestCase):
             )
             result = json.loads(result.stdout)
             self.assertEqual(result["folds"], 3)
-            self.assertEqual(result["pca_fit_scope"], "all_extracted_tokens")
-            self.assertEqual(result["standardization_fit_scope"], "training_fold_after_pca")
+            self.assertEqual(result["logreg_c"], 1e-3)
+            self.assertEqual(result["pca_fit_scope"], "disabled")
+            self.assertEqual(result["standardization_fit_scope"], "training_fold_raw_features")
             self.assertEqual(result["frames"], 120)
 
             capped = subprocess.run(
@@ -135,6 +140,7 @@ class SyllableClassificationTests(unittest.TestCase):
             )
             capped = json.loads(capped.stdout)
             self.assertEqual(capped["label_cap"], 1)
+            self.assertEqual(capped["logreg_c"], 1e-3)
             self.assertEqual(capped["label_budget"], "at_most_occurrences_per_class")
             self.assertEqual(capped["frames"], 120)
 

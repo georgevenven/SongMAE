@@ -28,7 +28,10 @@ def model_slug(size, step):
 
 def main():
     parser = argparse.ArgumentParser(description="Aggregate K=5 32x1 checkpoint linear probes.")
-    parser.add_argument("--results_root", default="results/linear_probe_32x1_checkpoints_k5")
+    parser.add_argument(
+        "--results_root",
+        default="results/linear_probe_32x1_checkpoints_k5_pca128_logreg_c0001",
+    )
     parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()
     runs = load_capped_runs(args.results_root)

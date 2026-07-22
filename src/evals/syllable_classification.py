@@ -16,6 +16,8 @@ sys.path.append(str(ROOT))
 from src.core.embedding_store import EmbeddingStore
 from src.evals.syllable_metrics import macro_fer_breakdown
 
+DEFAULT_LOGREG_C = 1e-3
+
 
 def load_embeddings(path):
     data = EmbeddingStore(path)
@@ -121,6 +123,8 @@ def load_manifest(args, y, groups):
 
 def pca_features(x, components, seed, cache_path):
     started = time.perf_counter()
+    if components == 0:
+        return x, time.perf_counter() - started, False
     cache = Path(cache_path) if cache_path else None
     if cache and cache.exists():
         transformed = np.load(cache, mmap_mode="r")
@@ -213,6 +217,7 @@ def parse_args():
     parser.add_argument("--pca_components", type=int, default=128)
     parser.add_argument("--pca_cache")
     parser.add_argument("--max_iter", type=int, default=5000)
+    parser.add_argument("--logreg_c", type=float, default=DEFAULT_LOGREG_C)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -239,7 +244,9 @@ def main():
         train_x, val_x = standardize(x, train, val)
 
         fit_started = time.perf_counter()
-        model = LogisticRegression(class_weight="balanced", max_iter=args.max_iter)
+        model = LogisticRegression(
+            C=args.logreg_c, class_weight="balanced", max_iter=args.max_iter
+        )
         model.fit(train_x, y[train])
         fit_elapsed = time.perf_counter() - fit_started
         predict_started = time.perf_counter()
@@ -278,11 +285,16 @@ def main():
             "event_grouping": "recording_stem:song_id",
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
-            "pca_fit_scope": "all_extracted_tokens",
+            "pca_fit_scope": "disabled" if args.pca_components == 0 else "all_extracted_tokens",
             "pca_cache_hit": cache_hit,
             "standardized": True,
-            "standardization_fit_scope": "training_fold_after_pca",
+            "standardization_fit_scope": (
+                "training_fold_raw_features"
+                if args.pca_components == 0
+                else "training_fold_after_pca"
+            ),
             "class_weight": "balanced",
+            "logreg_c": args.logreg_c,
             "max_iter": args.max_iter,
             "fold_metrics": fold_metrics,
             "timing_seconds": {

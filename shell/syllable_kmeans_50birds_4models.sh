@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Post-hoc rasterized PCA-8 K-means on the retained 50-bird UMAP embeddings.
+# Post-hoc rasterized K-means on the retained 50-bird UMAP embeddings.
 set -u
 
 cd "$(dirname "$0")/.."
 PYTHON_BIN=${PYTHON_BIN:-/home/george-vengrovski/anaconda3/envs/mae/bin/python}
 EMBEDDING_ROOT=${EMBEDDING_ROOT:-/media/george-vengrovski/disk1/tinybird_umap_50birds_4models_250k_20260720}
-OUT_ROOT=${OUT_ROOT:-results/syllable_kmeans_50birds_4models_raster_pca8_250k}
+PCA_COMPONENTS=${PCA_COMPONENTS:-8}
+OUT_ROOT=${OUT_ROOT:-results/syllable_kmeans_50birds_4models_raster_pca${PCA_COMPONENTS}_250k}
 
 DATASETS=(
   "zf|files/annotation jsons/zf_annotations.json"
@@ -40,7 +41,7 @@ for dataset_row in "${DATASETS[@]}"; do
       songmae_32x4="$base/songmae_32x4/songmae/embeddings" \
       birdaves="$base/birdaves/aves/embeddings" \
       hubert="$base/hubert/hubert/embeddings" \
-      --annotations "$annotations" --pca_components 8; then
+      --annotations "$annotations" --pca_components "$PCA_COMPONENTS"; then
       echo "failed: dataset=$dataset bird=$bird" >&2
       failures=$((failures + 1))
     fi

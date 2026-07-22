@@ -122,7 +122,7 @@ def main():
     parser = argparse.ArgumentParser(description="Aggregate micro-model syllable linear probe results.")
     parser.add_argument(
         "--results_root",
-        default="results/linear_probe_micro_100k_all_50_current_20260714_233237",
+        default="results/linear_probe_micro_ablations_kmax_pca128_logreg_c0001",
     )
     parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()

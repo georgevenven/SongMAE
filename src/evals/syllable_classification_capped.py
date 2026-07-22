@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
 from src.evals.syllable_classification import (
+    DEFAULT_LOGREG_C,
     confusion_matrix,
     group_indices,
     load_embeddings,
@@ -196,6 +197,7 @@ def parse_args():
     parser.add_argument("--pca_components", type=int, default=128)
     parser.add_argument("--pca_cache")
     parser.add_argument("--max_iter", type=int, default=5000)
+    parser.add_argument("--logreg_c", type=float, default=DEFAULT_LOGREG_C)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -235,7 +237,9 @@ def main():
         train_x, val_x = standardize(x, selected, val)
 
         fit_started = time.perf_counter()
-        model = LogisticRegression(class_weight="balanced", max_iter=args.max_iter)
+        model = LogisticRegression(
+            C=args.logreg_c, class_weight="balanced", max_iter=args.max_iter
+        )
         model.fit(train_x, fold_y[selected])
         fit_elapsed = time.perf_counter() - fit_started
         predict_started = time.perf_counter()
@@ -285,11 +289,16 @@ def main():
             "event_grouping": "recording_stem:song_id",
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
-            "pca_fit_scope": "all_extracted_tokens",
+            "pca_fit_scope": "disabled" if args.pca_components == 0 else "all_extracted_tokens",
             "pca_cache_hit": cache_hit,
             "standardized": True,
-            "standardization_fit_scope": "training_fold_after_pca",
+            "standardization_fit_scope": (
+                "training_fold_raw_features"
+                if args.pca_components == 0
+                else "training_fold_after_pca"
+            ),
             "class_weight": "balanced",
+            "logreg_c": args.logreg_c,
             "max_iter": args.max_iter,
             "labeled_occurrences": {
                 "scope": "syllable_classes",

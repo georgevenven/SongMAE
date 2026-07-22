@@ -75,7 +75,7 @@ def print_rows(rows, tsv):
 def main():
     parser = argparse.ArgumentParser(description="Aggregate SongMAE-vs-other syllable linear probe results.")
     parser.add_argument(
-        "--results_root", default="results/linear_probe_models_kmax_pca128_logreg"
+        "--results_root", default="results/linear_probe_models_kmax_pca128_logreg_c0001"
     )
     parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()

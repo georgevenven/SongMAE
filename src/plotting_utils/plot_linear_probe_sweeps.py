@@ -25,11 +25,14 @@ K_MODELS = {
     "BirdAVES": ("BirdAVES", "#D55E00", "--"),
     "HuBERT base": ("HuBERT", "#009E73", ":"),
 }
-STEP_MODELS = {
-    "SongMAE Large 32x1": ("Large", "#440154", "-"),
-    "SongMAE Base 32x1": ("Base", "#21918C", "--"),
-    "SongMAE Micro 32x1": ("Micro", "#FDE725", ":"),
-}
+
+
+def checkpoint_models(shape):
+    return {
+        f"SongMAE Large {shape}": ("Large", "#440154", "-"),
+        f"SongMAE Base {shape}": ("Base", "#21918C", "--"),
+        f"SongMAE Micro {shape}": ("Micro", "#FDE725", ":"),
+    }
 
 
 def read_tsv(path):
@@ -102,9 +105,24 @@ def draw_row(axes, columns, sections, models, panel_species):
     return labels, handles
 
 
-def plot_lines(columns, sections, models, xlabel, output, panel_species=SPECIES):
+def plot_lines(
+    columns,
+    sections,
+    models,
+    xlabel,
+    output,
+    panel_species=SPECIES,
+    legend_title=None,
+):
     width = 7.2 if len(panel_species) == 3 else 9.5
-    fig, axes = plt.subplots(1, len(panel_species), figsize=(width, 2.8), dpi=200, sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        1,
+        len(panel_species),
+        figsize=(width, 2.8),
+        dpi=200,
+        sharex=True,
+        sharey=True,
+    )
     labels, handles = draw_row(axes, columns, sections, models, panel_species)
     fig.supxlabel(xlabel, y=0.035)
     legend_axis = axes[2] if len(panel_species) == 4 else axes[-1]
@@ -118,6 +136,8 @@ def plot_lines(columns, sections, models, xlabel, output, panel_species=SPECIES)
         edgecolor="none",
         borderpad=0.3,
         handlelength=1.5,
+        title=legend_title,
+        title_fontsize=8,
     )
     fig.subplots_adjust(left=0.08, right=0.995, bottom=0.22, top=0.92, wspace=0.08)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -128,15 +148,28 @@ def plot_lines(columns, sections, models, xlabel, output, panel_species=SPECIES)
     print(output.with_suffix(".pdf"))
 
 
-def plot_stacked(k_table, checkpoint_table, output, panel_species=SPECIES):
+def plot_stacked(
+    k_table,
+    checkpoint_table,
+    step_models,
+    output,
+    panel_species=SPECIES,
+    step_legend_title=None,
+):
     k_columns, k_sections = k_table
     step_columns, step_sections = checkpoint_table
     width = 7.2 if len(panel_species) == 3 else 9.5
-    fig, axes = plt.subplots(2, len(panel_species), figsize=(width, 5.5), dpi=200, sharey="row")
+    fig, axes = plt.subplots(
+        2, len(panel_species), figsize=(width, 5.5), dpi=200, sharey="row"
+    )
     _, k_handles = draw_row(axes[0], k_columns, k_sections, K_MODELS, panel_species)
-    _, step_handles = draw_row(axes[1], step_columns, step_sections, STEP_MODELS, panel_species)
+    _, step_handles = draw_row(axes[1], step_columns, step_sections, step_models, panel_species)
     legend_index = 2 if len(panel_species) == 4 else len(panel_species) - 1
-    for axis, handles in ((axes[0, legend_index], k_handles), (axes[1, legend_index], step_handles)):
+    legends = (
+        (axes[0, legend_index], k_handles, None),
+        (axes[1, legend_index], step_handles, step_legend_title),
+    )
+    for axis, handles, title in legends:
         axis.legend(
             handles=handles,
             loc="upper right",
@@ -147,6 +180,8 @@ def plot_stacked(k_table, checkpoint_table, output, panel_species=SPECIES):
             edgecolor="none",
             borderpad=0.3,
             handlelength=1.5,
+            title=title,
+            title_fontsize=8,
         )
     fig.text(0.5, 0.02, "Training step", ha="center", va="bottom")
     fig.subplots_adjust(left=0.08, right=0.995, bottom=0.1, top=0.95, wspace=0.08, hspace=0.62)
@@ -161,19 +196,96 @@ def plot_stacked(k_table, checkpoint_table, output, panel_species=SPECIES):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("k_table")
-    parser.add_argument("checkpoint_table")
+    parser.add_argument("checkpoint_32x1_table")
+    parser.add_argument("checkpoint_32x4_table", nargs="?")
     parser.add_argument("--output_dir", default="imgs/linear_probe")
+    parser.add_argument("--checkpoint_budget", choices=["K=5", "K=max"], default="K=5")
     args = parser.parse_args()
     output = Path(args.output_dir)
 
     k_table = read_tsv(args.k_table)
-    checkpoint_table = read_tsv(args.checkpoint_table)
-    plot_lines(*k_table, K_MODELS, "Labeled occurrences per class (K)", output / "label_budget_points.png")
-    plot_lines(*checkpoint_table, STEP_MODELS, "Training step", output / "checkpoint_points.png")
-    plot_stacked(k_table, checkpoint_table, output / "stacked_points.png")
-    plot_lines(*k_table, K_MODELS, "Labeled occurrences per class (K)", output / "label_budget_points_mean.png", PANEL_SPECIES)
-    plot_lines(*checkpoint_table, STEP_MODELS, "Training step", output / "checkpoint_points_mean.png", PANEL_SPECIES)
-    plot_stacked(k_table, checkpoint_table, output / "stacked_points_mean.png", PANEL_SPECIES)
+    checkpoint_table = read_tsv(args.checkpoint_32x1_table)
+    step_models = checkpoint_models("32x1")
+    suffix = "_kmax" if args.checkpoint_budget == "K=max" else ""
+    legend_title = f"32×1 · {args.checkpoint_budget}"
+    plot_lines(
+        *k_table,
+        K_MODELS,
+        "Labeled occurrences per class (K)",
+        output / "label_budget_points.png",
+    )
+    plot_lines(
+        *checkpoint_table,
+        step_models,
+        "Training step",
+        output / f"checkpoint_points_32x1{suffix}.png",
+        legend_title=legend_title,
+    )
+    plot_stacked(
+        k_table,
+        checkpoint_table,
+        step_models,
+        output / f"stacked_points_32x1{suffix}.png",
+        step_legend_title=legend_title,
+    )
+    plot_lines(
+        *k_table,
+        K_MODELS,
+        "Labeled occurrences per class (K)",
+        output / "label_budget_points_mean.png",
+        PANEL_SPECIES,
+    )
+    plot_lines(
+        *checkpoint_table,
+        step_models,
+        "Training step",
+        output / f"checkpoint_points_32x1{suffix}_mean.png",
+        PANEL_SPECIES,
+        legend_title,
+    )
+    plot_stacked(
+        k_table,
+        checkpoint_table,
+        step_models,
+        output / f"stacked_points_32x1{suffix}_mean.png",
+        PANEL_SPECIES,
+        legend_title,
+    )
+
+    if args.checkpoint_32x4_table:
+        checkpoint_table = read_tsv(args.checkpoint_32x4_table)
+        step_models = checkpoint_models("32x4")
+        legend_title = f"32×4 · {args.checkpoint_budget}"
+        plot_lines(
+            *checkpoint_table,
+            step_models,
+            "Training step",
+            output / f"checkpoint_points_32x4{suffix}.png",
+            legend_title=legend_title,
+        )
+        plot_stacked(
+            k_table,
+            checkpoint_table,
+            step_models,
+            output / f"stacked_points_32x4{suffix}.png",
+            step_legend_title=legend_title,
+        )
+        plot_lines(
+            *checkpoint_table,
+            step_models,
+            "Training step",
+            output / f"checkpoint_points_32x4{suffix}_mean.png",
+            PANEL_SPECIES,
+            legend_title,
+        )
+        plot_stacked(
+            k_table,
+            checkpoint_table,
+            step_models,
+            output / f"stacked_points_32x4{suffix}_mean.png",
+            PANEL_SPECIES,
+            legend_title,
+        )
 
 
 if __name__ == "__main__":

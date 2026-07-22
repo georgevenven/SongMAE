@@ -20,7 +20,10 @@ MODELS = [
 
 def main():
     parser = argparse.ArgumentParser(description="Aggregate linear-probe performance by label cap.")
-    parser.add_argument("--results_root", default="results/linear_probe_models_by_k")
+    parser.add_argument(
+        "--results_root",
+        default="results/linear_probe_models_by_k_pca128_logreg_c0001",
+    )
     parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()
     runs = load_capped_runs(args.results_root)

@@ -18,6 +18,17 @@ def load_capped_runs(root):
     return runs
 
 
+def load_full_runs(root):
+    runs = {}
+    for path in sorted(Path(root).glob("*/*/*/metrics.json")):
+        species, _, model = path.parts[-4:-1]
+        data = json.loads(path.read_text())
+        rates = macro_fer_breakdown(data["class_labels"], data["confusion_matrix"])
+        assert abs(rates["macro_fer"] - data["macro_fer"]) < 1e-12, path
+        runs.setdefault((species, model), []).append(rates)
+    return runs
+
+
 def average(values):
     if not values:
         return None
@@ -28,6 +39,13 @@ def value(runs, species, model, cap):
     if species:
         return average(runs.get((species, model, cap), []))
     values = [average(runs.get((key, model, cap), [])) for key, _ in SPECIES]
+    return average([row for row in values if row is not None])
+
+
+def full_value(runs, species, model):
+    if species:
+        return average(runs.get((species, model), []))
+    values = [average(runs.get((key, model), [])) for key, _ in SPECIES]
     return average([row for row in values if row is not None])
 
 

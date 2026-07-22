@@ -8,6 +8,7 @@ NUM_TIMEBINS=${NUM_TIMEBINS:-720000}
 FOLDS=${FOLDS:-3}
 PCA_COMPONENTS=${PCA_COMPONENTS:-128}
 MAX_ITER=${MAX_ITER:-5000}
+LOGREG_C=${LOGREG_C:-0.001}
 SEED=${SEED:-42}
 CLEAN_EMBEDDINGS=${CLEAN_EMBEDDINGS:-1}
 DATASET_FILTER=${DATASET_FILTER:-}
@@ -15,14 +16,16 @@ BIRD_FILTER=${BIRD_FILTER:-}
 MODEL_FILTER=${MODEL_FILTER:-}
 LABEL_CAPS=${LABEL_CAPS:-"1 5 10 20 50 100"}
 
-WAV_ROOT=/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae
+ANNOTATION_ROOT=${ANNOTATION_ROOT:-$LINEAR_PROBE_ROOT/files/annotation jsons}
+SPEC_ROOT=${SPEC_ROOT:-/media/george-vengrovski/disk2/specs}
+WAV_ROOT=${WAV_ROOT:-/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae}
 BIRDAVES_MODEL=$LINEAR_PROBE_ROOT/files/birdaves-biox-base.torchaudio.pt
 BIRDAVES_CONFIG=$LINEAR_PROBE_ROOT/files/birdaves-biox-base.torchaudio.model_config.json
 
 LINEAR_PROBE_DATASETS=(
-  "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms"
-  "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms"
-  "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms"
+  "zf|$ANNOTATION_ROOT/zf_annotations.json|$SPEC_ROOT/zebra_finch_5ms"
+  "bf|$ANNOTATION_ROOT/bf_annotations.json|$SPEC_ROOT/bengalese_finch_5ms"
+  "canary|$ANNOTATION_ROOT/canary_annotations.json|$SPEC_ROOT/canary_5ms"
 )
 
 linear_probe_selected() {
@@ -108,7 +111,8 @@ run_linear_probe_suite() {
           --embeddings "$embeddings" --annotations "$annotations" --folds "$FOLDS" \
           "${manifest_args[@]}" --pca_components "$PCA_COMPONENTS" \
           --pca_cache "$embeddings/pca_${PCA_COMPONENTS}_seed${SEED}.npy" \
-          --max_iter "$MAX_ITER" --seed "$SEED" > "$model_dir/metrics.tmp"; then
+          --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
+          > "$model_dir/metrics.tmp"; then
           mv "$model_dir/metrics.tmp" "$metrics"
           [[ "$CLEAN_EMBEDDINGS" == 1 ]] && rm -rf "$embeddings"
         else
@@ -168,7 +172,8 @@ run_capped_linear_probe_suite() {
             --label_cap "$cap" --folds "$FOLDS" "${manifest_args[@]}" \
             --pca_components "$PCA_COMPONENTS" \
             --pca_cache "$embeddings/pca_${PCA_COMPONENTS}_seed${SEED}.npy" \
-            --max_iter "$MAX_ITER" --seed "$SEED" > "$cap_dir/metrics.tmp"; then
+            --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
+            > "$cap_dir/metrics.tmp"; then
             mv "$cap_dir/metrics.tmp" "$metrics"
           else
             rm -f "$cap_dir/metrics.tmp"
