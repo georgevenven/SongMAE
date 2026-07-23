@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import argparse
+import csv
+from collections import defaultdict
+from pathlib import Path
+
+
+SPECIES = (("canary", "Canary"), ("zf", "Zebra Finch"), ("bf", "Bengalese Finch"))
+MODELS = (
+    ("SongMAE 32×1", "songmae_32x1"),
+    ("SongMAE 32×4", "songmae_32x4"),
+    ("BirdAVES", "birdaves"),
+    ("HuBERT", "hubert"),
+)
+
+
+def load_runs(root):
+    runs = defaultdict(list)
+    for path in sorted(root.glob("*/*/metrics.csv")):
+        species, bird = path.parts[-3:-1]
+        for row in csv.DictReader(path.open()):
+            runs[species, row["model"]].append((bird, float(row["v_measure"])))
+    assert runs, f"no K-means metrics under {root}"
+    return runs
+
+
+def values(runs, model):
+    species_values = [[value for _, value in runs[species, model]] for species, _ in SPECIES]
+    return [sum(group) / len(group) for group in species_values] + [
+        sum(map(sum, species_values)) / sum(map(len, species_values))
+    ]
+
+
+def print_table(runs, markdown):
+    counts = [len(runs[species, MODELS[0][1]]) for species, _ in SPECIES]
+    headers = ["Model"] + [
+        f"{label} V-measure (n={count})"
+        for (_, label), count in zip(SPECIES, counts)
+    ] + [f"All birds V-measure (n={sum(counts)})"]
+    rows = [[label] + [f"{value:.3f}" for value in values(runs, model)] for label, model in MODELS]
+    if not markdown:
+        for row in [headers, *rows]:
+            print("\t".join(row))
+        return
+    print("| " + " | ".join(headers) + " |")
+    print("| " + " | ".join(["---"] * len(headers)) + " |")
+    for row in rows:
+        print("| " + " | ".join(row) + " |")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Aggregate syllable K-means V-measure by species.")
+    parser.add_argument(
+        "--results_root",
+        type=Path,
+        default=Path(
+            "results/syllable_kmeans_50birds_4models_raster_pca128_250k_including_silence"
+        ),
+    )
+    parser.add_argument("--format", choices=("tsv", "markdown"), default="tsv")
+    args = parser.parse_args()
+    print_table(load_runs(args.results_root), args.format == "markdown")
+
+
+if __name__ == "__main__":
+    main()

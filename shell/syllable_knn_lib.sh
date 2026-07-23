@@ -12,16 +12,19 @@ REF_MIN_PER_CLASS="${REF_MIN_PER_CLASS:-1000}"
 MAX_QUERIES="${MAX_QUERIES:-5000}"
 QUERY_PER_CLASS="${QUERY_PER_CLASS:-200}"
 SEARCH_K="${SEARCH_K:-1000}"
+PCA_COMPONENTS="${PCA_COMPONENTS:-128}"
 OVERWRITE="${OVERWRITE:-0}"
 BIRDAVES_MODEL_PATH="${BIRDAVES_MODEL_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.pt}"
 BIRDAVES_CONFIG_PATH="${BIRDAVES_CONFIG_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.model_config.json}"
 HUBERT_MODEL_NAME="${HUBERT_MODEL_NAME:-facebook/hubert-base-ls960}"
 WAV_EXTS="${WAV_EXTS:-.wav,.flac,.ogg,.mp3}"
+SPEC_ROOT="${SPEC_ROOT:-/media/george-vengrovski/disk2/specs}"
+WAV_ROOT="${WAV_ROOT:-/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae}"
 
 DATASETS=(
-  "zf|files/annotation jsons/zf_annotations.json|/media/george-vengrovski/disk2/specs/zebra_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
-  "bf|files/annotation jsons/bf_annotations.json|/media/george-vengrovski/disk2/specs/bengalese_finch_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
-  "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms|/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae"
+  "zf|files/annotation jsons/zf_annotations.json|$SPEC_ROOT/zebra_finch_5ms|$WAV_ROOT"
+  "bf|files/annotation jsons/bf_annotations.json|$SPEC_ROOT/bengalese_finch_5ms|$WAV_ROOT"
+  "canary|files/annotation jsons/canary_annotations.json|$SPEC_ROOT/canary_5ms|$WAV_ROOT"
 )
 
 birds_in_json() {
@@ -72,6 +75,7 @@ run_knn() {
     --k_values "$K_VALUES" --max_ref_points "$MAX_REF_POINTS"
     --ref_min_per_class "$REF_MIN_PER_CLASS" --max_queries "$MAX_QUERIES"
     --query_per_class "$QUERY_PER_CLASS" --search_k "$SEARCH_K"
+    --pca_components "$PCA_COMPONENTS"
     --wav_exts "$WAV_EXTS"
   )
   [[ -n "$embedding_dir" ]] && args+=(--embedding_dir "$embedding_dir")

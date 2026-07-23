@@ -22,7 +22,7 @@ sys.path.append(str(ROOT))
 from src.evals.syllable_classification import ground_truth, load_units
 
 
-def load_raster(path, units, count):
+def load_raster(path, units, count, include_silence=False):
     stems = np.asarray(np.load(path / "recording_stem.npy")).astype(str)
     starts = np.rint(np.load(path / "token_start_ms.npy")).astype(np.int64)
     ends = np.rint(np.load(path / "token_end_ms.npy")).astype(np.int64)
@@ -32,7 +32,8 @@ def load_raster(path, units, count):
     vocal_ms = np.zeros(stems.size, dtype=np.int64)
     for i, (stem, start, end) in enumerate(zip(stems, starts, ends)):
         y = ground_truth(units, stem, start, end)
-        y = y[y > 0]
+        if not include_silence:
+            y = y[y > 0]
         vocal_ms[i] = y.size
         if y.size:
             labels.append(y)
@@ -41,9 +42,9 @@ def load_raster(path, units, count):
     return indices, np.concatenate(labels), vocal_ms[indices]
 
 
-def evaluate(name, path, units, component_values, cluster_count, seed, out_dir):
+def evaluate(name, path, units, component_values, cluster_count, seed, include_silence, out_dir):
     features = np.load(path / "encoded_embeddings.npy", mmap_mode="r")
-    indices, labels, vocal_ms = load_raster(path, units, features.shape[0])
+    indices, labels, vocal_ms = load_raster(path, units, features.shape[0], include_silence)
     features = np.asarray(features[indices], dtype=np.float32)
 
     features -= features.mean(axis=0, keepdims=True)
@@ -65,6 +66,7 @@ def evaluate(name, path, units, component_values, cluster_count, seed, out_dir):
             "frames": int(labels.size),
             "classes": int(classes.size),
             "clusters": int(k),
+            "include_silence": include_silence,
             "pca_components": components,
             "purity": float(table.max(axis=0).sum() / labels.size),
             "homogeneity": float(homogeneity),
@@ -111,6 +113,7 @@ def main():
     parser.add_argument("--pca_components", type=int, nargs="+", default=[8])
     parser.add_argument("--clusters", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--include_silence", action="store_true")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -120,7 +123,14 @@ def main():
         row
         for name, path in sources
         for row in evaluate(
-            name, path, units, args.pca_components, args.clusters, args.seed, args.out_dir
+            name,
+            path,
+            units,
+            args.pca_components,
+            args.clusters,
+            args.seed,
+            args.include_silence,
+            args.out_dir,
         )
     ]
     with (args.out_dir / "metrics.csv").open("w", newline="", encoding="utf-8") as f:

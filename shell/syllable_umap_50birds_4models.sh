@@ -11,6 +11,7 @@ MAX_POINTS=${MAX_POINTS:-250000}
 DATASET_FILTER=${DATASET_FILTER:-}
 BIRD_FILTER=${BIRD_FILTER:-}
 MODEL_FILTER=${MODEL_FILTER:-}
+MODEL_GROUP=${MODEL_GROUP:-large_comparison}
 DRY_RUN=${DRY_RUN:-0}
 
 WAV_ROOT=/media/george-vengrovski/disk2/raw_data/wav_files_canary_zf_bf_songmae
@@ -23,12 +24,25 @@ DATASETS=(
   "canary|files/annotation jsons/canary_annotations.json|/media/george-vengrovski/disk2/specs/canary_5ms"
 )
 
-MODELS=(
-  "songmae_32x1|songmae|runs/xcl_large_500k_p32x1_c005|model_step_499999.pth|10"
-  "songmae_32x4|songmae|runs/xcl_large_500k_p32x4_c010|model_step_499999.pth|9"
-  "birdaves|aves|-|-|6"
-  "hubert|hubert|-|-|0"
-)
+case "$MODEL_GROUP" in
+  large_comparison)
+    MODELS=(
+      "songmae_32x1|songmae|runs/xcl_large_500k_p32x1_c005|model_step_499999.pth|10"
+      "songmae_32x4|songmae|runs/xcl_large_500k_p32x4_c010|model_step_499999.pth|9"
+      "birdaves|aves|-|-|6"
+      "hubert|hubert|-|-|0"
+    )
+    ;;
+  micro_base)
+    MODELS=(
+      "micro_32x1|songmae|runs/xcl_micro_500k_p32x1_c005|model_step_499999.pth|5"
+      "micro_32x4|songmae|runs/xcl_micro_500k_p32x4_c010|model_step_499999.pth|5"
+      "base_32x1|songmae|runs/xcl_base_500k_p32x1_c005|model_step_499999.pth|5"
+      "base_32x4|songmae|runs/xcl_base_500k_p32x4_c010|model_step_499999.pth|5"
+    )
+    ;;
+  *) echo "unknown MODEL_GROUP: $MODEL_GROUP" >&2; exit 2 ;;
+esac
 
 selected() {
   [[ -z "$2" || " $2 " == *" $1 "* ]]
