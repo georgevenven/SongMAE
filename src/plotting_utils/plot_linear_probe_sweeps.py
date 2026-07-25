@@ -153,14 +153,18 @@ def main():
     args = parser.parse_args()
     output = Path(args.output_dir)
 
-    k_table = read_tsv(args.k_table)
+    k_columns, k_sections = read_tsv(args.k_table)
+    for models in k_sections.values():
+        for model in models:
+            models[model] = models[model][1:]
+    k_table = k_columns[1:], k_sections
     checkpoint_table = read_tsv(args.checkpoint_32x1_table)
     suffix = "_kmax" if args.checkpoint_budget == "K=max" else ""
     legend_title = f"32×1 · {args.checkpoint_budget}"
     plot_lines(
         *k_table,
         K_MODELS,
-        "Labeled occurrences per class (K)",
+        "Labeled occurrences per class (N)",
         output / "label_budget_points.png",
     )
     plot_lines(

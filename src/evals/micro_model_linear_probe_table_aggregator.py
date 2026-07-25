@@ -23,16 +23,16 @@ SECTIONS = [
         "Masking strategy (32x1; Voronoi C=0.1)",
         [
             ("Random", "xcl_micro_100k_p32x1_random"),
-            ("Voronoi", "Xcl_micro_100k_p32x1_default"),
+            ("Voronoi", "Xcl_micro_100k_p32x1_c010"),
         ],
     ),
     (
         "Patch shape (Voronoi, C=0.1)",
         [
             ("128x1", "Xcl_micro_100k_p128x1_default"),
-            ("32x1", "Xcl_micro_100k_p32x1_default"),
+            ("32x1", "Xcl_micro_100k_p32x1_c010"),
             ("16x1", "Xcl_micro_100k_p16x1_default"),
-            ("32x4", "xcl_micro_100k_p32x4_qknorm_gelu_lr1e-4_bs128"),
+            ("32x4", "xcl_micro_100k_p32x4_c010"),
             ("4x4", "Xcl_micro_100k_p4x4_default"),
         ],
     ),

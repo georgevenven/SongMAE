@@ -5,14 +5,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
-K_VALUES="${K_VALUES:-1,5,10,20,50,100}"
+K_VALUES="${K_VALUES:-1,5,10}"
 NUM_TIMEBINS="${NUM_TIMEBINS:-200000}"
-MAX_REF_POINTS="${MAX_REF_POINTS:-200000}"
-REF_MIN_PER_CLASS="${REF_MIN_PER_CLASS:-1000}"
-MAX_QUERIES="${MAX_QUERIES:-5000}"
-QUERY_PER_CLASS="${QUERY_PER_CLASS:-200}"
+REFERENCE_OCCURRENCES_PER_CLASS="${REFERENCE_OCCURRENCES_PER_CLASS:-100}"
+QUERY_OCCURRENCES_PER_CLASS="${QUERY_OCCURRENCES_PER_CLASS:-20}"
 SEARCH_K="${SEARCH_K:-1000}"
-PCA_COMPONENTS="${PCA_COMPONENTS:-128}"
+PCA_COMPONENTS="${PCA_COMPONENTS:-0}"
 OVERWRITE="${OVERWRITE:-0}"
 BIRDAVES_MODEL_PATH="${BIRDAVES_MODEL_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.pt}"
 BIRDAVES_CONFIG_PATH="${BIRDAVES_CONFIG_PATH:-$ROOT/files/birdaves-biox-base.torchaudio.model_config.json}"
@@ -54,7 +52,7 @@ knn_out_dir() {
 }
 
 cleanup_embeddings() {
-  rm -rf "$1/embeddings"
+  rm -rf "$1/embeddings" "$1/embeddings.tmp"
 }
 
 run_knn() {
@@ -72,9 +70,10 @@ run_knn() {
     --spec_dir "$spec_dir" --annotation_file "$json" --out_dir "$out_dir"
     --bird "$bird" --encoder_layer_idx "$layer"
     --num_timebins "$NUM_TIMEBINS"
-    --k_values "$K_VALUES" --max_ref_points "$MAX_REF_POINTS"
-    --ref_min_per_class "$REF_MIN_PER_CLASS" --max_queries "$MAX_QUERIES"
-    --query_per_class "$QUERY_PER_CLASS" --search_k "$SEARCH_K"
+    --k_values "$K_VALUES"
+    --reference_occurrences_per_class "$REFERENCE_OCCURRENCES_PER_CLASS"
+    --query_occurrences_per_class "$QUERY_OCCURRENCES_PER_CLASS"
+    --search_k "$SEARCH_K"
     --pca_components "$PCA_COMPONENTS"
     --wav_exts "$WAV_EXTS"
   )
@@ -88,11 +87,25 @@ run_knn() {
       args+=(--model hubert --name hubert_base_ls960 --wav_dir "$wav_dir" --hubert_model_name "$HUBERT_MODEL_NAME")
       ;;
     *)
-      args+=(--model songmae --name "$model" --songmae_run_dir "$(songmae_run_dir "$model")" --target_feature_type "$target")
+      args+=(--model songmae --name "${KNN_NAME:-$model}" --songmae_run_dir "$(songmae_run_dir "$model")" --target_feature_type "$target")
       [[ -n "${SONGMAE_CHECKPOINT:-}" ]] && args+=(--checkpoint "$SONGMAE_CHECKPOINT")
       ;;
   esac
 
   echo "running $out_dir"
   "${args[@]}" > "$out_dir/run.log" 2>&1 || { tail -80 "$out_dir/run.log"; return 1; }
+}
+
+run_knn_pair() {
+  local raw_out="$1" pca_out="$2" model="$3" json="$4" specs="$5"
+  local wavs="$6" bird="$7" layer="$8" target="$9" embeddings=""
+  if [[ ! -f "$raw_out/summary.json" ]]; then
+    PCA_COMPONENTS=0 run_knn "$model" "$raw_out" "$json" "$specs" "$wavs" "$bird" "$layer" "$target" || return
+    embeddings="$raw_out/embeddings"
+  fi
+  if [[ ! -f "$pca_out/summary.json" ]]; then
+    PCA_COMPONENTS=128 run_knn "$model" "$pca_out" "$json" "$specs" "$wavs" "$bird" "$layer" "$target" "$embeddings" || return
+  fi
+  cleanup_embeddings "$raw_out"
+  cleanup_embeddings "$pca_out"
 }

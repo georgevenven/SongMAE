@@ -8,10 +8,8 @@ OUT_ROOT=${OUT_ROOT:-$ROOT/results/linear_probe_micro_ablations_kmax_pca128_logr
 
 LINEAR_PROBE_MODELS=(
   "xcl_micro_100k_p32x1_random|songmae|runs/xcl_micro_100k_p32x1_random|model_step_099999.pth"
-  "Xcl_micro_100k_p32x1_default|songmae|runs/Xcl_micro_100k_p32x1_default|model_step_099999.pth"
   "Xcl_micro_100k_p128x1_default|songmae|runs/Xcl_micro_100k_p128x1_default|model_step_099999.pth"
   "Xcl_micro_100k_p16x1_default|songmae|runs/Xcl_micro_100k_p16x1_default|model_step_099999.pth"
-  "xcl_micro_100k_p32x4_qknorm_gelu_lr1e-4_bs128|songmae|runs/xcl_micro_100k_p32x4_qknorm_gelu_lr1e-4_bs128|model_step_099999.pth"
   "Xcl_micro_100k_p4x4_default|songmae|runs/Xcl_micro_100k_p4x4_default|model_step_099999.pth"
   "Xcl_micro_100k_p32x1_c0025|songmae|runs/Xcl_micro_100k_p32x1_c0025|model_step_099999.pth"
   "Xcl_micro_100k_p32x1_c005|songmae|runs/Xcl_micro_100k_p32x1_c005|model_step_099999.pth"

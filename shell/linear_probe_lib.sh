@@ -45,7 +45,9 @@ PY
 }
 
 linear_probe_extract() {
-  local extractor=$1 run_dir=$2 checkpoint=$3 annotations=$4 specs=$5 bird=$6 output=$7
+  local extractor=$1 run_dir=$2 checkpoint=$3 annotations=$4 specs=$5 bird=$6 output=$7 layer=$8
+  local layer_args=()
+  [[ -n "$layer" ]] && layer_args=(--encoder_layer_idx "$layer")
   [[ "$output" == "$OUT_ROOT/"*"/embeddings" ]]
   rm -rf "$output" "$output.tmp"
   if [[ "$extractor" == aves ]]; then
@@ -54,7 +56,8 @@ linear_probe_extract() {
       --out_dir "$output" --bird "$bird" --recording_mode events \
       --aves_model_path "$BIRDAVES_MODEL" --aves_config_path "$BIRDAVES_CONFIG" \
       --model_name birdaves_biox_base --audio_sr 16000 --chunk_timebins 1000 \
-      --num_timebins "$NUM_TIMEBINS" --balanced_events "$FOLDS" --event_seed "$SEED"
+      --num_timebins "$NUM_TIMEBINS" --balanced_events "$FOLDS" --event_seed "$SEED" \
+      "${layer_args[@]}"
     return
   fi
   if [[ "$extractor" == hubert ]]; then
@@ -62,14 +65,16 @@ linear_probe_extract() {
       --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$annotations" \
       --out_dir "$output" --bird "$bird" --recording_mode events \
       --model_name facebook/hubert-base-ls960 --audio_sr 16000 --chunk_timebins 1000 \
-      --num_timebins "$NUM_TIMEBINS" --balanced_events "$FOLDS" --event_seed "$SEED"
+      --num_timebins "$NUM_TIMEBINS" --balanced_events "$FOLDS" --event_seed "$SEED" \
+      "${layer_args[@]}"
     return
   fi
   "$PYTHON_BIN" -m src.core.extract_embedding \
     --spec_dir "$specs" --run_dir "$run_dir" --checkpoint "$checkpoint" \
     --out_dir "$output" --json_path "$annotations" --bird "$bird" \
     --recording_mode events --minimal --target_feature_type end_of_block \
-    --num_timebins "$NUM_TIMEBINS" --balanced_events "$FOLDS" --event_seed "$SEED"
+    --num_timebins "$NUM_TIMEBINS" --balanced_events "$FOLDS" --event_seed "$SEED" \
+    "${layer_args[@]}"
 }
 
 run_linear_probe_suite() {
@@ -83,7 +88,7 @@ run_linear_probe_suite() {
       linear_probe_selected "$bird" "$BIRD_FILTER" || continue
       manifest="$OUT_ROOT/manifests/$dataset/$bird.json"
       for model_row in "${LINEAR_PROBE_MODELS[@]}"; do
-        IFS="|" read -r model extractor run_dir checkpoint <<< "$model_row"
+        IFS="|" read -r model extractor run_dir checkpoint layer <<< "$model_row"
         linear_probe_selected "$model" "$MODEL_FILTER" || continue
         if [[ "$extractor" == songmae && ! -f "$run_dir/weights/$checkpoint" ]]; then
           echo "missing checkpoint, skipping: $run_dir/weights/$checkpoint" >&2
@@ -98,7 +103,7 @@ run_linear_probe_suite() {
         if [[ ! -f "$embeddings/metadata.json" ]]; then
           echo "extracting: dataset=$dataset bird=$bird model=$model"
           if ! linear_probe_extract \
-            "$extractor" "$run_dir" "$checkpoint" "$annotations" "$specs" "$bird" "$embeddings"; then
+            "$extractor" "$run_dir" "$checkpoint" "$annotations" "$specs" "$bird" "$embeddings" "$layer"; then
             echo "extraction failed: dataset=$dataset bird=$bird model=$model" >&2
             continue
           fi
@@ -134,7 +139,7 @@ run_capped_linear_probe_suite() {
     while read -r bird; do
       linear_probe_selected "$bird" "$BIRD_FILTER" || continue
       for model_row in "${LINEAR_PROBE_MODELS[@]}"; do
-        IFS="|" read -r model extractor run_dir checkpoint <<< "$model_row"
+        IFS="|" read -r model extractor run_dir checkpoint layer <<< "$model_row"
         linear_probe_selected "$model" "$MODEL_FILTER" || continue
         if [[ "$extractor" == songmae && ! -f "$run_dir/weights/$checkpoint" ]]; then
           echo "missing checkpoint, skipping: $run_dir/weights/$checkpoint" >&2
@@ -152,7 +157,7 @@ run_capped_linear_probe_suite() {
         if [[ ! -f "$embeddings/metadata.json" ]]; then
           echo "extracting: dataset=$dataset bird=$bird model=$model"
           if ! linear_probe_extract \
-            "$extractor" "$run_dir" "$checkpoint" "$annotations" "$specs" "$bird" "$embeddings"; then
+            "$extractor" "$run_dir" "$checkpoint" "$annotations" "$specs" "$bird" "$embeddings" "$layer"; then
             echo "extraction failed: dataset=$dataset bird=$bird model=$model" >&2
             continue
           fi
