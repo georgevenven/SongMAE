@@ -6,8 +6,9 @@ from tempfile import TemporaryDirectory
 import torch
 
 from src.evals.AVEX.birdset import manifest_paths, normalize_empty_labels
+from src.evals.AVEX.lora_probe import AsymmetricLoss, LoRALinear, Top1Accuracy
 from src.evals.AVEX.prepare_birdset import label_lookup, local_config
-from src.evals.AVEX.windows import pool_embeddings, select_layers, sliding_window_starts
+from src.evals.AVEX.windows import pool_embeddings, select_layers, sliding_window_starts, spatial_embeddings
 
 
 class AvexAdapterTests(unittest.TestCase):
@@ -117,6 +118,28 @@ class AvexAdapterTests(unittest.TestCase):
         )
         pooled = pool_embeddings(embeddings, torch.tensor([2, 0]))
         torch.testing.assert_close(pooled, torch.tensor([[3.0]]))
+
+    def test_spatial_embeddings_preserve_grid_and_mask_padding(self):
+        embeddings = torch.arange(16, dtype=torch.float32).reshape(1, 2, 4, 2)
+        projection = torch.eye(2)
+        grid = spatial_embeddings(embeddings, torch.tensor([3]), projection, 2)
+        self.assertEqual(grid.shape, (1, 3, 2, 2))
+        torch.testing.assert_close(grid[:, -1], torch.tensor([[[1.0, 1.0], [1.0, 1.0]]]))
+        torch.testing.assert_close(grid[:, :-1, :, -1], embeddings[:, :, 2].permute(0, 2, 1))
+
+    def test_lora_starts_as_the_wrapped_linear_layer(self):
+        linear = torch.nn.Linear(3, 4)
+        lora = LoRALinear(linear)
+        inputs = torch.randn(2, 3)
+        torch.testing.assert_close(lora(inputs), linear(inputs))
+
+    def test_paper_metrics_support_multilabel_targets(self):
+        logits = torch.tensor([[3.0, 1.0], [0.0, 2.0]])
+        targets = torch.tensor([[1.0, 1.0], [1.0, 0.0]])
+        metric = Top1Accuracy()
+        metric.update(logits, targets)
+        self.assertEqual(metric.get_primary_metric(), 0.5)
+        self.assertGreater(AsymmetricLoss()(logits, targets), 0)
 
 
 if __name__ == "__main__":
