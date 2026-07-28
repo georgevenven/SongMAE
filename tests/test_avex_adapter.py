@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 
 import torch
 
+from src.evals.AVEX.attention_probe import vertical_tokens
 from src.evals.AVEX.birdset import manifest_paths, normalize_empty_labels
 from src.evals.AVEX.lora_probe import AsymmetricLoss, LoRALinear, Top1Accuracy
 from src.evals.AVEX.prepare_birdset import label_lookup, local_config
@@ -132,6 +133,24 @@ class AvexAdapterTests(unittest.TestCase):
         lora = LoRALinear(linear)
         inputs = torch.randn(2, 3)
         torch.testing.assert_close(lora(inputs), linear(inputs))
+
+    def test_vertical_tokens_concatenate_frequency_patches_per_time(self):
+        grid = torch.tensor(
+            [
+                [
+                    [[1, 2, 3], [4, 5, 6]],
+                    [[10, 20, 30], [40, 50, 60]],
+                    [[1, 1, 0], [1, 1, 0]],
+                ]
+            ],
+            dtype=torch.float32,
+        )
+        tokens, mask = vertical_tokens(grid)
+        torch.testing.assert_close(
+            tokens,
+            torch.tensor([[[1, 10, 4, 40], [2, 20, 5, 50], [3, 30, 6, 60]]], dtype=torch.float32),
+        )
+        torch.testing.assert_close(mask, torch.tensor([[True, True, False]]))
 
     def test_paper_metrics_support_multilabel_targets(self):
         logits = torch.tensor([[3.0, 1.0], [0.0, 2.0]])
