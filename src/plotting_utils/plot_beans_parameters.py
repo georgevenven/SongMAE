@@ -11,6 +11,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
+plt.rcParams["svg.fonttype"] = "none"
+
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from src.evals.beans_table_aggregator import PARAMETERS, table_rows
@@ -168,9 +170,11 @@ def main():
     output = output_dir / "beans_score_vs_parameters.png"
     fig.savefig(output, dpi=300, bbox_inches="tight")
     fig.savefig(output.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(output.with_suffix(".svg"), bbox_inches="tight")
     plt.close(fig)
     print(output)
     print(output.with_suffix(".pdf"))
+    print(output.with_suffix(".svg"))
 
 
 if __name__ == "__main__":

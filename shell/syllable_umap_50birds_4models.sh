@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PCA-128 cosine UMAPs for four models on every annotated zf, bf, and canary bird.
+# Raw-dimension cosine UMAPs for four models on every annotated zf, bf, and canary bird.
 set -u
 
 cd "$(dirname "$0")/.."
@@ -27,7 +27,7 @@ DATASETS=(
 case "$MODEL_GROUP" in
   large_comparison)
     MODELS=(
-      "songmae_32x1|songmae|runs/xcl_large_500k_p32x1_c005|model_step_499999.pth|10"
+      "songmae_32x1|songmae|runs/xcl_large_500k_p32x1_c005|model_step_499999.pth|11"
       "songmae_32x4|songmae|runs/xcl_large_500k_p32x4_c010|model_step_499999.pth|9"
       "birdaves|aves|-|-|6"
       "hubert|hubert|-|-|0"
@@ -104,7 +104,6 @@ run_one() {
     --minimal
     --encoder_layer_idx "$layer"
     --target_feature_type end_of_block
-    --pca_components 128
     --umap_neighbors 100
     --umap_min_dist 0
     --umap_metric cosine

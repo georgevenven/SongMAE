@@ -31,6 +31,7 @@ for row in "${DATASETS[@]}"; do
           if run_knn_pair "$raw" "$pca" "$model" "$json" "$spec_dir" "$wav_dir" "$bird" "$layer" end_of_block; then
             rm -f "$raw/FAILED" "$pca/FAILED"
           else
+            mkdir -p "$raw" "$pca"
             touch "$raw/FAILED" "$pca/FAILED"
           fi
         fi

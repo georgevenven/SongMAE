@@ -14,6 +14,7 @@ from tqdm import tqdm
 # Local deps
 from src.core.data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
 from src.core.utils import load_model_from_checkpoint
+from src.plotting_utils.plotting_utils import MASK_CMAP, masked_cmap
 
 
 def depatchify(pred_patches, H, W, patch_size):
@@ -25,8 +26,7 @@ def depatchify(pred_patches, H, W, patch_size):
 def masked_original(x_patches, bool_mask):
     # x_patches: (B, T, P), bool_mask: (B, T)
     masked = x_patches.clone()
-    # Set masked values very low to render as black in viridis colormap
-    masked[bool_mask] = -10.0
+    masked[bool_mask] = float("nan")
     return masked
 
 
@@ -224,25 +224,27 @@ def main():
                 masked_img_np = masked_img[0, 0, :, :display_w].detach().cpu().numpy()
                 overlay_np = overlay_img[0, 0, :, :display_w].detach().cpu().numpy()
 
-                fig2 = plt.figure(figsize=(7.9, 5.8933))
-                ax1 = plt.subplot(3, 1, 1)
-                ax1.imshow(x_img, origin="lower", aspect="auto")
-                ax1.set_title("Input Spectrogram", fontsize=16, fontweight='bold')
-                ax1.axis("off")
-
-                ax2 = plt.subplot(3, 1, 2)
-                ax2.imshow(masked_img_np, origin="lower", aspect="auto")
-                ax2.set_title("Input Spectrogram With Mask", fontsize=16, fontweight='bold')
-                ax2.axis("off")
-
-                ax3 = plt.subplot(3, 1, 3)
-                ax3.imshow(overlay_np, origin="lower", aspect="auto")
-                ax3.set_title(
+                seconds = display_w * dataset.params.hop_size / dataset.params.sr
+                extent = (0, seconds, 0, H)
+                fig2, axes = plt.subplots(3, 1, figsize=(7.9, 5.8933), sharex=True)
+                titles = (
+                    "Input Spectrogram",
+                    "Input Spectrogram With Mask",
                     "Decoder Output" if args.inference_mode else "Decoder Predictions and Original Spectrogram",
-                    fontsize=16,
-                    fontweight="bold",
                 )
-                ax3.axis("off")
+                for ax, image, title, cmap in zip(
+                    axes,
+                    (x_img, masked_img_np, overlay_np),
+                    titles,
+                    (MASK_CMAP, masked_cmap(), MASK_CMAP),
+                ):
+                    ax.imshow(image, origin="lower", aspect="auto", cmap=cmap, extent=extent)
+                    ax.set_title(title, fontsize=16, fontweight="bold")
+                    ax.set_yticks([0, H // 2, H])
+                    ax.set_ylabel("Mels", fontsize=12)
+                    ax.tick_params(labelsize=10)
+                axes[-1].set_xticks(np.arange(0, seconds + 1e-9, 1))
+                axes[-1].set_xlabel("Time (s)", fontsize=12)
 
                 fig2.tight_layout()
                 out_image = os.path.join(imgs_dir, f"{evaluated:06d}_{fname}_overlay.{args.image_format}")

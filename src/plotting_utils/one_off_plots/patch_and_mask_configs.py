@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 
 from src.core.audio2spec import compute_spectrogram
 from src.core.model import SongMAE
-from src.plotting_utils.plotting_utils import masked_cmap, save_fig
+from src.plotting_utils.plotting_utils import MASK_CMAP, masked_cmap, save_fig
 
 AUDIO_FILE = Path(
     "/media/george-vengrovski/disk2/raw_data/canary/yarden_data/llb3_songs/"
@@ -50,7 +50,7 @@ SEED = 0               # deterministic masks
 FIGSIZE = (8.8, 11.0)
 
 OUT_DIR = Path(__file__).resolve().parents[3] / "imgs" / "patch_and_mask_configs"
-SPEC_CMAP = "viridis"
+SPEC_CMAP = MASK_CMAP
 
 
 def load_spec():
@@ -134,8 +134,7 @@ def plot_single(spec, mask, title, filename, vmin, vmax, mcmap):
     ax.set_xlabel("Time (s)", fontsize=14, labelpad=5)
     ax.tick_params(axis="x", labelsize=12, length=4)
     ax.spines["bottom"].set_visible(True)
-    fig.suptitle("Patch Shape: 32 mels × 1 timebin", fontsize=18)
-    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    fig.tight_layout()
     return save_fig(fig, OUT_DIR / filename)
 
 
@@ -162,8 +161,8 @@ def plot_c010(spec, vmin, vmax, mcmap):
 
 def main():
     spec = load_spec()
+    vmin = float(spec.min())
     vmax = float(spec.max())
-    vmin = vmax - 60.0          # 60 dB window for contrast (floor is ~-98 dB)
     mcmap = masked_cmap(SPEC_CMAP)
     for patch_shape in PATCH_SHAPES:
         print(f"wrote {plot_patch_shape(spec, patch_shape, vmin, vmax, mcmap)}")
