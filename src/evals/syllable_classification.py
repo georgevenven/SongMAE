@@ -2,6 +2,7 @@
 """Song-level cross-validated syllable linear probe."""
 import argparse
 import json
+import multiprocessing
 import sys
 import time
 from pathlib import Path
@@ -141,8 +142,8 @@ def pca_features(x, components, seed, cache_path):
 
 
 def standardize(x, train, val):
-    train_x = np.asarray(x[train], dtype=np.float32).copy()
-    val_x = np.asarray(x[val], dtype=np.float32).copy()
+    train_x = np.asarray(x[train], dtype=np.float32)
+    val_x = np.asarray(x[val], dtype=np.float32)
     mean = train_x.mean(axis=0, dtype=np.float64).astype(np.float32)
     std = train_x.std(axis=0, dtype=np.float64).astype(np.float32)
     std = np.maximum(std, 1e-6)
@@ -207,6 +208,51 @@ def metrics(labels, confusion):
     }
 
 
+def fit_fold(x, y, spans, groups, units, labels, fold, fold_index, args):
+    train = group_indices(groups, fold["train_groups"])
+    val = group_indices(groups, fold["val_groups"])
+    assert set(y[train].tolist()) == set(labels)
+    train_x, val_x = standardize(x, train, val)
+
+    started = time.perf_counter()
+    model = LogisticRegression(
+        C=args.logreg_c, class_weight="balanced", max_iter=args.max_iter
+    )
+    model.fit(train_x, y[train])
+    fit_seconds = time.perf_counter() - started
+    started = time.perf_counter()
+    predictions = model.predict(val_x)
+    predict_seconds = time.perf_counter() - started
+    confusion = confusion_matrix(
+        predictions, [spans[index] for index in val], units, labels
+    )
+    row = metrics(labels, confusion)
+    for key in ("class_labels", "confusion_matrix", "per_class"):
+        del row[key]
+    row.update(
+        {
+            "fold": fold_index,
+            "train_songs": len(fold["train_groups"]),
+            "val_songs": len(fold["val_groups"]),
+            "train_tokens": int(train.size),
+            "val_tokens": int(val.size),
+            "fit_seconds": fit_seconds,
+            "predict_seconds": predict_seconds,
+        }
+    )
+    return row, confusion
+
+
+def isolated_fold(*args):
+    context = multiprocessing.get_context("fork")
+    queue = context.SimpleQueue()
+    process = context.Process(target=lambda: queue.put(fit_fold(*args)))
+    process.start()
+    process.join()
+    assert process.exitcode == 0, f"Fold process exited with {process.exitcode}."
+    return queue.get()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--embeddings", required=True)
@@ -238,41 +284,16 @@ def main():
     fit_seconds = 0.0
     predict_seconds = 0.0
     for fold_index, fold in enumerate(manifest["folds"]):
-        train = group_indices(groups, fold["train_groups"])
-        val = group_indices(groups, fold["val_groups"])
-        assert set(y[train].tolist()) == set(labels)
-        train_x, val_x = standardize(x, train, val)
-
-        fit_started = time.perf_counter()
-        model = LogisticRegression(
-            C=args.logreg_c, class_weight="balanced", max_iter=args.max_iter
-        )
-        model.fit(train_x, y[train])
-        fit_elapsed = time.perf_counter() - fit_started
-        predict_started = time.perf_counter()
-        predictions = model.predict(val_x)
-        predict_elapsed = time.perf_counter() - predict_started
-        fold_confusion = confusion_matrix(
-            predictions, [spans[index] for index in val], units, labels
-        )
-        fold_row = metrics(labels, fold_confusion)
-        for key in ("class_labels", "confusion_matrix", "per_class"):
-            del fold_row[key]
-        fold_row.update(
-            {
-                "fold": fold_index,
-                "train_songs": len(fold["train_groups"]),
-                "val_songs": len(fold["val_groups"]),
-                "train_tokens": int(train.size),
-                "val_tokens": int(val.size),
-                "fit_seconds": fit_elapsed,
-                "predict_seconds": predict_elapsed,
-            }
+        fold_args = (x, y, spans, groups, units, labels, fold, fold_index, args)
+        fold_row, fold_confusion = (
+            isolated_fold(*fold_args)
+            if args.pca_components == 0
+            else fit_fold(*fold_args)
         )
         fold_metrics.append(fold_row)
         total_confusion += fold_confusion
-        fit_seconds += fit_elapsed
-        predict_seconds += predict_elapsed
+        fit_seconds += fold_row["fit_seconds"]
+        predict_seconds += fold_row["predict_seconds"]
 
     result = metrics(labels, total_confusion)
     result.update(

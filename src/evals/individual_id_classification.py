@@ -93,14 +93,51 @@ def make_folds(recording_labels, count, seed):
     ]
 
 
+def folds_from_clip_map(path, recording_labels, count):
+    rows = [
+        row
+        for row in json.loads(Path(path).read_text())
+        if row["composite_stem"] in recording_labels
+    ]
+    assert {row["composite_stem"] for row in rows} == set(recording_labels)
+    assert all(
+        str(row["source_bird_id"]) == recording_labels[row["composite_stem"]]
+        for row in rows
+    )
+    source_folds = {}
+    for row in rows:
+        source_folds.setdefault(row["source_stem"], row["fold"])
+        assert source_folds[row["source_stem"]] == row["fold"]
+    assert {row["fold"] for row in rows} == set(range(count))
+    all_stems = set(recording_labels)
+    folds = []
+    for index in range(count):
+        val = {row["composite_stem"] for row in rows if row["fold"] == index}
+        folds.append({
+            "train_recordings": sorted(all_stems - val),
+            "val_recordings": sorted(val),
+        })
+    return folds
+
+
 def load_manifest(args, recording_labels):
     class_labels = sorted(set(recording_labels.values()))
+    assert not (args.manifest_in and args.clip_map)
     if args.manifest_in:
         manifest = json.loads(Path(args.manifest_in).read_text())
+    elif args.clip_map:
+        manifest = {
+            "seed": args.seed,
+            "fold_strategy": "source_recording_disjoint_clip_map",
+            "split_integrity": "source_recording_disjoint",
+            "class_labels": class_labels,
+            "folds": folds_from_clip_map(args.clip_map, recording_labels, args.folds),
+        }
     else:
         manifest = {
             "seed": args.seed,
             "fold_strategy": "stratified_recording",
+            "split_integrity": "recording_disjoint",
             "class_labels": class_labels,
             "folds": make_folds(recording_labels, args.folds, args.seed),
         }
@@ -170,6 +207,7 @@ def parse_args():
     parser.add_argument("--folds", type=int, default=3)
     parser.add_argument("--manifest_in")
     parser.add_argument("--manifest_out")
+    parser.add_argument("--clip_map")
     parser.add_argument("--pca_components", type=int, default=128)
     parser.add_argument("--pca_cache")
     parser.add_argument("--max_iter", type=int, default=5000)
@@ -247,7 +285,9 @@ def main():
             "prediction_aggregation": "mean_patch_probability_per_recording_song",
             "folds": args.folds,
             "fold_strategy": manifest["fold_strategy"],
-            "recording_split_integrity": "disjoint",
+            "recording_split_integrity": manifest.get(
+                "split_integrity", "recording_disjoint"
+            ),
             "classes": len(labels),
             "class_labels": labels,
             "patches": int(len(y)),
