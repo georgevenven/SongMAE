@@ -11,6 +11,10 @@ MODELS = (
     ("SongMAE 32×4", "songmae_32x4"),
     ("BirdAVES", "birdaves"),
     ("HuBERT", "hubert"),
+    ("SongMAE Micro 32×1", "micro_32x1"),
+    ("SongMAE Micro 32×4", "micro_32x4"),
+    ("SongMAE Base 32×1", "base_32x1"),
+    ("SongMAE Base 32×4", "base_32x4"),
 )
 
 
@@ -32,12 +36,15 @@ def values(runs, model):
 
 
 def print_table(runs, markdown):
-    counts = [len(runs[species, MODELS[0][1]]) for species, _ in SPECIES]
+    present = {model for _, model in runs}
+    models = [(label, model) for label, model in MODELS if model in present]
+    assert {model for _, model in models} == present, f"unknown models: {sorted(present)}"
+    counts = [len(runs[species, models[0][1]]) for species, _ in SPECIES]
     headers = ["Model"] + [
         f"{label} V-measure (n={count})"
         for (_, label), count in zip(SPECIES, counts)
     ] + [f"All birds V-measure (n={sum(counts)})"]
-    rows = [[label] + [f"{value:.3f}" for value in values(runs, model)] for label, model in MODELS]
+    rows = [[label] + [f"{value:.3f}" for value in values(runs, model)] for label, model in models]
     if not markdown:
         for row in [headers, *rows]:
             print("\t".join(row))

@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from math import sqrt
 
 import numpy as np
 import torch
@@ -8,7 +9,7 @@ from avex.models.base_model import ModelBase
 from src.core.audio2spec import compute_spectrogram
 from src.core.data_structures import AudioParams
 from src.core.utils import load_model_from_checkpoint, normalize_spectrogram
-from src.evals.AVEX.windows import pool_embeddings, select_layers, sliding_window_starts
+from src.evals.AVEX.windows import pool_embeddings, select_layers, sliding_window_starts, spatial_embeddings
 
 
 @register_model_class
@@ -27,7 +28,25 @@ class SongMAEAVEX(ModelBase):
         self._layer_names = [f"layer_{index}" for index in range(self.num_layers)]
         self.selected_layers = [self.num_layers - 1]
         self.embedding_batch_size = int(extra.get("embedding_batch_size", 8))
+        self.spatial_channels = int(extra.get("spatial_channels", 0))
+        self.spatial_identity = bool(extra.get("spatial_identity", False))
+        self.spatial_time_pool = int(extra.get("spatial_time_pool", 1))
+        self.extra = dict(extra)
         assert self.embedding_batch_size > 0
+        assert 0 <= self.spatial_channels <= self.config["enc_hidden_d"]
+        assert not (self.spatial_channels and self.spatial_identity)
+        assert self.spatial_time_pool > 0
+        if self.spatial_identity:
+            projection = torch.eye(self.config["enc_hidden_d"])
+        elif self.spatial_channels:
+            generator = torch.Generator().manual_seed(int(extra.get("spatial_seed", 42)))
+            projection = torch.randn(
+                self.config["enc_hidden_d"],
+                self.spatial_channels,
+                generator=generator,
+            ) / sqrt(self.config["enc_hidden_d"])
+        if self.spatial_identity or self.spatial_channels:
+            self.register_buffer("spatial_projection", projection.to(device), persistent=False)
 
     def get_model_layers(self):
         return self._layer_names.copy()
@@ -67,7 +86,7 @@ class SongMAEAVEX(ModelBase):
         valid_timebins = torch.tensor(valid_timebins, device=self.device)
         return specs, valid_timebins, window_counts
 
-    def _encode(self, wav, padding_mask, freeze_backbone):
+    def _encode(self, wav, padding_mask, freeze_backbone, aggregation):
         if freeze_backbone:
             self.backbone.eval()
         specs, valid_timebins, window_counts = self._spectrogram_windows(wav, padding_mask)
@@ -98,13 +117,23 @@ class SongMAEAVEX(ModelBase):
         encoded = torch.cat(chunks)
         windows, layers, _, hidden = encoded.shape
         encoded = encoded.reshape(windows, layers, height, width, hidden)
-        encoded = encoded.permute(0, 1, 3, 2, 4).flatten(3)
         valid_columns = torch.div(
             valid_timebins + self.config["patch_width"] - 1,
             self.config["patch_width"],
             rounding_mode="floor",
         ).clamp(max=width)
 
+        if aggregation == "none":
+            assert layers == 1 and all(count == 1 for count in window_counts)
+            assert hasattr(self, "spatial_projection") and width % self.spatial_time_pool == 0
+            return spatial_embeddings(
+                encoded[:, 0],
+                valid_columns,
+                self.spatial_projection.to(encoded.dtype),
+                self.spatial_time_pool,
+            )
+
+        encoded = encoded.permute(0, 1, 3, 2, 4).flatten(3)
         pooled, start = [], 0
         for count in window_counts:
             end = start + count
@@ -114,11 +143,13 @@ class SongMAEAVEX(ModelBase):
         return torch.stack(pooled)
 
     def extract_embeddings(self, x, *, padding_mask=None, aggregation="mean", freeze_backbone=True):
-        assert aggregation == "mean", "SongMAE AVEX supports mean-pooled probes"
+        assert aggregation in ("mean", "none")
         if isinstance(x, dict):
             padding_mask = x.get("padding_mask")
             x = x["raw_wav"]
-        pooled = self._encode(x, padding_mask, freeze_backbone)
+        pooled = self._encode(x, padding_mask, freeze_backbone, aggregation)
+        if aggregation == "none":
+            return pooled
         if len(self.selected_layers) == 1:
             return pooled[:, 0]
         return [pooled[:, index] for index in range(pooled.shape[1])]

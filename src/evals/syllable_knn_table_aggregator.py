@@ -48,15 +48,19 @@ def average(rows):
     return [sum(row[metric] for row in rows) / len(rows) for metric in METRICS]
 
 
+def percent(value):
+    return f"{100 * value:.1f}%"
+
+
 def cell(values):
-    return "-" if values is None else f"{values[0]:.3f} ({values[1]:.3f}/{values[2]:.3f})"
+    return "-" if values is None else f"{percent(values[0])} ({percent(values[1])}/{percent(values[2])})"
 
 
 def result_row(runs, label, name, k):
     values = [average(runs[species, name, k]) for species, _ in SPECIES]
     present = [value for value in values if value is not None]
     mean = [sum(x[i] for x in present) / len(present) for i in range(3)]
-    overall = ["-" if value is None else f"{value[0]:.3f}" for value in values]
+    overall = ["-" if value is None else percent(value[0]) for value in values]
     return [label, *overall, cell(mean)]
 
 
