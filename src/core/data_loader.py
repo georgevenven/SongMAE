@@ -124,7 +124,7 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
         self.samples = self._build_samples()
 
     def _build_samples(self):
-        # full_recordings samples regular file crops; events samples one crop per detected event.
+        # Event and background modes pass isolated intervals to the model.
         if self.recording_mode == "full_recordings":
             return [(path, None) for path in self.file_dirs]
         if self.recording_mode == "events":
@@ -133,6 +133,20 @@ class SpectrogramDatasetSupervised(SpectrogramDataset):
                 for path in self.file_dirs
                 for event in self.events_by_file[path.stem]
             ]
+        if self.recording_mode == "background":
+            samples = []
+            margin = (self.params.fft + self.params.hop_size - 1) // self.params.hop_size
+            for path in self.file_dirs:
+                length = spec_timebins(path)
+                start = 0
+                for event in sorted(self.events_by_file[path.stem], key=lambda row: row["on_timebins"]):
+                    end = max(start, min(length, event["on_timebins"] - margin))
+                    if start < end:
+                        samples.append((path, {"on_timebins": start, "off_timebins": end, "units": []}))
+                    start = max(start, event["off_timebins"] + margin)
+                if start < length:
+                    samples.append((path, {"on_timebins": start, "off_timebins": length, "units": []}))
+            return samples
         raise ValueError(f"unknown recording mode: {self.recording_mode}")
 
     def _event_crop(self, arr, event):

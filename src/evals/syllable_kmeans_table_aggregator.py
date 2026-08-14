@@ -5,16 +5,16 @@ from collections import defaultdict
 from pathlib import Path
 
 
-SPECIES = (("canary", "Canary"), ("zf", "Zebra Finch"), ("bf", "Bengalese Finch"))
+SPECIES = (("canary", "canary"), ("zf", "zebra finch"), ("bf", "Bengalese finch"))
 MODELS = (
-    ("SongMAE 32×1", "songmae_32x1"),
-    ("SongMAE 32×4", "songmae_32x4"),
+    ("SongMAE-Large 32×1", "songmae_32x1"),
+    ("SongMAE-Large 32×4", "songmae_32x4"),
     ("BirdAVES", "birdaves"),
     ("HuBERT", "hubert"),
-    ("SongMAE Micro 32×1", "micro_32x1"),
-    ("SongMAE Micro 32×4", "micro_32x4"),
-    ("SongMAE Base 32×1", "base_32x1"),
-    ("SongMAE Base 32×4", "base_32x4"),
+    ("SongMAE-Micro 32×1", "micro_32x1"),
+    ("SongMAE-Micro 32×4", "micro_32x4"),
+    ("SongMAE-Base 32×1", "base_32x1"),
+    ("SongMAE-Base 32×4", "base_32x4"),
 )
 
 
@@ -30,9 +30,8 @@ def load_runs(root):
 
 def values(runs, model):
     species_values = [[value for _, value in runs[species, model]] for species, _ in SPECIES]
-    return [sum(group) / len(group) for group in species_values] + [
-        sum(map(sum, species_values)) / sum(map(len, species_values))
-    ]
+    species_means = [sum(group) / len(group) for group in species_values]
+    return species_means + [sum(species_means) / len(species_means)]
 
 
 def print_table(runs, markdown):
@@ -43,7 +42,7 @@ def print_table(runs, markdown):
     headers = ["Model"] + [
         f"{label} V-measure (n={count})"
         for (_, label), count in zip(SPECIES, counts)
-    ] + [f"All birds V-measure (n={sum(counts)})"]
+    ] + ["Equal-species mean V-measure"]
     rows = [[label] + [f"{value:.3f}" for value in values(runs, model)] for label, model in models]
     if not markdown:
         for row in [headers, *rows]:
@@ -56,7 +55,7 @@ def print_table(runs, markdown):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Aggregate syllable K-means V-measure by species.")
+    parser = argparse.ArgumentParser(description="Aggregate syllable K-means V-measure with equal species weighting.")
     parser.add_argument(
         "--results_root",
         type=Path,

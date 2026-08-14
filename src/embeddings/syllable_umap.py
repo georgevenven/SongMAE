@@ -106,8 +106,8 @@ def scatter(xy, labels, out_base):
     for label, color in build_palette(labels).items():
         idx = labels == label
         ax.scatter(xy[idx, 0], xy[idx, 1], s=10, color=color, alpha=0.15, edgecolors="none")
-    ax.set_xlabel("UMAP 1", fontsize=20, fontweight="bold")
-    ax.set_ylabel("UMAP 2", fontsize=20, fontweight="bold")
+    ax.set_xlabel("UMAP 1", fontsize=20)
+    ax.set_ylabel("UMAP 2", fontsize=20)
     ax.set_xticks([])
     ax.set_yticks([])
     fig.tight_layout()

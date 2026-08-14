@@ -17,10 +17,10 @@ SPECIES = [
 ]
 
 ROWS = [
-    ("Large 32x4", "xcl_large_500k_p32x4_c010"),
-    ("Large 32x1", "xcl_large_500k_p32x1_c005"),
+    ("SongMAE-Large 32×1", "xcl_large_500k_p32x1_c005"),
+    ("SongMAE-Large 32×4", "xcl_large_500k_p32x4_c010"),
     ("BirdAVES", "birdaves_biox_base"),
-    ("HuBERT base", "hubert_base_ls960"),
+    ("HuBERT", "hubert_base_ls960"),
 ]
 
 
@@ -53,14 +53,21 @@ def row_values(runs, model):
 def format_cell(value):
     if value is None:
         return "-"
-    return (
-        f'{100.0 * value["macro_fer"]:.2f} '
-        f'({100.0 * value["macro_parsing_error"]:.2f}/{100.0 * value["macro_identity_error"]:.2f})'
-    )
+    return f'{100.0 * value["macro_fer"]:.2f}'
+
+
+def breakdown_cells(value):
+    if value is None:
+        return ["-", "-", "-"]
+    return [
+        f'{100.0 * value["macro_fer"]:.2f}',
+        f'{100.0 * value["macro_parsing_error"]:.2f}',
+        f'{100.0 * value["macro_identity_error"]:.2f}',
+    ]
 
 
 def print_rows(rows, tsv):
-    headers = ["Model"] + [f"{label} Macro FER (P/I)" for _, label in SPECIES] + ["Mean Macro FER (P/I)"]
+    headers = ["Model", "Canary", "Zebra", "Bengalese", "Mean", "Parsing", "Identity"]
     sep = "\t" if tsv else " | "
     if tsv:
         print(sep.join(headers))
@@ -68,14 +75,14 @@ def print_rows(rows, tsv):
         print("| " + sep.join(headers) + " |")
         print("| " + sep.join(["---"] * len(headers)) + " |")
     for label, values in rows:
-        cells = [label] + [format_cell(value) for value in values]
+        cells = [label] + [format_cell(value) for value in values[:-1]] + breakdown_cells(values[-1])
         print(sep.join(cells) if tsv else "| " + sep.join(cells) + " |")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Aggregate SongMAE-vs-other syllable linear probe results.")
     parser.add_argument(
-        "--results_root", default="results/linear_probe_models_kmax_pca128_logreg_c0001"
+        "--results_root", default="results/linear_probe_models_best_layers_kmax_pca128_logreg_c0001"
     )
     parser.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     args = parser.parse_args()

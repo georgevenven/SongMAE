@@ -14,7 +14,12 @@ from tqdm import tqdm
 # Local deps
 from src.core.data_loader import SpectrogramDataset, SpectrogramDatasetSupervised
 from src.core.utils import load_model_from_checkpoint
-from src.plotting_utils.plotting_utils import MASK_CMAP, masked_cmap
+from src.plotting_utils.plotting_utils import (
+    MASK_CMAP,
+    PAPER_SPEC_FONT_SIZE,
+    PAPER_SPEC_TICK_SIZE,
+    masked_cmap,
+)
 
 
 def depatchify(pred_patches, H, W, patch_size):
@@ -229,8 +234,8 @@ def main():
                 fig2, axes = plt.subplots(3, 1, figsize=(7.9, 5.8933), sharex=True)
                 titles = (
                     "Input Spectrogram",
-                    "Input Spectrogram With Mask",
-                    "Decoder Output" if args.inference_mode else "Decoder Predictions and Original Spectrogram",
+                    "Masked Spectrogram",
+                    "SongMAE Output",
                 )
                 for ax, image, title, cmap in zip(
                     axes,
@@ -239,12 +244,12 @@ def main():
                     (MASK_CMAP, masked_cmap(), MASK_CMAP),
                 ):
                     ax.imshow(image, origin="lower", aspect="auto", cmap=cmap, extent=extent)
-                    ax.set_title(title, fontsize=16, fontweight="bold")
+                    ax.set_title(title, fontsize=PAPER_SPEC_FONT_SIZE)
                     ax.set_yticks([0, H // 2, H])
-                    ax.set_ylabel("Mels", fontsize=12)
-                    ax.tick_params(labelsize=10)
+                    ax.set_ylabel("Mels", fontsize=PAPER_SPEC_FONT_SIZE)
+                    ax.tick_params(labelsize=PAPER_SPEC_TICK_SIZE)
                 axes[-1].set_xticks(np.arange(0, seconds + 1e-9, 1))
-                axes[-1].set_xlabel("Time (s)", fontsize=12)
+                axes[-1].set_xlabel("Time (s)", fontsize=PAPER_SPEC_FONT_SIZE)
 
                 fig2.tight_layout()
                 out_image = os.path.join(imgs_dir, f"{evaluated:06d}_{fname}_overlay.{args.image_format}")

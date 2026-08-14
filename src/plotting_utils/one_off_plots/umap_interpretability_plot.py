@@ -97,9 +97,9 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
         ["Ground Truth Labels", "Embedding Position"],
     ):
         ax.scatter(xy[:, 0], xy[:, 1], c=colors, s=10, alpha=0.4, edgecolors="none")
-        ax.set_title(panel_title, fontweight="bold")
-        ax.set_xlabel("UMAP 1", fontweight="bold")
-        ax.set_ylabel("UMAP 2", fontweight="bold")
+        ax.set_title(panel_title)
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
         ax.set_xticks([])
         ax.set_yticks([])
 
@@ -115,13 +115,13 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
     )
     ax_spec.set_xticks(np.arange(0, duration_s + 1e-9, 1))
     ax_spec.set_yticks([0, mels // 2, mels])
-    ax_spec.set_xlabel("Time (s)", fontweight="bold", labelpad=0)
-    ax_spec.set_ylabel("Mels", fontweight="bold")
+    ax_spec.set_xlabel("Time (s)", labelpad=0)
+    ax_spec.set_ylabel("Mels")
 
     for row, colors, label in [(2, gt_colors, "Ground Truth Label"), (3, pos_colors, "Embedding Position")]:
         ax = fig.add_subplot(grid[row, :])
         ax.imshow(colors[np.newaxis, :, :], aspect="auto")
-        ax.set_xlabel(label, fontweight="bold")
+        ax.set_xlabel(label)
         ax.set_yticks([])
         ax.set_xticks([])
 

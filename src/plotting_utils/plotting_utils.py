@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 
 SPEC_FIGSIZE = (10.0, 6.0)
 SPEC_DPI = 300
+PAPER_SPEC_FONT_SIZE = 24
+PAPER_SPEC_TICK_SIZE = 20
 SPEC_IMSHOW_KW = {"origin": "lower", "aspect": "auto", "interpolation": "none"}
 SPEC_TITLE_KW = {"fontsize": 18, "fontweight": "bold"}
 SPEC_TITLE_Y = 1.15

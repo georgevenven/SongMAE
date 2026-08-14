@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 
 
 MODELS = {
-    "xcl_large_500k_p32x1_c005": ("SongMAE 32×1", "#0072B2"),
-    "xcl_large_500k_p32x4_c010": ("SongMAE 32×4", "#56B4E9"),
+    "xcl_large_500k_p32x1_c005": ("SongMAE-Large\n(32 mels × 5 ms)", "#0072B2"),
+    "xcl_large_500k_p32x4_c010": ("SongMAE-Large\n(32 mels × 20 ms)", "#56B4E9"),
     "birdaves_biox_base": ("BirdAVES", "#D55E00"),
     "hubert_base_ls960": ("HuBERT", "#009E73"),
 }

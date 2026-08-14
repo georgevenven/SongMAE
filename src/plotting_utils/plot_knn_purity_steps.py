@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 
 SPECIES = ("zf", "bf", "canary")
-SPECIES_LABELS = {"zf": "Zebra Finch", "bf": "Bengalese Finch", "canary": "Canary"}
+SPECIES_LABELS = {"zf": "zebra finch", "bf": "Bengalese finch", "canary": "canary"}
 CHECKPOINTS = (
     ("000000", "0k"),
     ("020000", "20k"),

@@ -609,9 +609,9 @@ def plot_species_f1_curves(
     ordered_species.extend(sorted(species_set - set(ordered_species)))
 
     species_display = {
-        "Bengalese_Finch": "Bengalese Finch",
-        "Zebra_Finch": "Zebra Finch",
-        "Canary": "Canary",
+        "Bengalese_Finch": "Bengalese finch",
+        "Zebra_Finch": "zebra finch",
+        "Canary": "canary",
     }
 
     def _slugify(text: str) -> str:

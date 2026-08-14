@@ -19,8 +19,8 @@ BINS = (
     (80, 100, "80–100"),
 )
 MODELS = (
-    ("SongMAE 32×1", "songmae_32x1", "#0072B2", "o"),
-    ("SongMAE 32×4", "songmae_32x4", "#56B4E9", "s"),
+    ("SongMAE-Large 32×1", "songmae_32x1", "#0072B2", "o"),
+    ("SongMAE-Large 32×4", "songmae_32x4", "#56B4E9", "s"),
     ("BirdAVES", "birdaves", "#009E73", "^"),
     ("HuBERT", "hubert", "#D55E00", "D"),
 )

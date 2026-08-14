@@ -23,17 +23,17 @@ LABELS = {
     "BEATs pretrained": "BEATs",
     "EAT-base pretrained": "EAT-base pretrained",
     "EAT-all": "EAT-all",
-    "Bird-BirdAVES-biox-base": "BirdAVES",
+    "BirdAVES": "BirdAVES",
     "Bird-MAE-Huge": "Bird-MAE-Huge",
-    "BirdNet": "BirdNET",
+    "BirdNET": "BirdNET",
 }
 COLORS = {
     "BEATs pretrained": "#009E73",
     "EAT-base pretrained": "#009E73",
     "EAT-all": "#009E73",
-    "Bird-BirdAVES-biox-base": "#009E73",
+    "BirdAVES": "#009E73",
     "Bird-MAE-Huge": "#009E73",
-    "BirdNet": "#222222",
+    "BirdNET": "#222222",
 }
 SONGMAE = {
     "32×1": ("#0072B2", 2.4, 1.0),
@@ -44,17 +44,17 @@ ANNOTATIONS = {
         "BEATs pretrained": (20.9, -17.1, "left", "top"),
         "EAT-base pretrained": (-11.3, -29.1, "left", "top"),
         "EAT-all": (16.6, 3.3, "left", "bottom"),
-        "Bird-BirdAVES-biox-base": (22.8, -0.7, "left", "center"),
+        "BirdAVES": (22.8, -0.7, "left", "center"),
         "Bird-MAE-Huge": (-7, 33.1, "right", "center"),
-        "BirdNet": (-26, 0, "right", "center"),
+        "BirdNET": (-26, 0, "right", "center"),
     },
     "detection": {
         "BEATs pretrained": (23.8, 3, "left", "top"),
         "EAT-base pretrained": (-103.2, 0, "left", "center"),
         "EAT-all": (26, 0, "left", "center"),
-        "Bird-BirdAVES-biox-base": (26, 0, "left", "center"),
+        "BirdAVES": (26, 0, "left", "center"),
         "Bird-MAE-Huge": (-26, 0, "right", "center"),
-        "BirdNet": (-26, 0, "right", "center"),
+        "BirdNET": (-26, 0, "right", "center"),
     },
 }
 

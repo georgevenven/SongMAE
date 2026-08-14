@@ -10,9 +10,9 @@ FIXED = [
     ("SSL", "BEATs pretrained", 0.774, 0.381),
     ("SSL", "EAT-base pretrained", 0.679, 0.252),
     ("SSL", "EAT-all", 0.709, 0.315),
-    ("SSL", "Bird-BirdAVES-biox-base", 0.705, 0.34),
+    ("SSL", "BirdAVES", 0.705, 0.34),
     ("SSL", "Bird-MAE-Huge", 0.766, 0.354),
-    ("SL reference", "BirdNet", 0.796, 0.392),
+    ("SL reference", "BirdNET", 0.796, 0.392),
 ]
 TRAINED = [
     ("SongMAE-Base 32×4", "base_p32x4"),
@@ -31,9 +31,9 @@ PARAMETERS = {
     "BEATs pretrained": 90_000_000,
     "EAT-base pretrained": 90_000_000,
     "EAT-all": 90_000_000,
-    "Bird-BirdAVES-biox-base": 94_370_944,
+    "BirdAVES": 94_370_944,
     "Bird-MAE-Huge": 630_342_400,
-    "BirdNet": 12_625_000,
+    "BirdNET": 12_625_000,
 }
 
 

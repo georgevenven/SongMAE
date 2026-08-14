@@ -18,6 +18,10 @@ def _labels_for_recording(ds, stem, length):
 
 def load_recording_segments(args):
     max_timebins = int(args.get("num_timebins") or 0)
+    segment_timebins = int(args.get("segment_timebins") or 0)
+    max_segment_timebins = int(args.get("max_segment_timebins") or 0)
+    assert segment_timebins >= 0 and max_segment_timebins >= 0
+    assert not (segment_timebins and max_segment_timebins)
 
     ds = SpectrogramDatasetSupervised(
         args["spec_dir"],
@@ -48,29 +52,40 @@ def load_recording_segments(args):
             cached_labels = _labels_for_recording(ds, spec_path.stem, cached_spec.shape[1])
         assert cached_spec is not None and cached_labels is not None
 
-        spec, start_timebin, end_timebin = ds._event_crop(cached_spec, event) if event else ds._crop_pad(cached_spec)
-        labels = cached_labels[start_timebin:end_timebin]
-        if ds.normalize:
-            spec = normalize_spectrogram(spec, ds.mean, ds.std)
-        if max_timebins > 0:
-            remaining = max_timebins - collected_timebins
-            spec = spec[:, :remaining]
-            labels = labels[:remaining]
-        if spec.shape[1] == 0:
-            continue
-        end_timebin = start_timebin + spec.shape[1]
-        segments.append(
-            {
-                "recording_stem": spec_path.stem,
-                "song_id": idx,
-                "start_ms": timebins_to_ms(start_timebin, audio_params),
-                "end_ms": timebins_to_ms(end_timebin, audio_params),
-                "spec_path": str(spec_path),
-                "spectrogram": spec,
-                "labels_original": labels,
-            }
-        )
-        collected_timebins += spec.shape[1]
+        spec, start_timebin, _ = ds._event_crop(cached_spec, event) if event else ds._crop_pad(cached_spec)
+        if segment_timebins:
+            starts = range(0, spec.shape[1] - segment_timebins + 1, segment_timebins)
+        elif max_segment_timebins:
+            starts = range(0, spec.shape[1], max_segment_timebins)
+        else:
+            starts = [0]
+        for offset in starts:
+            if max_segments > 0 and len(segments) >= max_segments:
+                break
+            width = segment_timebins or min(max_segment_timebins or spec.shape[1], spec.shape[1] - offset)
+            if max_timebins > 0 and collected_timebins + width > max_timebins:
+                break
+            segment = spec[:, offset : offset + width]
+            labels = cached_labels[start_timebin + offset : start_timebin + offset + width]
+            if args.get("per_segment_normalize"):
+                segment_std = float(segment.std(dtype=np.float64))
+                assert segment_std > 0
+                segment = (segment - segment.mean(dtype=np.float64)) / segment_std * ds.std + ds.mean
+            if ds.normalize:
+                segment = normalize_spectrogram(segment, ds.mean, ds.std)
+            end_timebin = start_timebin + offset + width
+            segments.append(
+                {
+                    "recording_stem": spec_path.stem,
+                    "song_id": len(segments),
+                    "start_ms": timebins_to_ms(start_timebin + offset, audio_params),
+                    "end_ms": timebins_to_ms(end_timebin, audio_params),
+                    "spec_path": str(spec_path),
+                    "spectrogram": segment,
+                    "labels_original": labels,
+                }
+            )
+            collected_timebins += width
 
     return {
         "audio_params": audio_params,
@@ -326,6 +341,10 @@ def _metadata(extracted, args, model_state):
         "num_patches_time": model_state["num_patches_time"],
         "num_patches_height": model_state["num_patches_height"],
         "checkpoint": args.get("checkpoint") or "",
+        "recording_mode": args.get("recording_mode", "events"),
+        "segment_timebins": int(args.get("segment_timebins") or 0),
+        "max_segment_timebins": int(args.get("max_segment_timebins") or 0),
+        "per_segment_normalize": bool(args.get("per_segment_normalize")),
         "encoder_layer_idx": args.get("encoder_layer_idx"),
         "all_layers": bool(args.get("all_layers")),
         "target_feature_type": args.get("target_feature_type", "end_of_block"),
@@ -423,11 +442,14 @@ if __name__ == "__main__":
     parser.add_argument("--event_seed", type=int, default=42)
     parser.add_argument("--all_layers", action="store_true")
     parser.add_argument("--recording_stem", type=str, default=None)
+    parser.add_argument("--segment_timebins", type=int, default=0)
+    parser.add_argument("--max_segment_timebins", type=int, default=0)
+    parser.add_argument("--per_segment_normalize", action="store_true")
     parser.add_argument(
         "--recording_mode",
         type=str,
         default="events",
-        choices=["events", "full_recordings"],
+        choices=["events", "background", "full_recordings"],
     )
     parser.add_argument(
         "--encoder_layer_idx",

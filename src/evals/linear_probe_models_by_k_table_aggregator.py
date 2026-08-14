@@ -11,8 +11,8 @@ from src.evals.linear_probe_table_utils import load_capped_runs, print_tables, v
 
 CAPS = [1, 5, 10, 20, 50, 100]
 MODELS = [
-    ("SongMAE Large 32x1 (500k)", "xcl_large_500k_p32x1_c005"),
-    ("SongMAE Large 32x4 (500k)", "xcl_large_500k_p32x4_c010"),
+    ("SongMAE-Large 32×1 (500k)", "xcl_large_500k_p32x1_c005"),
+    ("SongMAE-Large 32×4 (500k)", "xcl_large_500k_p32x4_c010"),
     ("BirdAVES", "birdaves_biox_base"),
     ("HuBERT base", "hubert_base_ls960"),
 ]

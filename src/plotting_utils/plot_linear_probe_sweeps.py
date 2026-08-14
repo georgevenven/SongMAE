@@ -13,13 +13,13 @@ import matplotlib.pyplot as plt
 
 SPECIES = ("Zebra", "Bengalese", "Canary")
 SPECIES_LABELS = {
-    "Zebra": "Zebra Finch",
-    "Bengalese": "Bengalese Finch",
-    "Canary": "Canary",
+    "Zebra": "zebra finch",
+    "Bengalese": "Bengalese finch",
+    "Canary": "canary",
 }
 K_MODELS = {
-    "SongMAE Large 32x1 (500k)": ("SongMAE 32×1", "#0072B2", "-"),
-    "SongMAE Large 32x4 (500k)": ("SongMAE 32×4", "#56B4E9", "-"),
+    "SongMAE Large 32x1 (500k)": ("SongMAE-Large 32×1", "#0072B2", "-"),
+    "SongMAE Large 32x4 (500k)": ("SongMAE-Large 32×4", "#56B4E9", "-"),
     "BirdAVES": ("BirdAVES", "#D55E00", "--"),
     "HuBERT base": ("HuBERT", "#009E73", ":"),
 }

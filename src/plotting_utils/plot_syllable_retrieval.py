@@ -13,7 +13,7 @@ METRICS = [
 ]
 MODEL_LABELS = {
     "spectrogram_pca_euclidean": "Spectrogram PCA",
-    "xcl_base_100k_p32x1_c010": "SongMAE 32x1",
+    "xcl_base_100k_p32x1_c010": "SongMAE-Base 32×1",
     "xcl_base_100k_p16x4_c010": "SongMAE 16x4",
     "birdaves_biox_base": "BirdAVES",
     "hubert_base_ls960": "HuBERT base",

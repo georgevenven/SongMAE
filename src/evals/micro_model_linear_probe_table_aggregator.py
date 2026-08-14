@@ -20,7 +20,7 @@ TITLE = "Linear Probe Ablations"
 
 SECTIONS = [
     (
-        "Masking strategy (32x1; Voronoi C=0.1)",
+        "Masking strategy (32×1; Voronoi C=0.1)",
         [
             ("Random", "xcl_micro_100k_p32x1_random"),
             ("Voronoi", "Xcl_micro_100k_p32x1_c010"),
@@ -29,29 +29,27 @@ SECTIONS = [
     (
         "Patch shape (Voronoi, C=0.1)",
         [
-            ("128x1", "Xcl_micro_100k_p128x1_default"),
-            ("32x1", "Xcl_micro_100k_p32x1_c010"),
-            ("16x1", "Xcl_micro_100k_p16x1_default"),
-            ("32x4", "xcl_micro_100k_p32x4_c010"),
-            ("4x4", "Xcl_micro_100k_p4x4_default"),
+            ("128×1", "Xcl_micro_100k_p128x1_default"),
+            ("32×1", "Xcl_micro_100k_p32x1_c010"),
+            ("16×1", "Xcl_micro_100k_p16x1_default"),
+            ("32×4", "xcl_micro_100k_p32x4_c010"),
+            ("4×4", "Xcl_micro_100k_p4x4_default"),
         ],
     ),
     (
-        "Voronoi C parameter (32x1)",
+        "Voronoi C parameter (32×1)",
         [
             ("C=0.025", "Xcl_micro_100k_p32x1_c0025"),
             ("C=0.05", "Xcl_micro_100k_p32x1_c005"),
             ("C=0.1", "Xcl_micro_100k_p32x1_c010"),
-            ("C=0.2", "Xcl_micro_100k_p32x1_c020"),
         ],
     ),
     (
-        "Voronoi C parameter (32x4)",
+        "Voronoi C parameter (32×4)",
         [
             ("C=0.025", "xcl_micro_100k_p32x4_c0025"),
             ("C=0.05", "xcl_micro_100k_p32x4_c005"),
             ("C=0.1", "xcl_micro_100k_p32x4_c010"),
-            ("C=0.2", "xcl_micro_100k_p32x4_c020"),
         ],
     ),
 ]
@@ -78,44 +76,59 @@ def species_cell(runs, species, model):
     return average(runs.get((species, model), []))
 
 
-def format_cell(value):
+def format_score(value):
     if value is None:
         return "-"
-    return (
-        f'{100.0 * value["macro_fer"]:.2f} '
-        f'({100.0 * value["macro_parsing_error"]:.2f}/{100.0 * value["macro_identity_error"]:.2f})'
-    )
+    return f'{100.0 * value["macro_fer"]:.2f}'
+
+
+def breakdown_values(value):
+    if value is None:
+        return ["-", "-", "-"]
+    return [
+        f'{100.0 * value["macro_fer"]:.2f}',
+        f'{100.0 * value["macro_parsing_error"]:.2f}',
+        f'{100.0 * value["macro_identity_error"]:.2f}',
+    ]
 
 
 def row_values(runs, model):
     values = [species_cell(runs, species, model) for species, _ in SPECIES]
-    return values + [average([value for value in values if value is not None])]
+    mean = average([value for value in values if value is not None])
+    return [format_score(value) for value in values] + breakdown_values(mean)
+
+
+def config_cells(section, row_label):
+    if section.startswith("Masking strategy"):
+        return [row_label, "32×1", "0.100"]
+    if section.startswith("Patch shape"):
+        return ["Voronoi", row_label, "0.100"]
+    patch = "32×1" if "32×1" in section else "32×4"
+    return ["Voronoi", patch, f'{float(row_label.removeprefix("C=")):.3f}']
 
 
 def print_markdown(runs):
-    headers = ["Config"] + [f"{label} Macro FER (P/I)" for _, label in SPECIES] + ["Mean Macro FER (P/I)"]
-    section = ["-"] * (len(headers) - 1)
+    headers = ["Masking", "Patch", "C"]
+    headers += [label for _, label in SPECIES] + ["Mean", "Parsing", "Identity"]
     print(TITLE)
     print()
     print("| " + " | ".join(headers) + " |")
     print("| " + " | ".join(["---"] * len(headers)) + " |")
-    for label, rows in SECTIONS:
-        print("| " + " | ".join([label] + section) + " |")
+    for section, rows in SECTIONS:
         for row_label, model in rows:
-            values = [format_cell(value) for value in row_values(runs, model)]
-            print("| " + " | ".join([row_label] + values) + " |")
+            print("| " + " | ".join(config_cells(section, row_label) + row_values(runs, model)) + " |")
+        if section != SECTIONS[-1][0]:
+            print()
 
 
 def print_tsv(runs):
-    headers = ["Config"] + [f"{label} Macro FER (P/I)" for _, label in SPECIES] + ["Mean Macro FER (P/I)"]
-    section = ["-"] * (len(headers) - 1)
-    print("\t".join([TITLE] + section))
+    headers = ["Masking", "Patch", "C"]
+    headers += [label for _, label in SPECIES] + ["Mean", "Parsing", "Identity"]
+    print("\t".join([TITLE]))
     print("\t".join(headers))
-    for label, rows in SECTIONS:
-        print("\t".join([label] + section))
+    for section, rows in SECTIONS:
         for row_label, model in rows:
-            values = [format_cell(value) for value in row_values(runs, model)]
-            print("\t".join([row_label] + values))
+            print("\t".join(config_cells(section, row_label) + row_values(runs, model)))
 
 
 def main():
