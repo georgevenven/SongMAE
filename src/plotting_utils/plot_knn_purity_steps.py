@@ -73,7 +73,7 @@ def plot_shape(values, shape, k, output_dir):
     fig.supxlabel("Training step", y=0.035)
     axes[-1].legend(
         handles=handles,
-        loc="upper left",
+        loc="lower right",
         fontsize=8,
         frameon=True,
         framealpha=0.78,
@@ -81,13 +81,12 @@ def plot_shape(values, shape, k, output_dir):
         edgecolor="none",
         borderpad=0.3,
         handlelength=1.5,
-        title=f"{shape.replace('x', '×')} · k={k}",
-        title_fontsize=8,
     )
     fig.subplots_adjust(left=0.08, right=0.995, bottom=0.22, top=0.92, wspace=0.22)
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"checkpoint_purity_{shape}_k{k}.png"
     fig.savefig(output, dpi=300, bbox_inches="tight")
+    fig.savefig(output.with_name(f"{output.stem}_hq.png"), dpi=600, bbox_inches="tight")
     fig.savefig(output.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
     print(output)

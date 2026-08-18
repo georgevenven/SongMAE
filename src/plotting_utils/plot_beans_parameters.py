@@ -36,8 +36,8 @@ COLORS = {
     "BirdNET": "#222222",
 }
 SONGMAE = {
-    "32×1": ("#0072B2", 2.4, 1.0),
-    "32×4": ("#56B4E9", 1.8, 0.72),
+    "32×1": ("32 mels × 5 ms", "#0072B2", 2.4, 1.0),
+    "32×4": ("32 mels × 20 ms", "#56B4E9", 1.8, 0.72),
 }
 ANNOTATIONS = {
     "classification": {
@@ -65,7 +65,7 @@ def millions(value, _):
 
 def panel(axis, rows, score_index, name, title, ylabel):
     values = []
-    for shape, (color, width, alpha) in SONGMAE.items():
+    for shape, (label, color, width, alpha) in SONGMAE.items():
         points = sorted(
             (
                 PARAMETERS[model] / 1e6,
@@ -83,7 +83,7 @@ def panel(axis, rows, score_index, name, title, ylabel):
             markersize=6,
             linewidth=width,
             alpha=alpha,
-            label=f"SongMAE {shape}",
+            label=f"SongMAE {label}",
             zorder=4,
         )
 

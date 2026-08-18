@@ -11,8 +11,9 @@ PINK=/media/george-vengrovski/disk2/individual_id_pink_noise_same_condition_0db
 WORK=/media/george-vengrovski/disk2/individual_id_all_layers_10_species
 OUT="$PAPER/results"
 K_VALUES="${K_VALUES:-1,5,10,50,100}"
+PCA_COMPONENTS=768
 
-SPECIES=(american_robin bengalese_finch canary cassins_vireo chiffchaff european_starling ovenbird little_owl tree_pipit zebra_finch)
+SPECIES=(zebra_finch)
 MODELS=(xcl_large_500k_p32x4_c010 xcl_large_500k_p32x1_c005 hubert_base_ls960 birdaves_biox_base)
 CONDITIONS=(clean pink_0db)
 METHODS=(centroid token)
@@ -123,7 +124,7 @@ for species in "${SPECIES[@]}"; do
             --annotations "$DATA/$species/clean_annotations.json" \
             --condition "$condition" --method "$method" \
             --audio_scope song_and_non_song --folds 3 \
-            --pca_components 128 --logreg_c 0.001 \
+            --pca_components "$PCA_COMPONENTS" --logreg_c 0.001 \
             "${manifest_args[@]}" > "$metrics.partial"; then
             rm -f "$metrics.partial"
             log_failure logistic "$species" "$model" "$condition" "$layer" "$method"
@@ -154,7 +155,7 @@ for species in "${SPECIES[@]}"; do
           --annotations "$DATA/$species/clean_annotations.json" \
           --out_dir "$destination" --condition "$condition" \
           --audio_scope song_and_non_song --folds 3 \
-          --pca_components 128 --k_values "$K_VALUES" \
+          --pca_components "$PCA_COMPONENTS" --k_values "$K_VALUES" \
           --manifest_in "$manifest" > "$destination/stdout.json.partial"; then
           rm -f "$destination/stdout.json.partial"
           log_failure knn "$species" "$model" "$condition" "$layer" dn4

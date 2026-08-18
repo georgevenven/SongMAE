@@ -122,9 +122,8 @@ def plot_patch_shape(spec, patch_shape, vmin, vmax, mcmap):
     axes[-1].set_xlabel("Time (s)", fontsize=PAPER_SPEC_FONT_SIZE, labelpad=5)
     axes[-1].tick_params(axis="x", labelsize=PAPER_SPEC_TICK_SIZE, length=4)
     axes[-1].spines["bottom"].set_visible(True)
-    unit = "timebin" if pw == 1 else "timebins"
     fig.suptitle(
-        f"Patch Shape: {ph} mels × {pw} {unit}",
+        f"Patch Shape: {ph} mels × {5 * pw} ms",
         fontsize=PAPER_SPEC_FONT_SIZE,
         fontweight="normal",
     )

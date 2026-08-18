@@ -18,10 +18,10 @@ SPECIES_LABELS = {
     "Canary": "canary",
 }
 K_MODELS = {
-    "SongMAE Large 32x1 (500k)": ("SongMAE-Large 32×1", "#0072B2", "-"),
-    "SongMAE Large 32x4 (500k)": ("SongMAE-Large 32×4", "#56B4E9", "-"),
     "BirdAVES": ("BirdAVES", "#D55E00", "--"),
     "HuBERT base": ("HuBERT", "#009E73", ":"),
+    "SongMAE Large 32x1 (500k)": ("SongMAE-Large 32 mels × 5 ms", "#0072B2", "-"),
+    "SongMAE Large 32x4 (500k)": ("SongMAE-Large 32 mels × 20 ms", "#56B4E9", "-"),
 }
 STEP_MODELS = {
     "SongMAE Large 32x1": ("Large", "#440154", "-"),
@@ -111,6 +111,8 @@ def plot_lines(
     models,
     xlabel,
     output,
+    legend_loc,
+    legend_alpha,
     legend_title=None,
 ):
     fig, axes = plt.subplots(
@@ -124,10 +126,10 @@ def plot_lines(
     fig.supxlabel(xlabel, y=0.035)
     axes[-1].legend(
         handles=handles,
-        loc="upper right",
+        loc=legend_loc,
         fontsize=8,
         frameon=True,
-        framealpha=0.78,
+        framealpha=legend_alpha,
         facecolor="white",
         edgecolor="none",
         borderpad=0.3,
@@ -138,6 +140,7 @@ def plot_lines(
     fig.subplots_adjust(left=0.08, right=0.995, bottom=0.22, top=0.92, wspace=0.22)
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=300, bbox_inches="tight")
+    fig.savefig(output.with_name(f"{output.stem}_hq.png"), dpi=600, bbox_inches="tight")
     fig.savefig(output.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
     print(output)
@@ -166,12 +169,16 @@ def main():
         K_MODELS,
         "Labeled occurrences per class (N)",
         output / "label_budget_points.png",
+        "lower left",
+        0,
     )
     plot_lines(
         *checkpoint_table,
         STEP_MODELS,
         "Training step",
         output / f"checkpoint_points_32x1{suffix}.png",
+        "upper right",
+        0.78,
         legend_title=legend_title,
     )
 

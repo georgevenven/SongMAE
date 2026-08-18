@@ -81,6 +81,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--embeddings", required=True)
     parser.add_argument("--annotations", required=True)
+    parser.add_argument("--audio_scope", choices=("song", "song_and_non_song"), required=True)
     parser.add_argument("--out_dir", type=Path, required=True)
     parser.add_argument("--condition", required=True)
     parser.add_argument("--k_values", default="1,5,10,50,100")

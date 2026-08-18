@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out_dir", type=Path, default=ROOT / "imgs" / "latent_space_interp")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--recording_stem", default=None)
+    parser.add_argument("--recording_stems", nargs="+")
     parser.add_argument("--bird", default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--neighbors", type=int, default=50)
@@ -78,32 +79,33 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
         "ytick.labelsize": 14,
     })
 
-    fig = plt.figure(figsize=(11, 8.875))
+    fig = plt.figure(figsize=(13, 4.8))
     grid = gridspec.GridSpec(
-        4,
-        2,
-        height_ratios=[3, 2, 0.2, 0.2],
-        hspace=0.4,
-        wspace=0.1,
+        1,
+        3,
+        width_ratios=[2, 1, 1],
+        wspace=0.18,
         left=0.05,
         right=0.99,
-        top=0.88,
+        top=0.92,
         bottom=0.06,
     )
+    left = grid[0, 0].subgridspec(3, 1, height_ratios=[8, 1, 1], hspace=0.7)
 
     for ax, colors, panel_title in zip(
-        [fig.add_subplot(grid[0, 0]), fig.add_subplot(grid[0, 1])],
+        [fig.add_subplot(grid[0, 1]), fig.add_subplot(grid[0, 2])],
         [gt_colors, pos_colors],
         ["Ground Truth Labels", "Embedding Position"],
     ):
         ax.scatter(xy[:, 0], xy[:, 1], c=colors, s=10, alpha=0.4, edgecolors="none")
+        ax.set_box_aspect(1)
         ax.set_title(panel_title)
         ax.set_xlabel("UMAP 1")
         ax.set_ylabel("UMAP 2")
         ax.set_xticks([])
         ax.set_yticks([])
 
-    ax_spec = fig.add_subplot(grid[1, :])
+    ax_spec = fig.add_subplot(left[0])
     duration_s = (segment["end_ms"] - segment["start_ms"]) / 1000
     mels = segment["spectrograms"].shape[1]
     ax_spec.imshow(
@@ -118,8 +120,8 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
     ax_spec.set_xlabel("Time (s)", labelpad=0)
     ax_spec.set_ylabel("Mels")
 
-    for row, colors, label in [(2, gt_colors, "Ground Truth Label"), (3, pos_colors, "Embedding Position")]:
-        ax = fig.add_subplot(grid[row, :])
+    for row, colors, label in [(1, gt_colors, "Ground Truth Label"), (2, pos_colors, "Embedding Position")]:
+        ax = fig.add_subplot(left[row])
         ax.imshow(colors[np.newaxis, :, :], aspect="auto")
         ax.set_xlabel(label)
         ax.set_yticks([])
@@ -138,6 +140,10 @@ def plot_panel(segment: dict, xy: np.ndarray, out_dir: Path) -> tuple[Path, Path
 
 
 def candidate_stems(args: argparse.Namespace) -> list[str | None]:
+    if args.recording_stems:
+        assert args.recording_stem is None
+        return args.recording_stems
+
     if args.count == 1:
         return [args.recording_stem]
 
@@ -179,7 +185,7 @@ def main() -> None:
             "encoder_layer_idx": args.encoder_layer_idx,
             "target_feature_type": args.target_feature_type,
             "max_segments": 1,
-            "num_timebins": args.num_timebins,
+            "max_segment_timebins": args.num_timebins,
         }, model_state)
         segment = extracted["segments"][0]
         embeddings = zscore(segment["encoded_embeddings"])

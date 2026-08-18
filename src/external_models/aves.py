@@ -144,7 +144,7 @@ def parse_args():
     parser.add_argument("--aves_config_path", required=True)
     parser.add_argument("--model_name", default="birdaves_biox_base")
     parser.add_argument("--audio_sr", type=int, default=16000)
-    parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
+    parser.add_argument("--recording_mode", default="events", choices=["events", "background", "full_recordings"])
     parser.add_argument("--recording_stem")
     parser.add_argument("--bird")
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")

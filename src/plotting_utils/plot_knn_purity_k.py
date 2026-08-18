@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 
 
 MODELS = {
-    "SongMAE 32x1": ("SongMAE-Large 32×1", "#0072B2"),
-    "SongMAE 32x4": ("SongMAE-Large 32×4", "#56B4E9"),
+    "SongMAE 32x1": ("SongMAE-Large 32 mels × 5 ms", "#0072B2"),
+    "SongMAE 32x4": ("SongMAE-Large 32 mels × 20 ms", "#56B4E9"),
     "BirdAVES": ("BirdAVES", "#D55E00"),
     "HuBERT": ("HuBERT", "#009E73"),
 }
