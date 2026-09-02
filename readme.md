@@ -72,6 +72,10 @@ A check means the annotation JSON contains that information.
 - `shell/linear_probe_across_models.sh`: extracts embeddings for syllable-labeled datasets across SongMAE, random SongMAE, AVES, and HuBERT, then runs `src/evals/syllable_classification.py` for each bird/model pair.
 - `shell/syllable_classification_train_sweep.sh`: reruns syllable classification from existing embedding folders while sweeping the train-second budget per bird/model.
 
+## Experiment Notes
+
+- [`docs/qwen_contextual_song_probe.md`](docs/qwen_contextual_song_probe.md): frozen SongMAE plus a small contextual attention head distilled from Qwen song boxes.
+
 ## Embedding NPZ Contract
 
 Embedding extractors write one concatenated `embeddings.npz` per requested

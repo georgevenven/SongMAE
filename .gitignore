@@ -15,6 +15,9 @@ results/
 individual_id/temp/
 shell/shell_archive/
 /tmp
+/data/XCL/qwen38_agentic_annotations.jsonl
+/data/XCL/qwen38_adaptive_review_5s_annotations.jsonl
+/data/XCL/qwen38_adaptive_review_5s_progress.json
 /SongMAE_TMLR_Paper_Materials/
 /linear_probe_archive_delete_later/
 /home/george-vengrovski/Documents/projects/TinyBird/individual_id/temp
