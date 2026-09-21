@@ -12,6 +12,8 @@ results/
 /files
 /wandb
 /temp
+/individual_id/
+/bird_tok/
 individual_id/temp/
 shell/shell_archive/
 /tmp
