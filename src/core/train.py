@@ -122,6 +122,8 @@ class Trainer:
             assert torch.cuda.is_available(), "DDP training expects CUDA/NCCL"
             dist.init_process_group(backend="nccl")
             torch.cuda.set_device(self.local_rank)
+        if config.get("seed") is not None:
+            torch.manual_seed(config["seed"] + self.rank)
         self.is_main = self.rank == 0
         self.run_dir = self.setup_run()
         self.logs_path = self.run_dir / "logs.txt"
@@ -457,7 +459,7 @@ class Trainer:
 
     def train(self):
         train_ds, val_ds = self.build_datasets()
-        train_sampler = DistributedSampler(train_ds) if self.distributed else None
+        train_sampler = DistributedSampler(train_ds, seed=self.config.get("seed") or 0) if self.distributed else None
         val_sampler = DistributedSampler(val_ds, shuffle=False) if self.distributed else None
         kw = dict(batch_size=self.loader_batch_size, num_workers=self.config.get("num_workers", 4), pin_memory=True)
         train_loader = DataLoader(train_ds, shuffle=train_sampler is None, sampler=train_sampler, **kw)
@@ -574,6 +576,7 @@ def add_train_args(parser):
     parser.add_argument("--amp", action="store_true", default=None)
     parser.add_argument("--amp_dtype", choices=["bf16", "fp16"])
     parser.add_argument("--wandb", action="store_true", default=None)
+    parser.add_argument("--seed", type=int)
 
 
 def add_model_args(parser):

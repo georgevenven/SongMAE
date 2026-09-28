@@ -116,6 +116,7 @@ class TrainConfig(JsonDataclass):
     wandb: bool = True
     annotation_file: str | None = None
     recording_mode: str = "full_recordings"
+    seed: int | None = None
 
     def __post_init__(self):
         assert self.task in ("unsupervised", "supervised")
