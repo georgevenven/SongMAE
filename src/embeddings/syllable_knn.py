@@ -66,10 +66,10 @@ def annotation_recordings(path, bird):
     }
 
 
-def add_occurrence(out, label, event, onset, offset, token_indices, starts, ends):
+def add_occurrence(out, label, recording, onset, offset, token_indices, starts, ends):
     tokens = token_indices[(ends[token_indices] > onset) & (starts[token_indices] < offset)]
     if tokens.size:
-        out.append({"label": label, "event": event, "tokens": tokens})
+        out.append({"label": label, "recording": recording, "tokens": tokens})
 
 
 def occurrences(store, annotation_file, bird):
@@ -82,7 +82,8 @@ def occurrences(store, annotation_file, bird):
     for event in np.unique(events):
         token_indices = np.flatnonzero(events == event)
         start, end = float(starts[token_indices].min()), float(ends[token_indices].max())
-        recording = recording_for_stem(recordings, stems[token_indices[0]])
+        stem = stems[token_indices[0]]
+        recording = recording_for_stem(recordings, stem)
         units = [
             (max(start, float(unit["onset_ms"])), min(end, float(unit["offset_ms"])), int(unit["id"]) + 1)
             for detected in recording.get("detected_events", [])
@@ -93,11 +94,11 @@ def occurrences(store, annotation_file, bird):
         cursor = start
         for onset, offset, label in units:
             if cursor < onset:
-                add_occurrence(out, SILENCE, int(event), cursor, onset, token_indices, starts, ends)
-            add_occurrence(out, label, int(event), onset, offset, token_indices, starts, ends)
+                add_occurrence(out, SILENCE, stem, cursor, onset, token_indices, starts, ends)
+            add_occurrence(out, label, stem, onset, offset, token_indices, starts, ends)
             cursor = max(cursor, offset)
         if cursor < end:
-            add_occurrence(out, SILENCE, int(event), cursor, end, token_indices, starts, ends)
+            add_occurrence(out, SILENCE, stem, cursor, end, token_indices, starts, ends)
     assert out
     return out
 
@@ -136,11 +137,11 @@ def topk(query, reference, k, chunk_size, cpu):
 def occurrence_neighbors(candidates, query_occurrences, reference_occurrences, rows, k):
     out = np.empty((candidates.shape[0], k), dtype=np.int64)
     for i, candidates_i in enumerate(candidates):
-        query_event = rows[query_occurrences[i]]["event"]
+        query_recording = rows[query_occurrences[i]]["recording"]
         seen, neighbors = set(), []
         for candidate in candidates_i:
             occurrence = int(reference_occurrences[candidate])
-            if rows[occurrence]["event"] == query_event or occurrence in seen:
+            if rows[occurrence]["recording"] == query_recording or occurrence in seen:
                 continue
             seen.add(occurrence)
             neighbors.append(occurrence)
@@ -179,8 +180,10 @@ def add_args(parser):
 
 def validate_protocol(store, args):
     metadata = store.metadata
-    assert metadata["encoder_layer_idx"] == args.encoder_layer_idx
-    assert not metadata.get("all_layers", False)
+    if metadata.get("all_layers", False):
+        assert args.encoder_layer_idx >= 0 and store["encoded_embeddings"].ndim == 3
+    else:
+        assert metadata["encoder_layer_idx"] == args.encoder_layer_idx
     if args.model in {"beats", "birdmae"}:
         assert args.model == "birdmae" or args.playback_speed == 1.0
         assert metadata["model_name"] == args.model
@@ -203,7 +206,7 @@ def validate_protocol(store, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cross-event occurrence-level trajectory kNN purity.")
+    parser = argparse.ArgumentParser(description="Cross-recording occurrence-level trajectory kNN purity.")
     add_args(parser)
     args = parser.parse_args()
     assert args.pca_components >= 0
@@ -226,10 +229,13 @@ def main():
     reference_tokens, reference_occurrences = memberships(rows, reference_ids)
     query_tokens, query_occurrences = memberships(rows, query_ids)
 
-    features = np.asarray(store["encoded_embeddings"], dtype=np.float32)
+    features = store["encoded_embeddings"]
+    pick = lambda tokens: np.asarray(
+        features[tokens] if features.ndim == 2 else features[tokens, args.encoder_layer_idx], dtype=np.float32
+    )
     reference, query = prepare(
-        features[reference_tokens],
-        features[query_tokens],
+        pick(reference_tokens),
+        pick(query_tokens),
         args.pca_components,
         args.seed,
     )
@@ -243,7 +249,7 @@ def main():
             )
             break
         except AssertionError:
-            assert search_k < reference.shape[0], "not enough cross-event reference occurrences"
+            assert search_k < reference.shape[0], "not enough cross-recording reference occurrences"
             search_k = min(reference.shape[0], search_k * 2)
 
     query_labels = np.asarray([rows[index]["label"] for index in query_occurrences])
@@ -275,7 +281,7 @@ def main():
             "query_tokens": int(query_tokens.size),
             "reference_tokens": int(reference_tokens.size),
             "classes": len(per_class),
-            "events": len({row["event"] for row in rows}),
+            "recordings": len({row["recording"] for row in rows}),
             "per_class_same_purity": per_class,
         })
 
@@ -286,6 +292,7 @@ def main():
     summary = vars(args) | {
         "analysis_unit": "annotated_occurrence_trajectory",
         "neighbor_unit": "reference_occurrence",
+        "neighbor_exclusion": "same_recording",
         "token_membership": "any_temporal_overlap",
         "silence_label": SILENCE,
         "standardization": "reference_tokens_feature_zscore",
