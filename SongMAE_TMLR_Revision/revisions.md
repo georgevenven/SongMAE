@@ -55,7 +55,9 @@ Do extraction, kNN, probes and k-means in **one pass** after P1–P4: every mode
 
 ## Reviewer 1
 
-- [ ] **Pretraining seeds:** 2 more seeds for random vs Voronoi (32×5, 10%), the five patch shapes, and the seed % settings (32×5 at 2.5/5/10%; 32×20 at 2.5/5/10%). Report mean ± spread in Table 2.
+- [ ] **Pretraining seeds:** 2 more seeds for random vs Voronoi (32×5, 10%), the five patch shapes, and the seed % settings (32×5 at 2.5/5/10%; 32×20 at 2.5/5/10%). Report mean ± spread in Table 2. Original runs were unseeded (count them as seed 0); new runs use `--seed 1/2`, which seeds torch per rank and the DDP data order.
+  - [ ] 32×5 (random, 2.5%, 5%, 10%) × seeds 1–2: **running on Twins** since 2026-09-28 (`scripts/train_micro_seeds.sh`, user unit `songmae-micro-seeds-20260928`, log `~/Documents/SongMAE-reviews/logs/micro_seeds.log`). About 2h45m per run → about 22 h for 8. Config matches the original runs except run name, seed and data path.
+  - [ ] 128×5, 16×5, 32×20 (2.5/5/10%), 4×20 × seeds 1–2.
 - [ ] **Evaluation spread:** folds, kNN sampling seed, and birds for the main results.
 - [ ] **Oracle FER:** majority ground-truth label per output bin on 5 ms and 20 ms grids, same 1 ms expansion, with the parsing/identity split. Appendix, referenced from Sec 6.
 - [ ] **Micro and Base linear-probe FER** at 5 ms and 20 ms (Table 3).
@@ -100,10 +102,12 @@ Minor:
 
 ## Other items from the audit
 
+- [ ] **Unreported sweep candidates** on Twins (`~/Documents/SongMAE/runs`), all at 100k steps: Micro `p32x1_c020`, `p16x1_{c0025,c005,c010,c020,random}`, `p128x1_c005`, `p32x4_c020`, `p32x4_qknorm_gelu`. Also Base 100k (`p16x1`, `p16x4_c010`, `p32x1_c005`, `p32x1_c010`, `p32x4_c010`, `p4x4_c010`), Large 100k `p32x1_c005`, Tiny 100k (`p16x1_c010`, `p32x1_c010`), and Large 500k `p32x4_c0025`. Work out which were evaluated, then include or disclose them in the sweep.
 - [ ] Sec 6 opening "Knowing the optimal SongMAE configuration and size": size was fixed in advance, not selected. Reword it.
 - [ ] State that the reported Large models use the final 500k checkpoint, with no checkpoint selection.
 - [ ] Voronoi mask is one mask per batch, shared across samples: check the text matches `voronoi_mask` usage in `train.py`.
 
 ## Edit log
 
+- 2026-09-28 — Added `--seed` to training; cloned the `reviews` branch to Twins (`~/Documents/SongMAE-reviews`, with `data` and `files` linked from `../SongMAE`); started the 32×5 Micro seed queue. The work desktop already has XCL and working clean splits in `/media/george-vengrovski/disk1/data`.
 - 2026-09-28 — Created this folder: copied the submitted paper source and compiled it unchanged; saved the reviews; wrote this tracker from the code audit; ran the selection replay on submitted-pipeline results.
