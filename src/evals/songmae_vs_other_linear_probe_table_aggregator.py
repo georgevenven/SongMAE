@@ -32,6 +32,7 @@ REVIEW_ROWS = [
     ("BirdMAE-Base 1/4×", "birdmae_base_speed0p25"),
     ("BirdMAE-Base 1/8×", "birdmae_base_speed0p125"),
     ("BirdMAE-Base 1/16×", "birdmae_base_speed0p0625"),
+    ("BirdMAE-Base 1/32×", "birdmae_base_speed0p03125"),
 ]
 
 

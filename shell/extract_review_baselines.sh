@@ -15,6 +15,7 @@ MODELS=(
   "birdmae_base_speed0p25|birdmae|0.25"
   "birdmae_base_speed0p125|birdmae|0.125"
   "birdmae_base_speed0p0625|birdmae|0.0625"
+  "birdmae_base_speed0p03125|birdmae|0.03125"
 )
 
 for dataset_row in "${LINEAR_PROBE_DATASETS[@]}"; do
