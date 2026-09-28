@@ -1,0 +1,8 @@
+# Track everything here (root .gitignore drops *.png, *txt, *.json, results/) except build output.
+!*
+latex/paper.pdf
+latex/paper.aux
+latex/paper.bbl
+latex/paper.blg
+latex/paper.log
+latex/paper.out

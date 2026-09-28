@@ -1,0 +1,9 @@
+Choices that differ from the submitted paper (k=100 kNN purity, submitted pipeline results).
+
+all 50 birds: {'seed_20ms': 'p32x4_c0025'}
+canary only: {'seed_20ms': 'p32x4_c0025', 'birdaves_biox_base': 3, 'hubert_base_ls960': 3}
+leave-one-species-out, test=bf: {'seed_20ms': 'p32x4_c0025', 'birdaves_biox_base': 3}
+leave-one-species-out, test=zf: {'seed_20ms': 'p32x4_c0025'}
+leave-one-species-out, test=canary: {'seed_20ms': 'p32x4_c0025'}
+leave-one-bird-out (50 folds): {"{'seed_20ms': 'p32x4_c0025'}": 50}
+random bird splits (val = 1 canary, 4 bf, 12 zf; 2000 draws), fraction differing: {'seed_20ms': '99.2%', 'birdaves_biox_base': '41.9%', 'hubert_base_ls960': '18.3%'}
