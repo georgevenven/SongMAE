@@ -156,7 +156,7 @@ def add_args(parser):
     for name in "spec_dir annotation_file out_dir bird".split():
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--model", required=True, choices=["songmae", "songmae_random", "aves", "hubert", "beats", "birdmae"])
-    parser.add_argument("--playback_speed", type=float, choices=[1.0, 0.5, 0.25, 0.125], default=1.0)
+    parser.add_argument("--playback_speed", type=float, choices=[1.0, 0.5, 0.25, 0.125, 0.0625], default=1.0)
     for name in "name wav_dir recording_stem songmae_run_dir checkpoint embedding_dir".split():
         parser.add_argument(f"--{name}")
     for name, default in [
@@ -185,7 +185,7 @@ def validate_protocol(store, args):
     else:
         assert metadata["encoder_layer_idx"] == args.encoder_layer_idx
     if args.model in {"beats", "birdmae"}:
-        assert args.model == "birdmae" or args.playback_speed == 1.0
+        assert args.model == "birdmae" or args.playback_speed in (1.0, 0.5, 0.25)
         assert metadata["model_name"] == args.model
         assert metadata["playback_speed"] == args.playback_speed
         assert metadata["timestamp_clock"] == "original_recording"

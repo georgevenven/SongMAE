@@ -25,10 +25,13 @@ ROWS = [
 
 REVIEW_ROWS = [
     ("BEATs iter3+ AS2M", "beats_iter3_plus_as2m"),
+    ("BEATs iter3+ AS2M 1/2×", "beats_iter3_plus_as2m_speed0p5"),
+    ("BEATs iter3+ AS2M 1/4×", "beats_iter3_plus_as2m_speed0p25"),
     ("BirdMAE-Base 1×", "birdmae_base_speed1"),
     ("BirdMAE-Base 1/2×", "birdmae_base_speed0p5"),
     ("BirdMAE-Base 1/4×", "birdmae_base_speed0p25"),
     ("BirdMAE-Base 1/8×", "birdmae_base_speed0p125"),
+    ("BirdMAE-Base 1/16×", "birdmae_base_speed0p0625"),
 ]
 
 

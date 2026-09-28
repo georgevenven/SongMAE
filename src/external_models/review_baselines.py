@@ -83,7 +83,7 @@ def align_features(labels, features, timebin_ms, speed):
 
 
 def save_embeddings(args):
-    assert args.model == "birdmae" or args.speed == 1.0
+    assert args.model == "birdmae" or args.speed in (1.0, 0.5, 0.25)
     assert not args.out_dir.exists(), f"output already exists: {args.out_dir}"
     dataset = WavFromSpectrogramDataset(
         args.spec_dir, args.wav_dir, args.annotation_file,
@@ -143,7 +143,7 @@ def parse_args():
     parser.add_argument("--bird")
     parser.add_argument("--recording_stem")
     parser.add_argument("--recording_mode", choices=["events", "background", "full_recordings"], default="events")
-    parser.add_argument("--speed", type=float, choices=[1.0, 0.5, 0.25, 0.125], default=1.0)
+    parser.add_argument("--speed", type=float, choices=[1.0, 0.5, 0.25, 0.125, 0.0625], default=1.0)
     layers = parser.add_mutually_exclusive_group()
     layers.add_argument("--encoder_layer_idx", type=int, default=11)
     layers.add_argument("--all_layers", action="store_true")

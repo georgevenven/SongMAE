@@ -8,10 +8,13 @@ OUT_ROOT=${OUT_ROOT:-$LINEAR_PROBE_ROOT/results/review_baselines}
 LAYER=${LAYER:-11}
 MODELS=(
   "beats_iter3_plus_as2m|beats|1"
+  "beats_iter3_plus_as2m_speed0p5|beats|0.5"
+  "beats_iter3_plus_as2m_speed0p25|beats|0.25"
   "birdmae_base_speed1|birdmae|1"
   "birdmae_base_speed0p5|birdmae|0.5"
   "birdmae_base_speed0p25|birdmae|0.25"
   "birdmae_base_speed0p125|birdmae|0.125"
+  "birdmae_base_speed0p0625|birdmae|0.0625"
 )
 
 for dataset_row in "${LINEAR_PROBE_DATASETS[@]}"; do

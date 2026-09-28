@@ -20,10 +20,13 @@ DATASETS=(
 )
 MODELS=(
   "beats_iter3_plus_as2m|beats|1.0"
+  "beats_iter3_plus_as2m_speed0p5|beats|0.5"
+  "beats_iter3_plus_as2m_speed0p25|beats|0.25"
   "birdmae_base_speed1|birdmae|1.0"
   "birdmae_base_speed0p5|birdmae|0.5"
   "birdmae_base_speed0p25|birdmae|0.25"
   "birdmae_base_speed0p125|birdmae|0.125"
+  "birdmae_base_speed0p0625|birdmae|0.0625"
 )
 selected() { [[ -z "$2" || " $2 " == *" $1 "* ]]; }
 
