@@ -56,7 +56,7 @@ Do extraction, kNN, probes and k-means in **one pass** after P1–P4: every mode
 ## Reviewer 1
 
 - [ ] **Pretraining seeds:** 2 more seeds for random vs Voronoi (32×5, 10%), the five patch shapes, and the seed % settings (32×5 at 2.5/5/10%; 32×20 at 2.5/5/10%). Report mean ± spread in Table 2. Original runs were unseeded (count them as seed 0); new runs use `--seed 1/2`, which seeds torch per rank and the DDP data order.
-  - [ ] 32×5 (random, 2.5%, 5%, 10%) × seeds 1–2: **running on Twins** since 2026-09-28 (`scripts/train_micro_seeds.sh`, user unit `songmae-micro-seeds-20260928`, log `~/Documents/SongMAE-reviews/logs/micro_seeds.log`). About 2h45m per run → about 22 h for 8. Config matches the original runs except run name, seed and data path.
+  - [ ] 32×5 (random, 2.5%, 5%, 10%) × seeds 1–2: **running on Twins** since 2026-09-28 (`scripts/train_micro_seeds.sh`, user unit `songmae-micro-seeds-20260928b`, wandb project `SongMAE-TMLR-revisions` (group `micro_seeds`), log `~/Documents/SongMAE-reviews/logs/micro_seeds.log`). About 2h45m per run → about 22 h for 8. Config matches the original runs except run name, seed and data path.
   - [ ] 128×5, 16×5, 32×20 (2.5/5/10%), 4×20 × seeds 1–2.
 - [ ] **Evaluation spread:** folds, kNN sampling seed, and birds for the main results.
 - [ ] **Oracle FER:** majority ground-truth label per output bin on 5 ms and 20 ms grids, same 1 ms expansion, with the parsing/identity split. Appendix, referenced from Sec 6.
