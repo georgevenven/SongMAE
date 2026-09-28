@@ -175,8 +175,6 @@ def convolution_feature_map(labels, output_length, geometry):
 
 def save_concatenated_embeddings(out_dir, rows, **metadata):
     assert rows
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     features, labels, original_labels, stems, song_ids, starts, ends = [], [], [], [], [], [], []
     segment_stems, segment_song_ids, segment_starts, segment_ends = [], [], [], []

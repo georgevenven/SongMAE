@@ -154,7 +154,8 @@ def occurrence_neighbors(candidates, query_occurrences, reference_occurrences, r
 def add_args(parser):
     for name in "spec_dir annotation_file out_dir bird".split():
         parser.add_argument(f"--{name}", required=True)
-    parser.add_argument("--model", required=True, choices=["songmae", "songmae_random", "aves", "hubert"])
+    parser.add_argument("--model", required=True, choices=["songmae", "songmae_random", "aves", "hubert", "beats", "birdmae"])
+    parser.add_argument("--playback_speed", type=float, choices=[1.0, 0.5, 0.25, 0.125], default=1.0)
     for name in "name wav_dir recording_stem songmae_run_dir checkpoint embedding_dir".split():
         parser.add_argument(f"--{name}")
     for name, default in [
@@ -180,6 +181,16 @@ def validate_protocol(store, args):
     metadata = store.metadata
     assert metadata["encoder_layer_idx"] == args.encoder_layer_idx
     assert not metadata.get("all_layers", False)
+    if args.model in {"beats", "birdmae"}:
+        assert args.model == "birdmae" or args.playback_speed == 1.0
+        assert metadata["model_name"] == args.model
+        assert metadata["playback_speed"] == args.playback_speed
+        assert metadata["timestamp_clock"] == "original_recording"
+        assert metadata["frequency_reduction"] == "concatenate"
+        assert metadata["chunk_timebins"] == int(CONTEXT_TIMEBINS * args.playback_speed)
+        assert metadata["feature_center_timebins"] == 17.5 * args.playback_speed
+        assert metadata["feature_stride_timebins"] == 32.0 * args.playback_speed
+        return
     if args.model.startswith("songmae"):
         assert metadata["target_feature_type"] == args.target_feature_type
         assert metadata["model_num_timebins"] == CONTEXT_TIMEBINS
@@ -196,6 +207,8 @@ def main():
     add_args(parser)
     args = parser.parse_args()
     assert args.pca_components >= 0
+    if args.model in {"beats", "birdmae"}:
+        assert args.embedding_dir, "Extract first with src/external_models/review_baselines.py."
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     args.recording_mode = "events"

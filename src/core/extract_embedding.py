@@ -331,6 +331,13 @@ def _writer_dtypes(raw_segments, first_state):
 
 def _metadata(extracted, args, model_state):
     audio_params = extracted["audio_params"]
+    normalization_scope = None
+    if args.get("per_segment_normalize"):
+        normalization_scope = "recording" if (
+            args.get("recording_mode") == "full_recordings"
+            and not args.get("segment_timebins")
+            and not args.get("max_segment_timebins")
+        ) else "segment"
     return {
         "audio_sr": audio_params[0],
         "audio_n_mels": audio_params[1],
@@ -345,6 +352,7 @@ def _metadata(extracted, args, model_state):
         "segment_timebins": int(args.get("segment_timebins") or 0),
         "max_segment_timebins": int(args.get("max_segment_timebins") or 0),
         "per_segment_normalize": bool(args.get("per_segment_normalize")),
+        "normalization_scope": normalization_scope,
         "encoder_layer_idx": args.get("encoder_layer_idx"),
         "all_layers": bool(args.get("all_layers")),
         "target_feature_type": args.get("target_feature_type", "end_of_block"),

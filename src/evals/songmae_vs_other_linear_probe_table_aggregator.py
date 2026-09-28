@@ -23,6 +23,14 @@ ROWS = [
     ("HuBERT", "hubert_base_ls960"),
 ]
 
+REVIEW_ROWS = [
+    ("BEATs iter3+ AS2M", "beats_iter3_plus_as2m"),
+    ("BirdMAE-Base 1×", "birdmae_base_speed1"),
+    ("BirdMAE-Base 1/2×", "birdmae_base_speed0p5"),
+    ("BirdMAE-Base 1/4×", "birdmae_base_speed0p25"),
+    ("BirdMAE-Base 1/8×", "birdmae_base_speed0p125"),
+]
+
 
 def load_runs(root):
     runs = {}
@@ -88,7 +96,9 @@ def main():
     args = parser.parse_args()
 
     runs = load_runs(Path(args.results_root))
-    rows = [(label, row_values(runs, model)) for label, model in ROWS]
+    models = {model for _, model in runs}
+    selected = ROWS + [(label, model) for label, model in REVIEW_ROWS if model in models]
+    rows = [(label, row_values(runs, model)) for label, model in selected]
     print_rows(rows, args.format == "tsv")
 
 

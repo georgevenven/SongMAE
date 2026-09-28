@@ -23,10 +23,12 @@ from src.external_models.data_loader import (
 from src.core.data_loader import balanced_event_indices
 
 
-def load_model(config_path, model_path):
+def load_model(config_path, model_path, random_init=False, seed=42):
     config = json.loads(Path(config_path).read_text())
+    torch.manual_seed(seed)
     model = wav2vec2_model(**config, aux_num_out=None)
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    if not random_init:
+        model.load_state_dict(torch.load(model_path, map_location="cpu"))
     model.eval()
     return model
 
@@ -83,7 +85,9 @@ def save_embeddings(args):
         wav_exts=args.wav_exts,
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(args.aves_config_path, args.aves_model_path).to(device)
+    model = load_model(
+        args.aves_config_path, args.aves_model_path, args.random_init, args.seed
+    ).to(device)
     min_samples = min_input_samples(model)
     convs = [getattr(layer, "conv", layer) for layer in model.feature_extractor.conv_layers]
     samples_per_timebin = args.audio_sr * dataset.audio_params[2] / dataset.audio_params[0]
@@ -131,6 +135,8 @@ def save_embeddings(args):
         feature_stride_timebins=geometry[1],
         balanced_events=args.balanced_events,
         event_seed=args.event_seed,
+        random_init=args.random_init,
+        random_seed=args.seed if args.random_init else None,
     )
 
 
@@ -155,6 +161,8 @@ def parse_args():
     parser.add_argument("--max_points", type=int, default=0)
     parser.add_argument("--balanced_events", type=int, default=0)
     parser.add_argument("--event_seed", type=int, default=42)
+    parser.add_argument("--random_init", action="store_true")
+    parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
 

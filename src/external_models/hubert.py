@@ -21,17 +21,30 @@ from src.external_models.data_loader import (
 from src.core.data_loader import balanced_event_indices
 
 
-def load_model(model_name):
+def load_model(model_name, random_init, seed, hidden_size=None):
     from transformers import AutoConfig, AutoFeatureExtractor, HubertModel
     from transformers.utils import WEIGHTS_NAME
     from transformers.utils.hub import cached_file
 
     feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
+    config = AutoConfig.from_pretrained(model_name)
+    if random_init:
+        assert hidden_size is None or hidden_size > 0
+        if hidden_size is not None:
+            config.hidden_size = hidden_size
+            config.intermediate_size = 4 * hidden_size
+            config.num_attention_heads = max(1, hidden_size // 64)
+            assert hidden_size % config.num_attention_heads == 0
+        torch.manual_seed(seed)
+        model = HubertModel(config)
+        model.eval()
+        return feature_extractor, model
+    assert hidden_size is None
     state = torch.load(cached_file(model_name, WEIGHTS_NAME), map_location="cpu")
     prefix = "encoder.pos_conv_embed.conv."
     state[prefix + "parametrizations.weight.original0"] = state.pop(prefix + "weight_g")
     state[prefix + "parametrizations.weight.original1"] = state.pop(prefix + "weight_v")
-    model = HubertModel(AutoConfig.from_pretrained(model_name))
+    model = HubertModel(config)
     missing, unexpected = model.load_state_dict(state, strict=False)
     assert not missing and not unexpected
     model.eval()
@@ -92,7 +105,9 @@ def save_embeddings(args):
         wav_exts=args.wav_exts,
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    feature_extractor, model = load_model(args.model_name)
+    feature_extractor, model = load_model(
+        args.model_name, args.random_init, args.seed, args.hidden_size
+    )
     model = model.to(device)
     samples_per_timebin = args.audio_sr * dataset.audio_params[2] / dataset.audio_params[0]
     geometry = convolution_geometry(model.config.conv_kernel, model.config.conv_stride, samples_per_timebin)
@@ -136,6 +151,10 @@ def save_embeddings(args):
         feature_stride_timebins=geometry[1],
         balanced_events=args.balanced_events,
         event_seed=args.event_seed,
+        random_init=args.random_init,
+        random_seed=args.seed if args.random_init else None,
+        hidden_size=model.config.hidden_size,
+        num_hidden_layers=model.config.num_hidden_layers,
     )
 
 
@@ -153,6 +172,9 @@ def parse_args():
     parser.add_argument("--wav_exts", default=".wav,.flac,.ogg,.mp3")
     parser.add_argument("--encoder_layer_idx", type=int)
     parser.add_argument("--all_layers", action="store_true")
+    parser.add_argument("--random_init", action="store_true")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--hidden_size", type=int)
     parser.add_argument("--chunk_timebins", type=int, default=1000)
     parser.add_argument("--num_timebins", type=int, default=0)
     parser.add_argument("--max_points", type=int, default=0)

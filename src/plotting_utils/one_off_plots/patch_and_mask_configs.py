@@ -44,13 +44,13 @@ N_FFT = 1024
 N_MELS = 128
 
 # Patch shapes (mel_height, time_width) — the main tokenization ablation.
-PATCH_SHAPES = [(128, 1), (32, 1), (16, 1), (32, 4), (4, 4)]
+PATCH_SHAPES = [(128, 1), (32, 1), (32, 4), (4, 4)]
 SINGLE_PATCH_SHAPE = (32, 1)
 # Voronoi seed percentages used in the interaction ablation.
-SEED_PERCENTAGES = [2.5, 5, 10, 20]
+SEED_PERCENTAGES = [2.5, 5, 10]
 MASK_P = 0.75          # SongMAE default mask fraction
 SEED = 0               # deterministic masks
-FIGSIZE = (8.8, 11.0)
+FIGSIZE = (8.8, 8.4)
 
 OUT_DIR = Path(__file__).resolve().parents[3] / "imgs" / "patch_and_mask_configs"
 SPEC_CMAP = MASK_CMAP
