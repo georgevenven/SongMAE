@@ -173,8 +173,23 @@ def convolution_feature_map(labels, output_length, geometry):
     return labels[indices], edges
 
 
+def concatenate_on_disk(arrays, path, limit=2**30):
+    # Large feature sets are assembled in a memory-mapped file instead of RAM.
+    if sum(a.nbytes for a in arrays) <= limit:
+        return np.concatenate(arrays, axis=0)
+    shape = (sum(len(a) for a in arrays),) + arrays[0].shape[1:]
+    out = np.lib.format.open_memmap(path, mode="w+", dtype=np.float32, shape=shape)
+    start = 0
+    for a in arrays:
+        out[start : start + len(a)] = a
+        start += len(a)
+    out.flush()
+    return out
+
+
 def save_concatenated_embeddings(out_dir, rows, **metadata):
     assert rows
+    concat_path = Path(out_dir).with_name(Path(out_dir).name + ".concat.npy")
 
     features, labels, original_labels, stems, song_ids, starts, ends = [], [], [], [], [], [], []
     segment_stems, segment_song_ids, segment_starts, segment_ends = [], [], [], []
@@ -218,7 +233,7 @@ def save_concatenated_embeddings(out_dir, rows, **metadata):
             grids.append(row["encoded_embeddings_grid"].astype(np.float32, copy=False))
 
     arrays = {
-        "encoded_embeddings": np.concatenate(features, axis=0),
+        "encoded_embeddings": concatenate_on_disk(features, concat_path),
         "labels_downsampled": np.concatenate(labels, axis=0),
         "labels_original": np.concatenate(original_labels, axis=0),
         "recording_stem": np.concatenate(stems, axis=0),
@@ -236,6 +251,7 @@ def save_concatenated_embeddings(out_dir, rows, **metadata):
         assert len(grids) == len(rows)
         arrays["encoded_embeddings_grid"] = np.concatenate(grids, axis=0)
     save_embedding_arrays(out_dir, arrays, metadata)
+    concat_path.unlink(missing_ok=True)
 
 
 def labels_for_features(labels, output_length):
