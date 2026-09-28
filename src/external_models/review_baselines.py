@@ -152,7 +152,7 @@ def parse_args():
     parser.add_argument("--max_points", type=int, default=0)
     parser.add_argument("--balanced_events", type=int, default=0)
     parser.add_argument("--event_seed", type=int, default=42)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     return parser.parse_args()
 
 
