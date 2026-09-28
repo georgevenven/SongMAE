@@ -115,7 +115,6 @@ run_linear_probe_suite() {
         if "$PYTHON_BIN" src/evals/syllable_classification.py \
           --embeddings "$embeddings" --annotations "$annotations" --folds "$FOLDS" \
           "${manifest_args[@]}" --pca_components "$PCA_COMPONENTS" \
-          --pca_cache "$embeddings/pca_${PCA_COMPONENTS}_seed${SEED}.npy" \
           --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
           > "$model_dir/metrics.tmp"; then
           mv "$model_dir/metrics.tmp" "$metrics"
@@ -176,8 +175,7 @@ run_capped_linear_probe_suite() {
             --embeddings "$embeddings" --annotations "$annotations" \
             --label_cap "$cap" --folds "$FOLDS" "${manifest_args[@]}" \
             --pca_components "$PCA_COMPONENTS" \
-            --pca_cache "$embeddings/pca_${PCA_COMPONENTS}_seed${SEED}.npy" \
-            --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
+              --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
             > "$cap_dir/metrics.tmp"; then
             mv "$cap_dir/metrics.tmp" "$metrics"
           else

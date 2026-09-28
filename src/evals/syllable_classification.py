@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Song-level cross-validated syllable linear probe."""
+"""Recording-level cross-validated syllable linear probe; PCA and z-scoring fit on training recordings only."""
 import argparse
 import json
 import multiprocessing
@@ -31,11 +31,10 @@ def load_embeddings(path):
     stems = np.asarray(data["recording_stem"]).astype(str)
     starts = np.rint(data["token_start_ms"]).astype(np.int64)
     ends = np.rint(data["token_end_ms"]).astype(np.int64)
-    songs = np.asarray(data["song_id"])
-    assert all(row.shape[0] == x.shape[0] for row in (y, stems, starts, ends, songs))
+    assert all(row.shape[0] == x.shape[0] for row in (y, stems, starts, ends))
     spans = list(zip(stems.tolist(), starts.tolist(), ends.tolist()))
-    groups = [f"{stem}:{song}" for stem, song in zip(stems, songs.tolist())]
-    return x, y, spans, groups
+    # Folds split whole recordings: events cut from one recording (often touching) never straddle train and validation.
+    return x, y, spans, stems.tolist()
 
 
 def load_units(path):
@@ -101,10 +100,11 @@ def load_manifest(args, y, groups):
     else:
         manifest = {
             "seed": args.seed,
-            "fold_strategy": "multilabel_stratified_song",
+            "fold_strategy": "multilabel_stratified_recording",
             "class_labels": sorted(set(y.tolist())),
             "folds": make_folds(y, groups, args.folds, args.seed),
         }
+    assert manifest["fold_strategy"] == "multilabel_stratified_recording"
     assert manifest["class_labels"] == sorted(set(y.tolist()))
     assert len(manifest["folds"]) == args.folds
     validation = []
@@ -122,28 +122,18 @@ def load_manifest(args, y, groups):
     return manifest
 
 
-def pca_features(x, components, seed, cache_path):
-    started = time.perf_counter()
-    if components == 0:
-        return x, time.perf_counter() - started, False
-    cache = Path(cache_path) if cache_path else None
-    if cache and cache.exists():
-        transformed = np.load(cache, mmap_mode="r")
-        assert transformed.shape == (x.shape[0], components)
-        return transformed, time.perf_counter() - started, True
-    assert 0 < components <= min(x.shape)
-    solver = "covariance_eigh" if components == x.shape[1] else "randomized"
-    model = PCA(n_components=components, svd_solver=solver, random_state=seed)
-    transformed = model.fit_transform(np.asarray(x)).astype(np.float32, copy=False)
-    if cache:
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        np.save(cache, transformed)
-    return transformed, time.perf_counter() - started, False
-
-
-def standardize(x, train, val):
+def fold_features(x, fit, train, val, components, seed):
+    """PCA fit on the fold's `fit` tokens (never validation), then z-scoring on `train` tokens."""
+    assert set(fit.tolist()).isdisjoint(val.tolist())
     train_x = np.asarray(x[train], dtype=np.float32)
     val_x = np.asarray(x[val], dtype=np.float32)
+    if components:
+        fit_x = np.asarray(x[fit], dtype=np.float32)
+        assert 0 < components <= min(fit_x.shape)
+        solver = "covariance_eigh" if components == x.shape[1] else "randomized"
+        pca = PCA(n_components=components, svd_solver=solver, random_state=seed).fit(fit_x)
+        train_x = pca.transform(train_x).astype(np.float32, copy=False)
+        val_x = pca.transform(val_x).astype(np.float32, copy=False)
     mean = train_x.mean(axis=0, dtype=np.float64).astype(np.float32)
     std = train_x.std(axis=0, dtype=np.float64).astype(np.float32)
     std = np.maximum(std, 1e-6)
@@ -212,7 +202,7 @@ def fit_fold(x, y, spans, groups, units, labels, fold, fold_index, args):
     train = group_indices(groups, fold["train_groups"])
     val = group_indices(groups, fold["val_groups"])
     assert set(y[train].tolist()) == set(labels)
-    train_x, val_x = standardize(x, train, val)
+    train_x, val_x = fold_features(x, train, train, val, args.pca_components, args.seed)
 
     started = time.perf_counter()
     model = LogisticRegression(
@@ -232,8 +222,8 @@ def fit_fold(x, y, spans, groups, units, labels, fold, fold_index, args):
     row.update(
         {
             "fold": fold_index,
-            "train_songs": len(fold["train_groups"]),
-            "val_songs": len(fold["val_groups"]),
+            "train_recordings": len(fold["train_groups"]),
+            "val_recordings": len(fold["val_groups"]),
             "train_tokens": int(train.size),
             "val_tokens": int(val.size),
             "fit_seconds": fit_seconds,
@@ -261,7 +251,6 @@ def parse_args():
     parser.add_argument("--manifest_in")
     parser.add_argument("--manifest_out")
     parser.add_argument("--pca_components", type=int, default=128)
-    parser.add_argument("--pca_cache")
     parser.add_argument("--max_iter", type=int, default=5000)
     parser.add_argument("--logreg_c", type=float, default=DEFAULT_LOGREG_C)
     parser.add_argument("--seed", type=int, default=42)
@@ -274,9 +263,6 @@ def main():
     x, y, spans, groups = load_embeddings(args.embeddings)
     units = load_units(args.annotations)
     manifest = load_manifest(args, y, groups)
-    x, pca_seconds, cache_hit = pca_features(
-        x, args.pca_components, args.seed, args.pca_cache
-    )
 
     labels = manifest["class_labels"]
     total_confusion = np.zeros((len(labels), len(labels)), dtype=np.int64)
@@ -303,11 +289,10 @@ def main():
             "label_budget": "all_training_occurrences",
             "folds": args.folds,
             "fold_strategy": manifest["fold_strategy"],
-            "event_grouping": "recording_stem:song_id",
+            "event_grouping": "recording_stem",
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
-            "pca_fit_scope": "disabled" if args.pca_components == 0 else "all_extracted_tokens",
-            "pca_cache_hit": cache_hit,
+            "pca_fit_scope": "disabled" if args.pca_components == 0 else "training_fold",
             "standardized": True,
             "standardization_fit_scope": (
                 "training_fold_raw_features"
@@ -319,7 +304,6 @@ def main():
             "max_iter": args.max_iter,
             "fold_metrics": fold_metrics,
             "timing_seconds": {
-                "pca": pca_seconds,
                 "fit": fit_seconds,
                 "predict": predict_seconds,
                 "total": time.perf_counter() - started,

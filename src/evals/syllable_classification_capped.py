@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Capped-label, song-level cross-validated syllable linear probe."""
+"""Capped-label, recording-level cross-validated syllable linear probe.
+
+PCA is fit on all tokens of the fold's training recordings (unlabeled audio is available to the
+annotator), never on validation recordings; z-scoring and the probe use only the capped labeled tokens.
+"""
 import argparse
 import json
 import sys
@@ -18,10 +22,9 @@ from src.evals.syllable_classification import (
     group_indices,
     load_embeddings,
     load_units,
+    fold_features,
     make_folds,
     metrics,
-    pca_features,
-    standardize,
 )
 
 
@@ -82,7 +85,7 @@ def build_manifest(y, spans, groups, count, cap, seed):
         )
     return {
         "seed": seed,
-        "fold_strategy": "multilabel_stratified_song",
+        "fold_strategy": "multilabel_stratified_recording",
         "sampling": "nested_capped_occurrences",
         "label_cap": cap,
         "class_labels": labels,
@@ -92,6 +95,7 @@ def build_manifest(y, spans, groups, count, cap, seed):
 
 def validate_manifest(manifest, y, groups, folds, cap):
     assert manifest["label_cap"] == cap
+    assert manifest["fold_strategy"] == "multilabel_stratified_recording"
     assert manifest["class_labels"] == sorted(set(y.tolist()))
     assert len(manifest["folds"]) == folds
     all_groups = set(groups)
@@ -195,7 +199,6 @@ def parse_args():
     parser.add_argument("--manifest_in")
     parser.add_argument("--manifest_out")
     parser.add_argument("--pca_components", type=int, default=128)
-    parser.add_argument("--pca_cache")
     parser.add_argument("--max_iter", type=int, default=5000)
     parser.add_argument("--logreg_c", type=float, default=DEFAULT_LOGREG_C)
     parser.add_argument("--seed", type=int, default=42)
@@ -209,9 +212,6 @@ def main():
     x, y, spans, groups = load_embeddings(args.embeddings)
     units = load_units(args.annotations)
     manifest = load_manifest(args, y, spans, groups)
-    x, pca_seconds, cache_hit = pca_features(
-        x, args.pca_components, args.seed, args.pca_cache
-    )
 
     labels = manifest["class_labels"]
     total_confusion = np.zeros((len(labels), len(labels)), dtype=np.int64)
@@ -234,7 +234,7 @@ def main():
             fold_index,
         )
         assert set(fold_y[selected].tolist()) == set(labels)
-        train_x, val_x = standardize(x, selected, val)
+        train_x, val_x = fold_features(x, train, selected, val, args.pca_components, args.seed)
 
         fit_started = time.perf_counter()
         model = LogisticRegression(
@@ -254,8 +254,8 @@ def main():
         fold_row.update(
             {
                 "fold": fold_index,
-                "train_songs": len(fold["train_groups"]),
-                "val_songs": len(fold["val_groups"]),
+                "train_recordings": len(fold["train_groups"]),
+                "val_recordings": len(fold["val_groups"]),
                 "train_tokens": int(selected.size),
                 "val_tokens": int(val.size),
                 "labeled_occurrences_by_class": {
@@ -286,16 +286,15 @@ def main():
             "folds": args.folds,
             "fold_strategy": manifest["fold_strategy"],
             "sampling": manifest["sampling"],
-            "event_grouping": "recording_stem:song_id",
+            "event_grouping": "recording_stem",
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
-            "pca_fit_scope": "disabled" if args.pca_components == 0 else "all_extracted_tokens",
-            "pca_cache_hit": cache_hit,
+            "pca_fit_scope": "disabled" if args.pca_components == 0 else "training_fold_all_tokens",
             "standardized": True,
             "standardization_fit_scope": (
-                "training_fold_raw_features"
+                "labeled_tokens_raw_features"
                 if args.pca_components == 0
-                else "training_fold_after_pca"
+                else "labeled_tokens_after_pca"
             ),
             "class_weight": "balanced",
             "logreg_c": args.logreg_c,
@@ -308,7 +307,6 @@ def main():
             },
             "fold_metrics": fold_metrics,
             "timing_seconds": {
-                "pca": pca_seconds,
                 "fit": fit_seconds,
                 "predict": predict_seconds,
                 "total": time.perf_counter() - started,
