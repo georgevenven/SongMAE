@@ -1,7 +1,6 @@
 """Frozen BEATs/BirdMAE extraction with timestamps on the original audio clock."""
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -100,10 +99,11 @@ def save_embeddings(args):
     indices = balanced_event_indices(dataset.spec_dataset, args.balanced_events, args.event_seed)
     rows, cache = [], {}
     used = 0
-    # Slowed all-layer runs outgrow RAM (e.g. 1/32 speed: ~60 GB per bird), so chunks are spilled to disk.
-    spill = args.out_dir.with_name(args.out_dir.name + ".spill")
-    shutil.rmtree(spill, ignore_errors=True)
-    spill.mkdir(parents=True)
+    # Slowed all-layer runs outgrow RAM (e.g. 1/32 speed: ~60 GB per bird), so features are appended to one
+    # file on disk (one open file however many chunks) and memory-mapped back after the loop.
+    spill = args.out_dir.with_name(args.out_dir.name + ".spill.bin")
+    spill.parent.mkdir(parents=True, exist_ok=True)
+    spill_file = spill.open("wb")
     for item in chunked_items(dataset, args.num_timebins, chunk_timebins, indices):
         wav = load_audio(item, audio_sr, cache)
         assert wav.numel() > 0, item["wav_path"]
@@ -116,15 +116,24 @@ def save_embeddings(args):
             args.model, model, extractor, wav, args.encoder_layer_idx, args.all_layers,
         )
         features, labels, edges = align_features(item["labels"], features, timebin_ms, args.speed)
-        np.save(spill / f"{len(rows):06d}.npy", features)
-        features = np.load(spill / f"{len(rows):06d}.npy", mmap_mode="r")
         row = {
-            "item": item, "encoded_embeddings": features,
+            "item": item, "encoded_embeddings": np.broadcast_to(np.float32(0), features.shape),
             "labels_downsampled": labels, "token_edges": edges,
         }
+        kept = len(rows)
         used, keep_going = append_limited(rows, row, args.max_points, used)
+        if len(rows) > kept:
+            features[: len(rows[-1]["encoded_embeddings"])].astype(np.float32).tofile(spill_file)
         if not keep_going:
             break
+    spill_file.close()
+    shape = rows[0]["encoded_embeddings"].shape[1:]
+    flat = np.memmap(spill, dtype=np.float32, mode="r", shape=(sum(len(r["encoded_embeddings"]) for r in rows), *shape))
+    start = 0
+    for row in rows:
+        count = len(row["encoded_embeddings"])
+        row["encoded_embeddings"] = flat[start : start + count]
+        start += count
     save_concatenated_embeddings(
         args.out_dir, rows, model_name=args.model, audio_sr=audio_sr,
         playback_speed=args.speed, effective_stride_ms=160 * args.speed,
@@ -137,7 +146,8 @@ def save_embeddings(args):
         balanced_events=args.balanced_events, event_seed=args.event_seed,
         assets_manifest=str(args.assets_dir / "manifest.json"),
     )
-    shutil.rmtree(spill)
+    del flat, rows
+    spill.unlink()
 
 
 def parse_args():
