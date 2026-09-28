@@ -12,6 +12,7 @@ OUT_ROOT=${OUT_ROOT:-results/knn/review_baselines_all_layers}
 NUM_TIMEBINS=${NUM_TIMEBINS:-200000}
 DATASET_FILTER=${DATASET_FILTER:-}
 MODEL_FILTER=${MODEL_FILTER:-}
+BIRD_FILTER=${BIRD_FILTER:-}
 DATASETS=(
   "canary|files/annotation jsons/canary_annotations.json|$SPEC_ROOT/canary_5ms"
   "zf|files/annotation jsons/zf_annotations.json|$SPEC_ROOT/zebra_finch_5ms"
@@ -30,6 +31,7 @@ for dataset_row in "${DATASETS[@]}"; do
   IFS='|' read -r dataset annotations specs <<< "$dataset_row"
   selected "$dataset" "$DATASET_FILTER" || continue
   for bird in $("$PYTHON_BIN" -c "import json,sys;print(' '.join(sorted({r['recording']['bird_id'] for r in json.load(open(sys.argv[1]))['recordings']})))" "$annotations"); do
+    selected "$bird" "$BIRD_FILTER" || continue
     for model_row in "${MODELS[@]}"; do
       IFS='|' read -r name model speed <<< "$model_row"
       selected "$name" "$MODEL_FILTER" || continue
