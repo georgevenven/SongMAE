@@ -109,6 +109,7 @@ Minor:
 
 ## Edit log
 
+- 2026-09-28 — Mac Studio env ready (Miniforge `mae`, torch 2.6 with MPS). `review_baselines.py` now falls back to MPS. Smoke test on zf B145 (BEATs 1×, Bird-MAE ½×): token times and labels identical to the CUDA desktop; embeddings match to rel. err 2e-5 / 6e-6. Sync script fixed (Mac rsync 2.6.9 takes remote paths literally).
 - 2026-09-28 — Mac Studio set up for evals: key auth, `reviews` clone, eval data syncing (specs 22.4 GB, wavs 18 GB, annotations, baseline weights, 17 final checkpoints). Still to do: Python env, and MPS support (extractors and kNN use `cuda if available else cpu`).
 - 2026-09-28 — Added `--seed` to training; cloned the `reviews` branch to Twins (`~/Documents/SongMAE-reviews`, with `data` and `files` linked from `../SongMAE`); started the 32×5 Micro seed queue. The work desktop already has XCL and working clean splits in `/media/george-vengrovski/disk1/data`.
 - 2026-09-28 — Created this folder: copied the submitted paper source and compiled it unchanged; saved the reviews; wrote this tracker from the code audit; ran the selection replay on submitted-pipeline results.

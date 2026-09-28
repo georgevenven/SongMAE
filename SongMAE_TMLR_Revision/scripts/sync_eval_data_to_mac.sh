@@ -19,7 +19,7 @@ sync() { rsync -a --partial "$@"; }
 
 ssh "$HOST" "mkdir -p $REPO/runs $REPO/files/annotation\ jsons $DATA/specs $DATA/wavs"
 sync files/birdaves-biox-base.torchaudio.pt files/birdaves-biox-base.torchaudio.model_config.json files/review_baselines "$HOST:$REPO/files/"
-sync "files/annotation jsons/"{zf,bf,canary}_annotations.json "$HOST:$REPO/files/annotation\\ jsons/"
+sync "files/annotation jsons/"{zf,bf,canary}_annotations.json "$HOST:$REPO/files/annotation jsons/"  # Mac rsync 2.6.9 takes remote paths literally
 for run in $RUNS; do
   last=$(ls "runs/$run/weights" | sort -V | tail -1)
   sync --exclude imgs --exclude wandb --include weights/ --include "weights/$last" --exclude 'weights/*' "runs/$run" "$HOST:$REPO/runs/"
