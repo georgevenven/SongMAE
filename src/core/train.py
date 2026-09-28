@@ -587,7 +587,7 @@ def add_model_args(parser):
     parser.add_argument("--dropout", type=float)
     parser.add_argument("--mask_p", type=float)
     parser.add_argument("--mask_c", type=float)
-    parser.add_argument("--mask_type", choices=["voronoi", "random"])
+    parser.add_argument("--mask_type", choices=["voronoi", "random", "time", "frequency"])
     parser.add_argument("--qk_norm", action=argparse.BooleanOptionalAction)
     parser.add_argument("--enc_hidden_d", type=int)
     parser.add_argument("--enc_n_head", type=int)

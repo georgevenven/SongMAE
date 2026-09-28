@@ -76,7 +76,7 @@ class ModelConfig(JsonDataclass):
     def __post_init__(self):
         assert self.mels % self.patch_height == 0
         assert self.num_timebins % self.patch_width == 0
-        assert self.mask_type in ("voronoi", "random")
+        assert self.mask_type in ("voronoi", "random", "time", "frequency")
 
     @property
     def patch_size(self):

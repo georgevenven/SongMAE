@@ -123,7 +123,7 @@ class SongMAE(nn.Module):
         self.mask_p = config["mask_p"]
         self.mask_c = config["mask_c"]
         self.mask_type = config.get("mask_type", "voronoi")
-        assert self.mask_type in ("voronoi", "random")
+        assert self.mask_type in ("voronoi", "random", "time", "frequency")
         self._grid_cache = {}
 
         d_enc = config["enc_hidden_d"]
@@ -238,6 +238,26 @@ class SongMAE(nn.Module):
         mask[torch.randperm(mask.numel(), device=device)[:n_masked]] = True
         return mask.reshape(H, W)
 
+    def time_mask(self, hw, device):
+        # Contiguous full-frequency time spans: 1D Voronoi over time columns. Seed probability mask_c * H per
+        # column gives the same expected seeds per clip as 2D Voronoi (mask_c per patch).
+        H, W = hw
+        seeds = torch.nonzero(torch.bernoulli(torch.full((W,), min(1.0, self.mask_c * H), device=device))).squeeze(1)
+        if seeds.numel() == 0:
+            seeds = torch.randint(W, (1,), device=device)
+        cols = torch.arange(W, device=device)
+        dists = (cols[:, None] - seeds[None]).abs().min(dim=1).values + torch.rand(W, device=device) * 0.5
+        masked = torch.zeros(W, dtype=torch.bool, device=device)
+        masked[dists.argsort()[: round(W * self.mask_p)]] = True
+        return masked.unsqueeze(0).expand(H, W).clone()
+
+    def frequency_mask(self, hw, device):
+        # Whole frequency bands masked across all time.
+        H, W = hw
+        masked = torch.zeros(H, dtype=torch.bool, device=device)
+        masked[torch.randperm(H, device=device)[: round(H * self.mask_p)]] = True
+        return masked.unsqueeze(1).expand(H, W).clone()
+
     def patch_grid(self, x):
         patches = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)(x).transpose(1, 2)
         B = x.size(0)
@@ -253,10 +273,8 @@ class SongMAE(nn.Module):
         return self.patch_conv(z), H, W
 
     def mask_batch(self, B, H, W, device):
-        if self.mask_type == "random":
-            mask = self.random_mask((H, W), device)
-        else:
-            mask = self.voronoi_mask((H, W), device)
+        masks = {"random": self.random_mask, "time": self.time_mask, "frequency": self.frequency_mask}
+        mask = masks.get(self.mask_type, self.voronoi_mask)((H, W), device)
         return mask.unsqueeze(0).expand(B, -1, -1)
 
     def sparse_restore_indices(self, mask):
