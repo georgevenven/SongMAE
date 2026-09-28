@@ -61,7 +61,7 @@ Do extraction, kNN, probes and k-means in **one pass** after P1–P4: every mode
 - [ ] **Evaluation spread:** folds, kNN sampling seed, and birds for the main results.
 - [ ] **Oracle FER:** majority ground-truth label per output bin on 5 ms and 20 ms grids, same 1 ms expansion, with the parsing/identity split. Appendix, referenced from Sec 6.
   - [x] Computed 2026-09-28 (`src/evals/syllable_oracle.py`, `scripts/oracle_all.sh`, `scripts/oracle_table.py` → [results/oracle_fer.md](results/oracle_fer.md)) at 5/20/40/80/160 ms, same data selection and scoring as the probes. Found that the **majority oracle is not a lower bound** on Macro FER: the 20 ms models in Table 3 beat it (7.1–7.3 vs 9.94), because it never predicts classes shorter than half a bin. Added a **macro-optimal** oracle (label maximizing class frames in bin / class frames), which is the true bound: 0.65 / 2.72 / 5.15 / 9.03 / 16.31 % at 5/20/40/80/160 ms. With the submitted Table 3, about 80% of the 5-vs-20 ms parsing gap (2.39 pts) is quantization (bound gap 1.94 pts). Recompute that ratio after the probe re-run.
-  - [ ] Write the appendix: lower-bound curve only (figure `figures/oracle_fer/`); one sentence on why the literal majority oracle is not a bound (also answers R3 on coarse models: ≥16% FER floor at 160 ms).
+  - [x] Appendix written 2026-09-28: new **A.2 Oracle Macro FER at output resolution** with Supplemental Figure 1 (lower bound only) and the sentence on why majority isn't a bound. Later appendices renumbered: Voronoi masks A.3, pretraining exclusion (taxonomy) A.4, kNN protocol A.5, BEANS A.6; supplemental figures 2–4. Still to do: reference it from Sec 6, and add the observed-vs-floor comparison after the probe re-run (`% REVISION` comment in A.2). (also answers R3 on coarse models: ≥16% FER floor at 160 ms).
 - [ ] **Micro and Base linear-probe FER** at 5 ms and 20 ms (Table 3).
 - [ ] **Bird-MAE syllable-level:** Macro FER (parsing/identity) and kNN purity. Covered by R3's coarse-model item.
 - [ ] **Speech/music:** 1–2 sentences in the Discussion on Voronoi masking as a remedy for the interpolation shortcut of fine patches.
@@ -102,7 +102,7 @@ Minor:
 - [ ] BirdNET: justify it as a reference, acknowledge possible BEANS overlap, don't call it the best supervised model; consider a stronger supervised comparator from Miron et al.
 - [ ] p11: replace "a sort of trajectory of neural activations" with "the time-ordered sequence of embeddings".
 - [ ] One species order everywhere (canary → zebra finch → Bengalese finch).
-- [ ] A.3: eBird/Clements taxonomy version, from the BirdSet label provenance.
+- [ ] A.4 (was A.3): eBird/Clements taxonomy version, from the BirdSet label provenance.
 
 ## Other items from the audit
 
@@ -113,6 +113,7 @@ Minor:
 
 ## Edit log
 
+- 2026-09-28 — Paper: added appendix A.2 (oracle lower bound + Supplemental Figure 1); renumbered A.3–A.6 and Supplemental Figures 2–4 and their in-text references. No other text changed.
 - 2026-09-28 — Oracle FER computed for all 50 birds (majority and macro-optimal) at 5–160 ms.
 - 2026-09-28 — Added `time` and `frequency` mask types; launched the 6 masking-baseline runs on the work desktop.
 - 2026-09-28 — Probe code fixed (P1 recording-level folds, P3 per-fold PCA) in `syllable_classification.py`, `syllable_classification_capped.py` and `shell/linear_probe_lib.sh`; tested on zf B145. Paper text updated to match: Sec 4.4 (principal-components wording, recording folds, per-fold PCA, C = 10^-3, label-budget PCA scope), Sec 7.2 (k-means PCA scope), A.4 (same-recording exclusion, 1,000 s per bird, z-scoring on reference embeddings). Every affected table and figure is marked `% REVISION: numbers pending re-run` in `paper.tex`.
