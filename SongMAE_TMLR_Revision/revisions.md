@@ -66,7 +66,8 @@ Do extraction, kNN, probes and k-means in **one pass** after P1–P4: every mode
 
 ## Reviewer 2 (64vF)
 
-- [ ] **Contiguous masking baseline:** one representative (block, time-only or frequency-only), matched to Micro 32×5 in size, patch, ratio, steps and eval. Compare with random and Voronoi. Narrow the Voronoi claim if contiguous does as well.
+- [ ] **Contiguous masking baseline:** **Running on the work desktop** since 2026-09-28: time and frequency masking, Micro 32×5, 75%, 100k steps, seeds 0–2 (6 runs). 1 GPU at batch 128 (the Table 2 runs used 2×64 DDP; same global batch). About 5.8 h per run, all done around Wed Sep 30 02:00. User unit `songmae-masking-baselines-20260928`, log `logs/masking_baselines.log`, wandb group `masking_baselines`. Definitions (`src/core/model.py`): **time** masks full-frequency time spans placed by 1D Voronoi over columns, with seed probability C×H per column (C = 5%), so it has the same expected seeds per clip as 2D Voronoi; spans average 14 columns (70 ms) vs 15 for Voronoi's full-frequency spans. **frequency** masks 3 of the 4 frequency bands over the whole clip, leaving a random band visible. Compare with Voronoi 5% and random, all 3 seeds each.
+  - Original request: one representative (block, time-only or frequency-only), matched to Micro 32×5 in size, patch, ratio, steps and eval. Compare with random and Voronoi. Narrow the Voronoi claim if contiguous does as well.
 - [ ] **Masking-ratio sensitivity:** e.g. 50 / 75 / 90% at fixed patch and seed %, Micro. Report parsing and/or reconstruction.
 - [ ] **Sec 3.1:** present in processing order (spectrogram → patch embedding + positions → masking + conv → encoder → decoder / reconstruction), with motivations separated and the changes from standard MAE called out.
 - [ ] **Related work:** compare data regimes, temporal granularity and downstream tasks with Ghaffari et al. 2026, Liu et al. 2026 (CVPRW) and Zhang et al. 2025. Verify the bib entries.
@@ -110,6 +111,7 @@ Minor:
 
 ## Edit log
 
+- 2026-09-28 — Added `time` and `frequency` mask types; launched the 6 masking-baseline runs on the work desktop.
 - 2026-09-28 — Probe code fixed (P1 recording-level folds, P3 per-fold PCA) in `syllable_classification.py`, `syllable_classification_capped.py` and `shell/linear_probe_lib.sh`; tested on zf B145. Paper text updated to match: Sec 4.4 (principal-components wording, recording folds, per-fold PCA, C = 10^-3, label-budget PCA scope), Sec 7.2 (k-means PCA scope), A.4 (same-recording exclusion, 1,000 s per bird, z-scoring on reference embeddings). Every affected table and figure is marked `% REVISION: numbers pending re-run` in `paper.tex`.
 - 2026-09-28 — Mac Studio env ready (Miniforge `mae`, torch 2.6 with MPS). `review_baselines.py` now falls back to MPS. Smoke test on zf B145 (BEATs 1×, Bird-MAE ½×): token times and labels identical to the CUDA desktop; embeddings match to rel. err 2e-5 / 6e-6. Sync script fixed (Mac rsync 2.6.9 takes remote paths literally).
 - 2026-09-28 — Mac Studio set up for evals: key auth, `reviews` clone, eval data syncing (specs 22.4 GB, wavs 18 GB, annotations, baseline weights, 17 final checkpoints). Still to do: Python env, and MPS support (extractors and kNN use `cuda if available else cpu`).
