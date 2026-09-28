@@ -39,10 +39,11 @@ for dataset_row in "${DATASETS[@]}"; do
       [[ -f $out/layer_11/summary.json ]] && { echo "done: $out"; continue; }
       embeddings=$out/embeddings
       rm -rf "$embeddings" "$embeddings.tmp"
+      mkdir -p "$out"
       echo "extracting: $out"
       "$PYTHON_BIN" src/external_models/review_baselines.py --model "$model" --speed "$speed" --all_layers \
         --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$annotations" --bird "$bird" \
-        --recording_mode events --out_dir "$embeddings" --chunk_timebins 1000 --num_timebins "$NUM_TIMEBINS" > "$out.extract.log" 2>&1
+        --recording_mode events --out_dir "$embeddings" --chunk_timebins 1000 --num_timebins "$NUM_TIMEBINS" > "$out/extract.log" 2>&1
       for layer in $(seq 0 11); do
         mkdir -p "$out/layer_$layer"
         "$PYTHON_BIN" src/embeddings/syllable_knn.py --model "$model" --playback_speed "$speed" --embedding_dir "$embeddings" \
