@@ -7,6 +7,7 @@ cd "$(dirname "$0")/../.."
 TORCHRUN=${TORCHRUN:-$HOME/miniconda3/bin/torchrun}
 CONFIGS=${CONFIGS:-"p32x1_random p32x1_c0025 p32x1_c005 p32x1_c010"}
 SEEDS=${SEEDS:-"1 2"}
+export WANDB_PROJECT=${WANDB_PROJECT:-SongMAE-TMLR-revisions} WANDB_RUN_GROUP=${WANDB_RUN_GROUP:-micro_seeds}
 
 for config in $CONFIGS; do
   IFS=_ read -r patch mask <<< "$config"
@@ -17,7 +18,7 @@ for config in $CONFIGS; do
     name=xcl_micro_100k_${config}_seed${seed}
     [[ -f runs/$name/weights/model_step_099999.pth ]] && { echo "done: $name"; continue; }
     echo "training: $name ${mask_args[*]}"
-    "$TORCHRUN" --standalone --nproc_per_node=2 -m src.core.train \
+    WANDB_TAGS="micro,100k,$config,seed$seed" "$TORCHRUN" --standalone --nproc_per_node=2 -m src.core.train \
       --train_dir "$PWD/data/XCL_clean" --val_dir "$PWD/data/XCL_val_clean" --run_name "$name" \
       --steps 100000 --model_preset micro --patch_height "$height" --patch_width "$width" \
       "${mask_args[@]}" --seed "$seed"

@@ -252,7 +252,7 @@ class Trainer:
         import wandb
 
         run = wandb.init(
-            project="TinyBird",
+            project=os.environ.get("WANDB_PROJECT", "TinyBird"),
             name=self.run_dir.name,
             dir=str(self.run_dir),
             config=self.config | {"params": n_params, "local_batches": rank_batch_sizes},
