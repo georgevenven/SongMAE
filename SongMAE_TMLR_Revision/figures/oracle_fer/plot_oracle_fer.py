@@ -32,23 +32,19 @@ def oracle_curves():
 def main():
     curves = oracle_curves()
     fig, axis = plt.subplots(figsize=(4.3, 4.1), dpi=200)
-    for oracle, label, style in [("macro_optimal", "lower bound", dict(color="#222222", linewidth=2.2)),
-                                 ("majority", "majority label", dict(color="#999999", linewidth=1.6, linestyle="--"))]:
-        x, fer, _ = curves[oracle]
-        axis.plot(x, fer, marker="o", markersize=4.5, zorder=3, **style)
-        axis.annotate(label, (x[-1], fer[-1]), xytext=(-6, 0), textcoords="offset points",
-                      fontsize=8, ha="right", va="bottom", color=style["color"])
+    x, fer, _ = curves["macro_optimal"]  # lowest Macro FER reachable on each output grid
+    axis.plot(x, fer, color="#222222", linewidth=2.2, marker="o", markersize=4.5, zorder=3)
     axis.set_xscale("log")
     axis.set_yscale("log")
     axis.set_xticks([5, 20, 40, 80, 160])
     axis.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
     axis.xaxis.set_minor_formatter(NullFormatter())
-    axis.set_yticks([0.5, 1, 2, 5, 10, 20, 40])
+    axis.set_yticks([0.5, 1, 2, 5, 10, 20])
     axis.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
     axis.yaxis.set_minor_formatter(NullFormatter())
     axis.set_xlim(4, 200)
-    axis.set_ylim(0.4, 50)
-    axis.set_title("Oracle Macro FER", fontsize=13)
+    axis.set_ylim(0.4, 25)
+    axis.set_title("Oracle lower bound", fontsize=13)
     axis.set_xlabel("Output bin (ms)")
     axis.set_ylabel("Macro FER (%) ↓")
     axis.set_box_aspect(1)

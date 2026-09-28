@@ -61,7 +61,7 @@ Do extraction, kNN, probes and k-means in **one pass** after P1–P4: every mode
 - [ ] **Evaluation spread:** folds, kNN sampling seed, and birds for the main results.
 - [ ] **Oracle FER:** majority ground-truth label per output bin on 5 ms and 20 ms grids, same 1 ms expansion, with the parsing/identity split. Appendix, referenced from Sec 6.
   - [x] Computed 2026-09-28 (`src/evals/syllable_oracle.py`, `scripts/oracle_all.sh`, `scripts/oracle_table.py` → [results/oracle_fer.md](results/oracle_fer.md)) at 5/20/40/80/160 ms, same data selection and scoring as the probes. Found that the **majority oracle is not a lower bound** on Macro FER: the 20 ms models in Table 3 beat it (7.1–7.3 vs 9.94), because it never predicts classes shorter than half a bin. Added a **macro-optimal** oracle (label maximizing class frames in bin / class frames), which is the true bound: 0.65 / 2.72 / 5.15 / 9.03 / 16.31 % at 5/20/40/80/160 ms. With the submitted Table 3, about 80% of the 5-vs-20 ms parsing gap (2.39 pts) is quantization (bound gap 1.94 pts). Recompute that ratio after the probe re-run.
-  - [ ] Write the appendix: both oracles, why majority isn't a bound, the resolution curve (also answers R3 on coarse models: ≥16% FER floor at 160 ms).
+  - [ ] Write the appendix: lower-bound curve only (figure `figures/oracle_fer/`); one sentence on why the literal majority oracle is not a bound (also answers R3 on coarse models: ≥16% FER floor at 160 ms).
 - [ ] **Micro and Base linear-probe FER** at 5 ms and 20 ms (Table 3).
 - [ ] **Bird-MAE syllable-level:** Macro FER (parsing/identity) and kNN purity. Covered by R3's coarse-model item.
 - [ ] **Speech/music:** 1–2 sentences in the Discussion on Voronoi masking as a remedy for the interpolation shortcut of fine patches.
