@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torchaudio
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
@@ -105,13 +104,14 @@ def save_embeddings(args):
     spill.parent.mkdir(parents=True, exist_ok=True)
     spill_file = spill.open("wb")
     for item in chunked_items(dataset, args.num_timebins, chunk_timebins, indices):
-        wav = load_audio(item, audio_sr, cache)
+        # Playback slowdown (tape-style: duration x 1/speed, pitch x speed): resample the recording to
+        # audio_sr / speed and feed those samples as audio_sr. Slowing before any band-limiting lets
+        # content above the model's Nyquist move down into range instead of being filtered out first.
+        load_sr = round(audio_sr / args.speed)
+        wav = load_audio(item, load_sr, cache)
         assert wav.numel() > 0, item["wav_path"]
-        samples = round((item["end_ms"] - item["start_ms"]) * audio_sr / 1000)
+        samples = round((item["end_ms"] - item["start_ms"]) * load_sr / 1000)
         wav = F.pad(wav, (0, samples - wav.numel()))
-        if args.speed != 1.0:
-            # Playback slowdown lowers pitch too; this is not pitch-preserving stretching.
-            wav = torchaudio.functional.resample(wav, int(audio_sr * args.speed), audio_sr)
         features = extract_features(
             args.model, model, extractor, wav, args.encoder_layer_idx, args.all_layers,
         )
