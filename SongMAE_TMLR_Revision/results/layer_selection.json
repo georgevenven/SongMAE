@@ -1,0 +1,133 @@
+{
+  "beats_iter3_plus_as2m": {
+    "all": 7,
+    "canary": 5,
+    "test_canary": 8,
+    "test_zf": 7,
+    "test_bf": 7,
+    "union": [
+      5,
+      7,
+      8
+    ]
+  },
+  "beats_iter3_plus_as2m_speed0p25": {
+    "all": 8,
+    "canary": 9,
+    "test_canary": 8,
+    "test_zf": 9,
+    "test_bf": 8,
+    "union": [
+      8,
+      9
+    ]
+  },
+  "beats_iter3_plus_as2m_speed0p5": {
+    "all": 8,
+    "canary": 8,
+    "test_canary": 8,
+    "test_zf": 8,
+    "test_bf": 8,
+    "union": [
+      8
+    ]
+  },
+  "birdaves_biox_base": {
+    "all": 7,
+    "canary": 3,
+    "test_canary": 7,
+    "test_zf": 7,
+    "test_bf": 3,
+    "union": [
+      3,
+      7
+    ]
+  },
+  "birdaves_biox_base_speed0p25": {
+    "all": 4,
+    "canary": 3,
+    "test_canary": 4,
+    "test_zf": 4,
+    "test_bf": 4,
+    "union": [
+      3,
+      4
+    ]
+  },
+  "birdaves_biox_base_speed0p5": {
+    "all": 3,
+    "canary": 3,
+    "test_canary": 6,
+    "test_zf": 3,
+    "test_bf": 3,
+    "union": [
+      3,
+      6
+    ]
+  },
+  "birdmae_base_speed0p03125": {
+    "all": 10,
+    "canary": 10,
+    "test_canary": 10,
+    "test_zf": 10,
+    "test_bf": 10,
+    "union": [
+      10
+    ]
+  },
+  "birdmae_base_speed0p0625": {
+    "all": 10,
+    "canary": 10,
+    "test_canary": 9,
+    "test_zf": 10,
+    "test_bf": 10,
+    "union": [
+      9,
+      10
+    ]
+  },
+  "birdmae_base_speed0p125": {
+    "all": 9,
+    "canary": 10,
+    "test_canary": 9,
+    "test_zf": 9,
+    "test_bf": 9,
+    "union": [
+      9,
+      10
+    ]
+  },
+  "birdmae_base_speed0p25": {
+    "all": 9,
+    "canary": 10,
+    "test_canary": 9,
+    "test_zf": 9,
+    "test_bf": 9,
+    "union": [
+      9,
+      10
+    ]
+  },
+  "birdmae_base_speed0p5": {
+    "all": 9,
+    "canary": 9,
+    "test_canary": 10,
+    "test_zf": 9,
+    "test_bf": 9,
+    "union": [
+      9,
+      10
+    ]
+  },
+  "birdmae_base_speed1": {
+    "all": 10,
+    "canary": 8,
+    "test_canary": 10,
+    "test_zf": 8,
+    "test_bf": 10,
+    "union": [
+      8,
+      10
+    ]
+  }
+}
