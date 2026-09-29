@@ -23,6 +23,7 @@ from src.evals.syllable_classification import (
     load_embeddings,
     load_units,
     fold_features,
+    group_truth_labels,
     make_folds,
     metrics,
 )
@@ -75,13 +76,13 @@ def select_occurrences(y, spans, groups, train, labels, cap, seed, fold_index):
     return selected
 
 
-def build_manifest(y, spans, groups, count, cap, seed):
-    labels = sorted(set(y.tolist()))
-    folds = make_folds(y, groups, count, seed)
+def build_manifest(y, spans, groups, group_labels, count, cap, seed):
+    labels = sorted(set().union(*group_labels.values()))
+    folds = make_folds(group_labels, count, seed)
     for fold_index, fold in enumerate(folds):
         train = group_indices(groups, fold["train_groups"])
         fold["selected_occurrences"] = select_occurrences(
-            y, spans, groups, train, labels, cap, seed, fold_index
+            y, spans, groups, train, sorted(set(y[train].tolist())), cap, seed, fold_index
         )
     return {
         "seed": seed,
@@ -93,12 +94,12 @@ def build_manifest(y, spans, groups, count, cap, seed):
     }
 
 
-def validate_manifest(manifest, y, groups, folds, cap):
+def validate_manifest(manifest, group_labels, folds, cap):
     assert manifest["label_cap"] == cap
     assert manifest["fold_strategy"] == "multilabel_stratified_recording"
-    assert manifest["class_labels"] == sorted(set(y.tolist()))
+    assert manifest["class_labels"] == sorted(set().union(*group_labels.values()))
     assert len(manifest["folds"]) == folds
-    all_groups = set(groups)
+    all_groups = set(group_labels)
     validation = []
     for fold in manifest["folds"]:
         train = set(fold["train_groups"])
@@ -109,12 +110,12 @@ def validate_manifest(manifest, y, groups, folds, cap):
     assert len(validation) == len(all_groups) == len(set(validation))
 
 
-def load_manifest(args, y, spans, groups):
+def load_manifest(args, y, spans, groups, group_labels):
     if args.manifest_in:
         manifest = json.loads(Path(args.manifest_in).read_text())
     else:
-        manifest = build_manifest(y, spans, groups, args.folds, args.label_cap, args.seed)
-    validate_manifest(manifest, y, groups, args.folds, args.label_cap)
+        manifest = build_manifest(y, spans, groups, group_labels, args.folds, args.label_cap, args.seed)
+    validate_manifest(manifest, group_labels, args.folds, args.label_cap)
     if args.manifest_out:
         path = Path(args.manifest_out)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,7 +212,7 @@ def main():
     assert args.label_cap > 0
     x, y, spans, groups = load_embeddings(args.embeddings)
     units = load_units(args.annotations)
-    manifest = load_manifest(args, y, spans, groups)
+    manifest = load_manifest(args, y, spans, groups, group_truth_labels(units, spans, groups))
 
     labels = manifest["class_labels"]
     total_confusion = np.zeros((len(labels), len(labels)), dtype=np.int64)
@@ -233,7 +234,7 @@ def main():
             args.seed,
             fold_index,
         )
-        assert set(fold_y[selected].tolist()) == set(labels)
+        assert set(fold_y[selected].tolist()) == set(y[train].tolist())
         train_x, val_x = fold_features(x, train, selected, val, args.pca_components, args.seed)
 
         fit_started = time.perf_counter()
@@ -287,6 +288,7 @@ def main():
             "fold_strategy": manifest["fold_strategy"],
             "sampling": manifest["sampling"],
             "event_grouping": "recording_stem",
+            "scored_classes": "all_ground_truth_classes",
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
             "pca_fit_scope": "disabled" if args.pca_components == 0 else "training_fold_all_tokens",

@@ -41,6 +41,8 @@ Everything selected is inside the protocol: masking, patch shape, Voronoi seed %
 - [ ] **P6 5 ms justification uses the test species** (Table S1). Report per species. Canary alone: 0.27% of gaps < 5 ms vs 24.2% at 20 ms.
 - [ ] **P7 zf minutes per bird.** Data: 1.3–5.5 min, about 2 min mean, so the tex's "∼2 ± 1" is right and the bioRxiv PDF's "∼5 ± 2" is wrong. Recompute all Sec 4.1 counts from the annotation JSONs.
 
+- [x] **P8 Probe scored only classes present in the model's token labels.** A class too short to win any output bin vanished from the tokens, and its frames were left out of Macro FER. Majority-bin check over all 50 birds: at 20 ms, canary llb11 class 20 vanishes (affects the submitted Table 3 for SongMAE 32×20, BirdAVES and HuBERT, slightly in their favour); at 160 ms, 8 birds. Fixed 2026-09-28: folds are built from each recording's ground-truth classes (identical for every model on a bird) and FER is scored over all ground-truth classes; models train on whatever classes their tokens contain. Tested with a simulated vanished class: it now scores 100% FER instead of being dropped.
+
 Verified, no fix needed: every Table 2 run is SongMAE-Micro (128-d, 6 layers) trained for 100,000 steps (`runs/*micro_100k*/train.json`).
 
 ## Compute plan

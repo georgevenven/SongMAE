@@ -49,13 +49,19 @@ def load_units(path):
     return units
 
 
-def make_folds(y, groups, count, seed):
-    keys = sorted(set(groups))
+def group_truth_labels(units, spans, groups):
+    # Ground-truth classes per recording: folds and scored classes are the same for every model on a bird,
+    # including classes too short to win any of a coarse model's output bins.
+    out = {}
+    for span, group in zip(spans, groups):
+        out.setdefault(group, set()).update(np.unique(ground_truth(units, *span)).tolist())
+    return out
+
+
+def make_folds(group_labels, count, seed):
+    keys = sorted(group_labels)
     assert 2 <= count <= len(keys)
-    group_labels = {group: set() for group in keys}
-    for label, group in zip(y.tolist(), groups):
-        group_labels[group].add(label)
-    labels = sorted(set(y.tolist()))
+    labels = sorted(set().union(*group_labels.values()))
     availability = {
         label: sum(label in group_labels[group] for group in keys) for label in labels
     }
@@ -94,21 +100,22 @@ def make_folds(y, groups, count, seed):
     raise AssertionError("Could not stratify every class across folds.")
 
 
-def load_manifest(args, y, groups):
+def load_manifest(args, group_labels):
+    classes = sorted(set().union(*group_labels.values()))
     if args.manifest_in:
         manifest = json.loads(Path(args.manifest_in).read_text())
     else:
         manifest = {
             "seed": args.seed,
             "fold_strategy": "multilabel_stratified_recording",
-            "class_labels": sorted(set(y.tolist())),
-            "folds": make_folds(y, groups, args.folds, args.seed),
+            "class_labels": classes,
+            "folds": make_folds(group_labels, args.folds, args.seed),
         }
     assert manifest["fold_strategy"] == "multilabel_stratified_recording"
-    assert manifest["class_labels"] == sorted(set(y.tolist()))
+    assert manifest["class_labels"] == classes
     assert len(manifest["folds"]) == args.folds
     validation = []
-    all_groups = set(groups)
+    all_groups = set(group_labels)
     for fold in manifest["folds"]:
         train = set(fold["train_groups"])
         val = set(fold["val_groups"])
@@ -201,7 +208,7 @@ def metrics(labels, confusion):
 def fit_fold(x, y, spans, groups, units, labels, fold, fold_index, args):
     train = group_indices(groups, fold["train_groups"])
     val = group_indices(groups, fold["val_groups"])
-    assert set(y[train].tolist()) == set(labels)
+    assert set(y[train].tolist()) <= set(labels)  # a coarse model may never output some classes
     train_x, val_x = fold_features(x, train, train, val, args.pca_components, args.seed)
 
     started = time.perf_counter()
@@ -262,7 +269,7 @@ def main():
     args = parse_args()
     x, y, spans, groups = load_embeddings(args.embeddings)
     units = load_units(args.annotations)
-    manifest = load_manifest(args, y, groups)
+    manifest = load_manifest(args, group_truth_labels(units, spans, groups))
 
     labels = manifest["class_labels"]
     total_confusion = np.zeros((len(labels), len(labels)), dtype=np.int64)
@@ -290,6 +297,8 @@ def main():
             "folds": args.folds,
             "fold_strategy": manifest["fold_strategy"],
             "event_grouping": "recording_stem",
+            "scored_classes": "all_ground_truth_classes",
+            "model_output_classes": sorted(set(y.tolist())),
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
             "pca_fit_scope": "disabled" if args.pca_components == 0 else "training_fold",
