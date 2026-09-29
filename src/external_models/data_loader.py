@@ -87,15 +87,10 @@ def limited_items(dataset, num_timebins, indices=None):
         item = dataset[index]
         labels = item["labels"]
         count = int(labels.numel())
-        if max_timebins > 0:
-            remaining = max_timebins - used
-            if remaining <= 0:
-                return
-            if count > remaining:
-                item = dict(item)
-                item["labels"] = labels[:remaining]
-                item["end_ms"] = item["start_ms"] + timebins_to_ms(remaining, dataset.audio_params)
-                count = remaining
+        # Skip events that no longer fit and keep filling, exactly as SongMAE extraction does, so every model sees the
+        # same recordings (and shares one fold manifest per bird).
+        if max_timebins > 0 and used + count > max_timebins:
+            continue
         yield item
         used += count
 
