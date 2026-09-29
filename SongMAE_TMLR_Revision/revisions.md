@@ -27,7 +27,7 @@ Everything selected is inside the protocol: masking, patch shape, Voronoi seed %
 
 - Masking, patch shape, 5 ms seed %, SongMAE layers (L11 / L10): same as the paper in every rotation, and in 2,000 random bird-level splits.
 - **20 ms seed %:** Micro results always favor 2.5%, never the reported 10%. A Large 32×20 at 2.5% was trained (`runs/xcl_large_500k_p32x4_c0025`) but not reported. Choosing between the two Large models picks 10% in every rotation (FER 7.25 vs 7.13; purity 55.2 vs 56.4). **Disclose the 2.5% Large run** and state that the 20 ms seed % was chosen at Large scale.
-- **Probe C=0.001:** changed from the default 1.0 after viewing results (commit `3c51c2a`). Leave-one-bird-out picks 0.001 for every model and fold. It helped the baselines more (BirdAVES canary FER 10.07 → 8.23). Disclose it, and re-select on the selection species after the fixes.
+- **Probe C=0.001:** *Decided 2026-09-29: no sweep for now (reviewers didn't ask); C is stated in Sec 4.4 and disclosed in the response as fixed before the revised analysis. A sweep is optional later.* changed from the default 1.0 after viewing results (commit `3c51c2a`). Leave-one-bird-out picks 0.001 for every model and fold. It helped the baselines more (BirdAVES canary FER 10.07 → 8.23). Disclose it, and re-select on the selection species after the fixes.
 - **Baseline layers moving to L3:** on zf/bf purity, L3 is slightly worse for both baselines (BirdAVES 0.621 → 0.615, HuBERT 0.563 → 0.554), so SongMAE's lead should grow by under 1 point. FER and V-measure at L3 have never been run.
 - Canary kNN is unaffected by the grouping bug (one event per recording), so the canary-only row is already final for kNN choices.
 
@@ -76,7 +76,7 @@ Do extraction, kNN, probes and k-means in **one pass** after P1–P4: every mode
 
 - [ ] **Contiguous masking baseline:** **Running on the work desktop** since 2026-09-28: time and frequency masking, Micro 32×5, 75%, 100k steps, seeds 0–2 (6 runs). 1 GPU at batch 128 (the Table 2 runs used 2×64 DDP; same global batch). About 5.8 h per run, all done around Wed Sep 30 02:00. User unit `songmae-masking-baselines-20260928`, log `logs/masking_baselines.log`, wandb group `masking_baselines`. Definitions (`src/core/model.py`): **time** masks full-frequency time spans placed by 1D Voronoi over columns, with seed probability C×H per column (C = 5%), so it has the same expected seeds per clip as 2D Voronoi; spans average 14 columns (70 ms) vs 15 for Voronoi's full-frequency spans. **frequency** masks 3 of the 4 frequency bands over the whole clip, leaving a random band visible. Compare with Voronoi 5% and random, all 3 seeds each.
   - Original request: one representative (block, time-only or frequency-only), matched to Micro 32×5 in size, patch, ratio, steps and eval. Compare with random and Voronoi. Narrow the Voronoi claim if contiguous does as well.
-- [ ] **Masking-ratio sensitivity:** e.g. 50 / 75 / 90% at fixed patch and seed %, Micro. Report parsing and/or reconstruction.
+- [ ] **Masking-ratio sensitivity:** *Decided 2026-09-29: no experiment.* Answer in the response: 75% follows He et al. 2022 and Bird-MAE; name it as an untested sensitivity in the limitations.
 - [ ] **Sec 3.1:** present in processing order (spectrogram → patch embedding + positions → masking + conv → encoder → decoder / reconstruction), with motivations separated and the changes from standard MAE called out.
 - [ ] **Related work:** compare data regimes, temporal granularity and downstream tasks with Ghaffari et al. 2026, Liu et al. 2026 (CVPRW) and Zhang et al. 2025. Verify the bib entries.
 - [ ] **Human speech / privacy in XCL:** state what is known and what screening was actually applied (upstream BirdSet/Xeno-Canto and ours). Don't claim screening without evidence.
@@ -91,7 +91,7 @@ Major:
   - BirdAVES slowed too (added 2026-09-28): ½× (10 ms frames) and ¼× (5 ms), same tape-style method, 5 s of model input per window as for the other baselines. Weights are the same file the paper used (`files/birdaves-biox-base.torchaudio.pt`, SHA-256 `3427869c…` on the desktop and the Mac). 1× output is byte-identical to the old code. Queued on the Mac after the BEATs/Bird-MAE run, together with a 1× BirdAVES re-sweep under the recording-level kNN fix (log `logs/knn_layer_sweep_birdaves.log`).
   - Original note: Bird-MAE at ½ speed (also ¼ and ⅛, fixed in advance, not chosen on test data). Note the pitch shift and shorter original-time context per window.
 - [ ] **Model-selection leakage:** see "Selection protocol" above. Revise Secs 5–7: the tables mark which species each result was selected on.
-- [ ] **Concrete parsing measure:** predicted vs true syllable counts, plus event-level precision/recall/F1 with a boundary tolerance fixed in advance. Keep parsing FER.
+- [ ] **Concrete parsing measure:** *Decided 2026-09-29: not computed in this probe pass; possibly post-hoc later (needs saved predictions or a re-run of the main models).* predicted vs true syllable counts, plus event-level precision/recall/F1 with a boundary tolerance fixed in advance. Keep parsing FER.
 
 Minor:
 - [ ] p2 "smaller models": name the sizes. Also soften the claim that Micro 5 ms beats Large 20 ms on clustering: 0.503 vs 0.501 overall; on zf, Micro loses.
