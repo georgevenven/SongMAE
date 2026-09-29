@@ -84,13 +84,16 @@ def save_embeddings(args):
         selected_bird=args.bird,
         wav_exts=args.wav_exts,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     model = load_model(
         args.aves_config_path, args.aves_model_path, args.random_init, args.seed
     ).to(device)
     min_samples = min_input_samples(model)
     convs = [getattr(layer, "conv", layer) for layer in model.feature_extractor.conv_layers]
-    samples_per_timebin = args.audio_sr * dataset.audio_params[2] / dataset.audio_params[0]
+    # Playback slowdown (tape-style): resample to audio_sr / speed and feed the samples as audio_sr, so one
+    # original timebin spans 1 / speed times more model samples and frames are speed times finer in original time.
+    load_sr = round(args.audio_sr / args.speed)
+    samples_per_timebin = load_sr * dataset.audio_params[2] / dataset.audio_params[0]
     geometry = convolution_geometry(
         [conv.kernel_size[0] for conv in convs],
         [conv.stride[0] for conv in convs],
@@ -104,7 +107,7 @@ def save_embeddings(args):
     for item in chunked_items(dataset, args.num_timebins, args.chunk_timebins, indices):
         embeddings = extract_features(
             model,
-            load_audio(item, args.audio_sr, audio_cache),
+            load_audio(item, load_sr, audio_cache),
             args.encoder_layer_idx,
             args.all_layers,
             min_samples,
@@ -128,6 +131,7 @@ def save_embeddings(args):
         rows,
         model_name=args.model_name,
         audio_sr=args.audio_sr,
+        playback_speed=args.speed,
         encoder_layer_idx=args.encoder_layer_idx,
         all_layers=args.all_layers,
         chunk_timebins=args.chunk_timebins,
@@ -150,6 +154,7 @@ def parse_args():
     parser.add_argument("--aves_config_path", required=True)
     parser.add_argument("--model_name", default="birdaves_biox_base")
     parser.add_argument("--audio_sr", type=int, default=16000)
+    parser.add_argument("--speed", type=float, choices=[1.0, 0.5, 0.25], default=1.0)
     parser.add_argument("--recording_mode", default="events", choices=["events", "background", "full_recordings"])
     parser.add_argument("--recording_stem")
     parser.add_argument("--bird")

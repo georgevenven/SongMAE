@@ -198,9 +198,11 @@ def validate_protocol(store, args):
         assert metadata["target_feature_type"] == args.target_feature_type
         assert metadata["model_num_timebins"] == CONTEXT_TIMEBINS
         return
-    assert metadata["chunk_timebins"] == CONTEXT_TIMEBINS
-    assert metadata["feature_center_timebins"] == 2.5
-    assert metadata["feature_stride_timebins"] == 4.0
+    speed = metadata.get("playback_speed", 1.0)
+    assert speed == args.playback_speed and (args.model == "aves" or speed == 1.0)
+    assert metadata["chunk_timebins"] == int(CONTEXT_TIMEBINS * speed)
+    assert metadata["feature_center_timebins"] == 2.5 * speed
+    assert metadata["feature_stride_timebins"] == 4.0 * speed
     expected = "birdaves_biox_base" if args.model == "aves" else args.hubert_model_name
     assert metadata["model_name"] == expected
 

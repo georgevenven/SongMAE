@@ -28,6 +28,9 @@ MODELS=(
   "birdmae_base_speed0p125|birdmae|0.125"
   "birdmae_base_speed0p0625|birdmae|0.0625"
   "birdmae_base_speed0p03125|birdmae|0.03125"
+  "birdaves_biox_base|aves|1.0"
+  "birdaves_biox_base_speed0p5|aves|0.5"
+  "birdaves_biox_base_speed0p25|aves|0.25"
 )
 selected() { [[ -z "$2" || " $2 " == *" $1 "* ]]; }
 
@@ -45,9 +48,16 @@ for dataset_row in "${DATASETS[@]}"; do
       rm -rf "$embeddings" "$embeddings.tmp"
       mkdir -p "$out"
       echo "extracting: $out"
-      "$PYTHON_BIN" src/external_models/review_baselines.py --model "$model" --speed "$speed" --all_layers \
-        --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$annotations" --bird "$bird" \
-        --recording_mode events --out_dir "$embeddings" --chunk_timebins 1000 --num_timebins "$NUM_TIMEBINS" > "$out/extract.log" 2>&1
+      common=(--spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$annotations" --bird "$bird"
+        --recording_mode events --out_dir "$embeddings" --num_timebins "$NUM_TIMEBINS" --all_layers)
+      if [[ $model == aves ]]; then  # same 5 s model input as the other baselines: 5 s x speed of original audio
+        "$PYTHON_BIN" src/external_models/aves.py --speed "$speed" --chunk_timebins "$("$PYTHON_BIN" -c "print(int(1000 * $speed))")" \
+          --aves_model_path files/birdaves-biox-base.torchaudio.pt --aves_config_path files/birdaves-biox-base.torchaudio.model_config.json \
+          "${common[@]}" > "$out/extract.log" 2>&1
+      else
+        "$PYTHON_BIN" src/external_models/review_baselines.py --model "$model" --speed "$speed" --chunk_timebins 1000 \
+          "${common[@]}" > "$out/extract.log" 2>&1
+      fi
       for layer in $(seq 0 11); do
         mkdir -p "$out/layer_$layer"
         "$PYTHON_BIN" src/embeddings/syllable_knn.py --model "$model" --playback_speed "$speed" --embedding_dir "$embeddings" \
