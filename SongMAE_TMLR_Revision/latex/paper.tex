@@ -129,7 +129,8 @@ size. The feed-forward hidden dimension is 4× the attention dimension in
 every block. Parameter counts are for 32 mels × 5 ms patches. Encoder
 parameters are those used for downstream embeddings (patch projection,
 positional embeddings, encoder convolutional block, and ViT encoder);
-the total adds the decoder components used only in pretraining.
+decoder parameters (projection to the decoder, mask tokens, ViT decoder,
+and decoder convolutional block) are used only in pretraining.
 \par\nopagebreak\vspace{0.5\baselineskip}
 \centering
 \small
@@ -154,7 +155,8 @@ Decoder heads & 1 & 3 & 4 \\
 Conv layers & 2 & 2 & 2 \\
 Output transposed Conv layers & 1 & 1 & 1 \\
 \addlinespace
-\textbf{Encoder parameters (M)} & 1.62 & 13.70 & 96.47 \\
+Encoder parameters (M) & 1.62 & 13.70 & 96.47 \\
+Decoder parameters (M) & 0.13 & 1.19 & 2.18 \\
 \textbf{Total parameters (M)} & 1.75 & 14.89 & 98.65 \\
 \addlinespace
 \bottomrule

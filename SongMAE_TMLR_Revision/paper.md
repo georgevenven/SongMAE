@@ -18,7 +18,7 @@ Figure 3: **Random Masking and Voronoi Masking.** Random Masking is shown above 
 
 {{table-1}}
 
-Table 1: **Architecture and parameter counts for the three SongMAE model sizes.** The encoder and decoder convolutional blocks use 3 × 3 kernels with stride 1. The decoder convolutional block is followed by one transposed convolution with kernel and stride equal to the patch size. The feed-forward hidden dimension is 4× the attention dimension in every block. Parameter counts are for 32 mels × 5 ms patches. Encoder parameters are those used for downstream embeddings (patch projection, positional embeddings, encoder convolutional block, and ViT encoder); the total adds the decoder components used only in pretraining.
+Table 1: **Architecture and parameter counts for the three SongMAE model sizes.** The encoder and decoder convolutional blocks use 3 × 3 kernels with stride 1. The decoder convolutional block is followed by one transposed convolution with kernel and stride equal to the patch size. The feed-forward hidden dimension is 4× the attention dimension in every block. Parameter counts are for 32 mels × 5 ms patches. Encoder parameters are those used for downstream embeddings (patch projection, positional embeddings, encoder convolutional block, and ViT encoder); decoder parameters (projection to the decoder, mask tokens, ViT decoder, and decoder convolutional block) are used only in pretraining.
 
 # **1. Introduction**
 
