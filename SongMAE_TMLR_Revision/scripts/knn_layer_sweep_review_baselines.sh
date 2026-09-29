@@ -14,6 +14,7 @@ NUM_TIMEBINS=${NUM_TIMEBINS:-200000}
 DATASET_FILTER=${DATASET_FILTER:-}
 MODEL_FILTER=${MODEL_FILTER:-}
 BIRD_FILTER=${BIRD_FILTER:-}
+KNN_ARGS=${KNN_ARGS:-}  # e.g. --cpu when the GPU is shared
 DATASETS=(
   "canary|files/annotation jsons/canary_annotations.json|$SPEC_ROOT/canary_5ms"
   "zf|files/annotation jsons/zf_annotations.json|$SPEC_ROOT/zebra_finch_5ms"
@@ -88,7 +89,7 @@ for dataset_row in "${DATASETS[@]}"; do
         mkdir -p "$out/layer_$layer"
         "$PYTHON_BIN" src/embeddings/syllable_knn.py --model "${model%%:*}" --playback_speed "$speed" --embedding_dir "$embeddings" \
           --spec_dir "$specs" --annotation_file "$annotations" --bird "$bird" --out_dir "$out/layer_$layer" \
-          --encoder_layer_idx "$layer" --num_timebins "$NUM_TIMEBINS" --k_values 1,5,10,50,100 > "$out/layer_$layer/run.log" 2>&1
+          --encoder_layer_idx "$layer" --num_timebins "$NUM_TIMEBINS" --k_values 1,5,10,50,100 $KNN_ARGS > "$out/layer_$layer/run.log" 2>&1
       done
       rm -rf "$embeddings"
     done
