@@ -1,0 +1,44 @@
+\nopagebreak[4]
+\vspace{0.5\baselineskip}
+
+\phantomsection\label{tab:s1} %CAPTION%
+
+\nopagebreak[4]
+\vspace{0.5\baselineskip}
+
+\begingroup
+\setlength{\LTpre}{0pt}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Temporal resolution (ms)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+canary (\%)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+zebra (\%)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Bengalese (\%)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Mean (\%)
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+1 & 0.01 & 0 & 1.1 & 0.37 \\
+2 & 0.1 & 0 & 3.3 & 1.14 \\
+5 & 0.27 & 0.06 & 5.31 & 1.88 \\
+10 & 2.27 & 1.66 & 8.8 & 4.24 \\
+20 & 24.2 & 9.66 & 21.95 & 18.6 \\
+200 & 99.12 & 98.21 & 99.31 & 98.88 \\
+\end{longtable}
+}
+
+\endgroup

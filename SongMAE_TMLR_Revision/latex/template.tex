@@ -1,0 +1,51 @@
+\documentclass[10pt]{article}
+\usepackage{tmlr}
+\input{math_commands.tex}
+\raggedbottom
+
+\usepackage{amssymb}
+\usepackage{booktabs,longtable,array}
+\usepackage{siunitx}
+\setlength\LTleft{\fill}
+\setlength\LTright{\fill}
+\newcounter{none}
+\usepackage{calc}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{afterpage}
+\usepackage{soul}
+\usepackage{hyperref}
+\hypersetup{hidelinks}
+\usepackage{url}
+\DeclareUnicodeCharacter{2212}{\ensuremath{-}}
+\DeclareUnicodeCharacter{223C}{\ensuremath{\sim}}
+\setcounter{secnumdepth}{0}
+
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{
+  \sbox\pandoc@box{#1}
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}\else\usebox{\pandoc@box}\fi
+}
+\makeatother
+\setkeys{Gin}{keepaspectratio}
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+
+\title{SongMAE: A bioacoustic encoder for birdsong\thanks{The authors used ChatGPT and Claude solely to rephrase, simplify, and improve the manuscript's prose and grammar. All suggestions were reviewed and approved by the authors prior to submission.}}
+\author{\name George Vengrovski\textsuperscript{1,2} \quad Timothy J. Gardner\textsuperscript{1,2,*} \\
+\addr \textsuperscript{1}Institute of Neuroscience and Department of Biology, University of Oregon, Eugene, OR, USA \\
+\addr \textsuperscript{2}Phil and Penny Knight Campus for Accelerating Scientific Impact, University of Oregon, Eugene, OR, USA \\
+\email \textsuperscript{*}Corresponding author: timg@uoregon.edu}
+
+\begin{document}
+\maketitle
+
+$body$
+
+\end{document}

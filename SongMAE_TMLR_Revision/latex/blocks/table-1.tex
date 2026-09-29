@@ -1,0 +1,40 @@
+\afterpage{%
+\par\addvspace{\baselineskip}
+\noindent\begin{minipage}{\linewidth}
+\phantomsection\label{tab:1}
+\noindent %CAPTION%
+\par\nopagebreak\vspace{0.5\baselineskip}
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+{} & \textbf{Micro} & \textbf{Base} & \textbf{Large} \\
+\midrule
+\textbf{Encoder convolutional block} &  &  &  \\
+Conv layers & 2 & 2 & 2 \\
+\addlinespace
+\textbf{ViT encoder} &  &  &  \\
+Encoder layers & 6 & 6 & 12 \\
+Encoder dimension & 128 & 384 & 768 \\
+Encoder heads & 2 & 6 & 12 \\
+\addlinespace
+\textbf{ViT decoder} &  &  &  \\
+Decoder layers & 1 & 1 & 1 \\
+Decoder dimension & 64 & 192 & 256 \\
+Decoder heads & 1 & 3 & 4 \\
+\addlinespace
+\textbf{Decoder convolutional block} &  &  &  \\
+Conv layers & 2 & 2 & 2 \\
+Output transposed Conv layers & 1 & 1 & 1 \\
+\addlinespace
+\textbf{Total parameters (M)} & 1.75 & 14.89 & 98.65 \\
+\addlinespace
+\bottomrule
+\end{tabular}
+
+\end{minipage}
+\par\vspace{0.5\baselineskip}
+}%
+}%
+}%
+}

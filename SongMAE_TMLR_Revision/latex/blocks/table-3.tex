@@ -1,0 +1,27 @@
+\nopagebreak[4]
+\vspace{0.5\baselineskip}
+
+\phantomsection\label{tab:3} %CAPTION%
+
+\nopagebreak[4]
+\vspace{0.5\baselineskip}
+
+\begingroup
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\sisetup{detect-weight=true, detect-family=true}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}ll*{6}{S[table-format=2.2]}@{}}
+\toprule
+\multicolumn{1}{c}{\textbf{Model}} & \textbf{Patch size} & \multicolumn{4}{c}{\textbf{Macro FER (\%)}} & \multicolumn{2}{c}{\shortstack{\textbf{Macro FER}\\\textbf{breakdown (\%)}}} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-8}
+& & {\textbf{canary}} & {\textbf{zebra finch}} & {\textbf{Bengalese finch}} & {\textbf{Mean}} & {\textbf{Parsing}} & {\textbf{Identity}} \\
+\midrule
+SongMAE-Large & 32 mels × 5 ms & \textbf{4.59} & \textbf{8.03} & \textbf{2.10} & \textbf{4.91} & \textbf{1.85} & 3.06 \\
+& 32 mels × 20 ms & 6.64 & 9.74 & 5.01 & 7.13 & 4.24 & \textbf{2.89} \\
+BirdAVES & -- & 7.45 & 9.56 & 4.92 & 7.31 & 4.16 & 3.15 \\
+HuBERT & -- & 8.75 & 11.43 & 5.21 & 8.46 & 4.32 & 4.14 \\
+\bottomrule
+\end{tabular*}
+\endgroup
+\par\vspace{0.5\baselineskip}
