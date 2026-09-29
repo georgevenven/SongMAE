@@ -418,6 +418,8 @@ def write_recording_embedding_folder(args):
         token_start, timebin_start = _write_segment(
             writer, token_start, timebin_start, segment_index, raw_segment, state, patch_width
         )
+        if segment_index % 50 == 0:  # flushed memmap pages can be dropped instead of swapped (all-layer runs are tens of GB)
+            writer.arrays["encoded_embeddings"].flush()
 
     assert token_start == writer.arrays["encoded_embeddings"].shape[0]
     if "spectrograms" in writer.arrays:
