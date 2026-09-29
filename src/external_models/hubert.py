@@ -104,7 +104,7 @@ def save_embeddings(args):
         selected_bird=args.bird,
         wav_exts=args.wav_exts,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     feature_extractor, model = load_model(
         args.model_name, args.random_init, args.seed, args.hidden_size
     )

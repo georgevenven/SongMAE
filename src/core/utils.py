@@ -231,7 +231,7 @@ def load_model_state(run_dir, checkpoint_file=None, random_init=False):
 
     run_dir = resolve_run_dir(run_dir)
     model, config = load_model_from_checkpoint(run_dir, checkpoint_file, fallback_to_random=random_init)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     model = model.to(device)
     model.eval()
 
