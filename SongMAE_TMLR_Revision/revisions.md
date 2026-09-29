@@ -46,6 +46,8 @@ Everything selected is inside the protocol: masking, patch shape, Voronoi seed %
 - [x] **P9 Extractors selected different recordings at the timebin cap.** SongMAE extraction skips an event that no longer fits and keeps filling; the shared raw-audio loader (BirdAVES, HuBERT, BEATs, Bird-MAE) included a truncated piece of that event and stopped. For birds over 60 min (canary, bf bird1) the recording sets differed, so the shared per-bird fold manifests didn't match. Fixed 2026-09-29 (`limited_items` now skips and continues): identical event sequences verified for all 3 canary birds, bf bird1/bird2, and zf B145. The finished baseline kNN sweeps used the old behaviour (slightly different event pool near the 1,000 s cutoff): negligible, optional re-run.
 - [x] **P1 follow-up:** the label-budget probe matched selected syllables to tokens by binary search within a group, which assumes time order. With recording groups, events come in balanced order, so matches were missed. Fixed by sorting each recording's tokens by start time (canary, with one event per recording, was unaffected).
 
+- [x] **P10 A class in one recording can't be recording-level cross-validated.** zf B402 class 1 occurs in a single recording (3 occurrences, 0.8% of its syllable time), the only such case in the dataset. Rule applied to every model: classes present in fewer recordings than folds are excluded from folds, training and scoring (`drop_rare_classes`, recorded as `excluded_rare_classes`). Other birds verified byte-identical. **State this in Sec 4.4.**
+
 Verified, no fix needed: every Table 2 run is SongMAE-Micro (128-d, 6 layers) trained for 100,000 steps (`runs/*micro_100k*/train.json`).
 
 ## Compute plan
