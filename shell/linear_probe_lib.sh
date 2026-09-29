@@ -162,27 +162,13 @@ run_capped_linear_probe_suite() {
           fi
         fi
 
-        for cap in "${missing[@]}"; do
-          tag=$(printf '%03d' "$cap")
-          cap_dir="$model_dir/cap_$tag"
-          metrics="$cap_dir/metrics.json"
-          manifest="$OUT_ROOT/manifests/$dataset/$bird/cap_$tag.json"
-          mkdir -p "$cap_dir"
-          manifest_args=(--manifest_in "$manifest")
-          [[ -f "$manifest" ]] || manifest_args=(--manifest_out "$manifest")
-          echo "probing: dataset=$dataset bird=$bird model=$model K=$cap"
-          if "$PYTHON_BIN" src/evals/syllable_classification_capped.py \
-            --embeddings "$embeddings" --annotations "$annotations" \
-            --label_cap "$cap" --folds "$FOLDS" "${manifest_args[@]}" \
-            --pca_components "$PCA_COMPONENTS" \
-              --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
-            > "$cap_dir/metrics.tmp"; then
-            mv "$cap_dir/metrics.tmp" "$metrics"
-          else
-            rm -f "$cap_dir/metrics.tmp"
-            echo "probe failed: dataset=$dataset bird=$bird model=$model K=$cap" >&2
-          fi
-        done
+        caps=$(IFS=,; echo "${missing[*]}")
+        echo "probing: dataset=$dataset bird=$bird model=$model K=$caps"
+        "$PYTHON_BIN" src/evals/syllable_classification_capped.py \
+          --embeddings "$embeddings" --annotations "$annotations" --label_caps "$caps" --folds "$FOLDS" \
+          --manifest_dir "$OUT_ROOT/manifests/$dataset/$bird" --out_dir "$model_dir" \
+          --pca_components "$PCA_COMPONENTS" --max_iter "$MAX_ITER" --logreg_c "$LOGREG_C" --seed "$SEED" \
+          || echo "probe failed: dataset=$dataset bird=$bird model=$model K=$caps" >&2
         [[ "$CLEAN_EMBEDDINGS" == 1 ]] && rm -rf "$embeddings"
       done
     done < <(linear_probe_birds "$annotations")

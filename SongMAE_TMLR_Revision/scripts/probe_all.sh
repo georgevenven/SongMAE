@@ -74,14 +74,12 @@ for row in "canary|canary_5ms" "zf|zebra_finch_5ms" "bf|bengalese_finch_5ms"; do
             "${margs[@]}" --logreg_c "$LOGREG_C" > "$dir/metrics.tmp" 2> "$dir/probe.log" \
             && mv "$dir/metrics.tmp" "$dir/metrics.json" || echo "probe failed: $dir" >&2
         fi
-        for cap in $caps; do
-          tag=$(printf %03d "$cap"); cdir=$dir/cap_$tag; cman=$OUT_ROOT/manifests/$dataset/$bird/cap_$tag.json
-          [[ -f $cdir/metrics.json ]] && continue
-          mkdir -p "$cdir"; margs=(--manifest_in "$cman"); [[ -f $cman ]] || { mkdir -p "${cman%/*}"; margs=(--manifest_out "$cman"); }
+        missing=""; for cap in $caps; do [[ -f $dir/cap_$(printf %03d "$cap")/metrics.json ]] || missing="$missing,$cap"; done
+        if [[ -n $missing ]]; then  # all missing budgets in one process: per-fold PCA is fit once and shared
           "$PYTHON_BIN" src/evals/syllable_classification_capped.py --embeddings "$dir/embeddings" --annotations "$ann" \
-            --label_cap "$cap" "${margs[@]}" --logreg_c "$LOGREG_C" > "$cdir/metrics.tmp" 2> "$cdir/probe.log" \
-            && mv "$cdir/metrics.tmp" "$cdir/metrics.json" || echo "cap probe failed: $cdir" >&2
-        done
+            --label_caps "${missing#,}" --manifest_dir "$OUT_ROOT/manifests/$dataset/$bird" --out_dir "$dir" \
+            --logreg_c "$LOGREG_C" > "$dir/caps.log" 2>&1 || echo "cap probes failed: $dir" >&2
+        fi
         rm -rf "$dir/embeddings"
       done
     done

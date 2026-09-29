@@ -129,26 +129,28 @@ def load_manifest(args, group_labels):
     return manifest
 
 
+def fit_projection(x, fit, components, seed):
+    """PCA fit on the fold's `fit` tokens; returns a function mapping token indices to projected features."""
+    if not components:
+        return lambda idx: np.asarray(x[idx], dtype=np.float32)
+    fit_x = np.asarray(x[fit], dtype=np.float32)
+    assert 0 < components <= min(fit_x.shape)
+    solver = "covariance_eigh" if components == x.shape[1] else "randomized"
+    pca = PCA(n_components=components, svd_solver=solver, random_state=seed).fit(fit_x)
+    return lambda idx: pca.transform(np.asarray(x[idx], dtype=np.float32)).astype(np.float32, copy=False)
+
+
+def zscore(train_x, val_x):
+    mean = train_x.mean(axis=0, dtype=np.float64).astype(np.float32)
+    std = np.maximum(train_x.std(axis=0, dtype=np.float64).astype(np.float32), 1e-6)
+    return (train_x - mean) / std, (val_x - mean) / std
+
+
 def fold_features(x, fit, train, val, components, seed):
     """PCA fit on the fold's `fit` tokens (never validation), then z-scoring on `train` tokens."""
     assert set(fit.tolist()).isdisjoint(val.tolist())
-    train_x = np.asarray(x[train], dtype=np.float32)
-    val_x = np.asarray(x[val], dtype=np.float32)
-    if components:
-        fit_x = np.asarray(x[fit], dtype=np.float32)
-        assert 0 < components <= min(fit_x.shape)
-        solver = "covariance_eigh" if components == x.shape[1] else "randomized"
-        pca = PCA(n_components=components, svd_solver=solver, random_state=seed).fit(fit_x)
-        train_x = pca.transform(train_x).astype(np.float32, copy=False)
-        val_x = pca.transform(val_x).astype(np.float32, copy=False)
-    mean = train_x.mean(axis=0, dtype=np.float64).astype(np.float32)
-    std = train_x.std(axis=0, dtype=np.float64).astype(np.float32)
-    std = np.maximum(std, 1e-6)
-    train_x -= mean
-    train_x /= std
-    val_x -= mean
-    val_x /= std
-    return train_x, val_x
+    project = fit_projection(x, fit, components, seed)
+    return zscore(project(train), project(val))
 
 
 def group_indices(groups, selected):

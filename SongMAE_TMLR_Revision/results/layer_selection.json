@@ -1,4 +1,64 @@
 {
+  "Xcl_micro_100k_p128x1_default": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "Xcl_micro_100k_p16x1_default": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "Xcl_micro_100k_p32x1_c0025": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "Xcl_micro_100k_p32x1_c005": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "Xcl_micro_100k_p32x1_c010": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "Xcl_micro_100k_p4x4_default": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
   "beats_iter3_plus_as2m": {
     "all": 7,
     "canary": 5,
@@ -128,6 +188,130 @@
     "union": [
       8,
       10
+    ]
+  },
+  "hubert_base_ls960": {
+    "all": 0,
+    "canary": 3,
+    "test_canary": 0,
+    "test_zf": 0,
+    "test_bf": 0,
+    "union": [
+      0,
+      3
+    ]
+  },
+  "xcl_base_500k_p32x1_c005": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_base_500k_p32x4_c010": {
+    "all": 3,
+    "canary": 4,
+    "test_canary": 3,
+    "test_zf": 4,
+    "test_bf": 4,
+    "union": [
+      3,
+      4
+    ]
+  },
+  "xcl_large_500k_p32x1_c005": {
+    "all": 11,
+    "canary": 11,
+    "test_canary": 11,
+    "test_zf": 11,
+    "test_bf": 11,
+    "union": [
+      11
+    ]
+  },
+  "xcl_large_500k_p32x4_c0025": {
+    "all": 9,
+    "canary": 9,
+    "test_canary": 9,
+    "test_zf": 9,
+    "test_bf": 9,
+    "union": [
+      9
+    ]
+  },
+  "xcl_large_500k_p32x4_c010": {
+    "all": 10,
+    "canary": 10,
+    "test_canary": 10,
+    "test_zf": 10,
+    "test_bf": 10,
+    "union": [
+      10
+    ]
+  },
+  "xcl_micro_100k_p32x1_random": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x4_c0025": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x4_c005": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x4_c010": {
+    "all": 4,
+    "canary": 5,
+    "test_canary": 4,
+    "test_zf": 4,
+    "test_bf": 4,
+    "union": [
+      4,
+      5
+    ]
+  },
+  "xcl_micro_500k_p32x1_c005": {
+    "all": 5,
+    "canary": 4,
+    "test_canary": 5,
+    "test_zf": 4,
+    "test_bf": 4,
+    "union": [
+      4,
+      5
+    ]
+  },
+  "xcl_micro_500k_p32x4_c010": {
+    "all": 3,
+    "canary": 3,
+    "test_canary": 3,
+    "test_zf": 3,
+    "test_bf": 3,
+    "union": [
+      3
     ]
   }
 }
