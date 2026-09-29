@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Recording-level cross-validated syllable linear probe; PCA and z-scoring fit on training recordings only."""
 import argparse
+import collections
 import json
 import multiprocessing
 import sys
@@ -56,6 +57,15 @@ def group_truth_labels(units, spans, groups):
     for span, group in zip(spans, groups):
         out.setdefault(group, set()).update(np.unique(ground_truth(units, *span)).tolist())
     return out
+
+
+def drop_rare_classes(group_labels, y, folds):
+    # A class in fewer recordings than folds cannot be both trained and validated at the recording level: drop it from
+    # folds, training (token label -1) and scoring (only zf B402 class 1, in one recording, is affected).
+    counts = collections.Counter(c for labels in group_labels.values() for c in labels)
+    rare = sorted(c for c, n in counts.items() if n < folds)
+    y = np.where(np.isin(y, rare), -1, y)
+    return {group: labels - set(rare) for group, labels in group_labels.items()}, y, rare
 
 
 def make_folds(group_labels, count, seed):
@@ -209,6 +219,7 @@ def metrics(labels, confusion):
 
 def fit_fold(x, y, spans, groups, units, labels, fold, fold_index, args):
     train = group_indices(groups, fold["train_groups"])
+    train = train[y[train] >= 0]
     val = group_indices(groups, fold["val_groups"])
     assert set(y[train].tolist()) <= set(labels)  # a coarse model may never output some classes
     train_x, val_x = fold_features(x, train, train, val, args.pca_components, args.seed)
@@ -271,7 +282,8 @@ def main():
     args = parse_args()
     x, y, spans, groups = load_embeddings(args.embeddings)
     units = load_units(args.annotations)
-    manifest = load_manifest(args, group_truth_labels(units, spans, groups))
+    group_labels, y, rare = drop_rare_classes(group_truth_labels(units, spans, groups), y, args.folds)
+    manifest = load_manifest(args, group_labels)
 
     labels = manifest["class_labels"]
     total_confusion = np.zeros((len(labels), len(labels)), dtype=np.int64)
@@ -300,7 +312,8 @@ def main():
             "fold_strategy": manifest["fold_strategy"],
             "event_grouping": "recording_stem",
             "scored_classes": "all_ground_truth_classes",
-            "model_output_classes": sorted(set(y.tolist())),
+            "excluded_rare_classes": rare,
+            "model_output_classes": sorted(set(y[y >= 0].tolist())),
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
             "pca_fit_scope": "disabled" if args.pca_components == 0 else "training_fold",

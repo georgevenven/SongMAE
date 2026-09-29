@@ -24,6 +24,7 @@ from src.evals.syllable_classification import (
     load_embeddings,
     load_units,
     fit_projection,
+    drop_rare_classes,
     group_truth_labels,
     make_folds,
     metrics,
@@ -83,6 +84,7 @@ def build_manifest(y, spans, groups, group_labels, count, cap, seed):
     folds = make_folds(group_labels, count, seed)
     for fold_index, fold in enumerate(folds):
         train = group_indices(groups, fold["train_groups"])
+        train = train[y[train] >= 0]
         fold["selected_occurrences"] = select_occurrences(
             y, spans, groups, train, sorted(set(y[train].tolist())), cap, seed, fold_index
         )
@@ -217,7 +219,7 @@ def main():
     assert caps and min(caps) > 0
     x, y, spans, groups = load_embeddings(args.embeddings)
     units = load_units(args.annotations)
-    group_labels = group_truth_labels(units, spans, groups)
+    group_labels, y, rare = drop_rare_classes(group_truth_labels(units, spans, groups), y, args.folds)
     manifests = {cap: load_manifest(args, y, spans, groups, group_labels, cap) for cap in caps}
     labels = manifests[caps[0]]["class_labels"]
     runs = {cap: {"confusion": np.zeros((len(labels), len(labels)), dtype=np.int64), "folds": [], "fit": 0.0, "predict": 0.0}
@@ -233,13 +235,14 @@ def main():
         val_projected = project(val)
         pca_seconds += time.perf_counter() - pca_started
         val_spans = [spans[index] for index in val]
+        labeled = train[y[train] >= 0]  # PCA above uses all training audio; labels only from labeled tokens
         for cap in caps:
             fold_y = y.copy()
             selected, counts = selected_indices(
-                fold_y, spans, groups, train, manifests[cap]["folds"][fold_index]["selected_occurrences"],
+                fold_y, spans, groups, labeled, manifests[cap]["folds"][fold_index]["selected_occurrences"],
                 labels, cap, args.seed, fold_index,
             )
-            assert set(fold_y[selected].tolist()) == set(y[train].tolist())
+            assert set(fold_y[selected].tolist()) == set(y[labeled].tolist())
             train_x, val_x = zscore(project(selected), val_projected)
             fit_started = time.perf_counter()
             model = LogisticRegression(C=args.logreg_c, class_weight="balanced", max_iter=args.max_iter)
@@ -284,6 +287,7 @@ def main():
             "sampling": manifests[cap]["sampling"],
             "event_grouping": "recording_stem",
             "scored_classes": "all_ground_truth_classes",
+            "excluded_rare_classes": rare,
             "event_split_integrity": "disjoint",
             "pca_components": args.pca_components,
             "pca_fit_scope": "disabled" if args.pca_components == 0 else "training_fold_all_tokens",
