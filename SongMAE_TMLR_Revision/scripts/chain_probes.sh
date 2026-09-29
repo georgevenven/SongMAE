@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
-# Run on the work desktop. Waits for the desktop kNN sweep (canary, first half of zf) and the Mac sweeps (bf, second half
-# of zf), merges the Mac's kNN
-# results, selects layers, then probes: SongMAE/BirdAVES/HuBERT here, BEATs/Bird-MAE on the Mac. Mac probe results are
-# pulled back at the end.
+# Run on the work desktop. Waits for the Mac kNN sweeps (bf; zf in two batches; canary was done on the desktop), merges
+# the Mac's kNN results, selects layers, then probes: SongMAE/BirdAVES/HuBERT here, BEATs/Bird-MAE on the Mac. Mac probe
+# results are pulled back at the end.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 P=/home/george-vengrovski/anaconda3/envs/mae/bin/python
 MAC=macstudio MAC_REPO=Documents/SongMAE-reviews
-done_log() { tail -1 "$1" 2>/dev/null | grep -q "sweep complete"; }
 
-until done_log logs/knn_layer_sweep_songmae_hubert.log; do
-  systemctl --user is-active -q songmae-knn-sweep-songmae-hubert || { echo "desktop sweep stopped without completing"; exit 1; }
-  sleep 60
-done
-for log in knn_layer_sweep_bf.log knn_layer_sweep_zf_mac.log; do
-  until ssh -o BatchMode=yes $MAC "tail -1 $MAC_REPO/logs/$log" | grep -q "sweep complete"; do sleep 120; done
+for log in knn_layer_sweep_bf.log knn_layer_sweep_zf_mac.log knn_layer_sweep_zf_mac2.log; do
+  until ssh -o BatchMode=yes $MAC "tail -1 $MAC_REPO/logs/$log" 2>/dev/null | grep -q "sweep complete"; do sleep 120; done
 done
 for dataset in bf zf; do
   rsync -a "$MAC:$MAC_REPO/results/knn/review_baselines_all_layers/$dataset/" "results/knn/review_baselines_all_layers/$dataset/"
