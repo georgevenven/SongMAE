@@ -33,9 +33,11 @@ from src.evals.syllable_classification import (
 
 
 def occurrence_runs(y, spans, groups, indices):
+    # Walk tokens in time order within each recording: events of one recording are stored in balanced (not time)
+    # order, and walking stored order merges tokens from different events into bogus occurrences.
     runs = []
     current = []
-    for index in indices:
+    for index in sorted(indices, key=lambda index: (groups[index], spans[index][1])):
         if current:
             previous = current[-1]
             contiguous = (
