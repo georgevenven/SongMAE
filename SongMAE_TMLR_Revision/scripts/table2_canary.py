@@ -23,15 +23,15 @@ def seeds(first, stem):
 
 GROUPS = [
     [("Random", P5, "--", seeds("xcl_micro_100k_p32x1_random", "xcl_micro_100k_p32x1_random")),
-     ("Voronoi", P5, "10.0", seeds("Xcl_micro_100k_p32x1_c010", "xcl_micro_100k_p32x1_c010")),
-     ("Time", P5, "5.0", [f"xcl_micro_100k_p32x1_time_seed{s}" for s in range(3)]),
-     ("Frequency", P5, "--", [f"xcl_micro_100k_p32x1_frequency_seed{s}" for s in range(3)])],
+     ("Voronoi", P5, "10.0", seeds("Xcl_micro_100k_p32x1_c010", "xcl_micro_100k_p32x1_c010"))],
     [("Voronoi", "128 mels × 5 ms", "10.0", seeds("Xcl_micro_100k_p128x1_default", "xcl_micro_100k_p128x1_c010")),
      ("Voronoi", "16 mels × 5 ms", "10.0", seeds("Xcl_micro_100k_p16x1_default", "xcl_micro_100k_p16x1_c010")),
      ("Voronoi", P20, "10.0", seeds("xcl_micro_100k_p32x4_c010", "xcl_micro_100k_p32x4_c010")),
      ("Voronoi", "4 mels × 20 ms", "10.0", seeds("Xcl_micro_100k_p4x4_default", "xcl_micro_100k_p4x4_c010"))],
     [("Voronoi", P5, "2.5", seeds("Xcl_micro_100k_p32x1_c0025", "xcl_micro_100k_p32x1_c0025")),
      ("Voronoi", P5, "5.0", seeds("Xcl_micro_100k_p32x1_c005", "xcl_micro_100k_p32x1_c005"))],
+    [("Time", P5, "5.0", [f"xcl_micro_100k_p32x1_time_seed{s}" for s in range(3)]),
+     ("Frequency", P5, "--", [f"xcl_micro_100k_p32x1_frequency_seed{s}" for s in range(3)])],
     [("Voronoi", P20, "2.5", seeds("xcl_micro_100k_p32x4_c0025", "xcl_micro_100k_p32x4_c0025")),
      ("Voronoi", P20, "5.0", seeds("xcl_micro_100k_p32x4_c005", "xcl_micro_100k_p32x4_c005"))],
 ]
