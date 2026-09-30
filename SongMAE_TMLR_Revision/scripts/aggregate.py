@@ -25,6 +25,7 @@ ORDER = ["xcl_large_500k_p32x1_c005", "xcl_large_500k_p32x4_c010", "xcl_large_50
          "beats_iter3_plus_as2m_speed0p5", "beats_iter3_plus_as2m_speed0p25", "beats_iter3_plus_as2m_speed0p125",
          "beats_iter3_plus_as2m_speed0p0625", "beats_iter3_plus_as2m_speed0p03125", "birdmae_base_speed1", "birdmae_base_speed0p5",
          "birdmae_base_speed0p25", "birdmae_base_speed0p125", "birdmae_base_speed0p0625", "birdmae_base_speed0p03125"]
+ORDER = [c for c in ORDER if c in SEL]  # conditions still awaiting layer selection are skipped
 LABEL = {"xcl_large_500k_p32x1_c005": "SongMAE-L 32×5 ms", "xcl_large_500k_p32x4_c010": "SongMAE-L 32×20 ms",
          "xcl_large_500k_p32x4_c0025": "SongMAE-L 32×20 ms (2.5% seeds)", "xcl_base_500k_p32x1_c005": "SongMAE-B 32×5 ms",
          "xcl_base_500k_p32x4_c010": "SongMAE-B 32×20 ms", "xcl_micro_500k_p32x1_c005": "SongMAE-Micro 32×5 ms",
