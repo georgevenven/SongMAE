@@ -42,8 +42,8 @@ def greyed(color, amount):
     return mcolors.to_hex([c + (0.78 - c) * amount for c in mcolors.to_rgb(color)])
 
 
-fig, axes = plt.subplots(1, len(PANELS), figsize=(14, 3.4), dpi=200, sharey=True)
-for axis, (title, color, stem, slowed) in zip(axes, PANELS):
+fig, axes = plt.subplots(2, 3, figsize=(7.2, 5.8), dpi=200, sharex=True, sharey=True)
+for axis, (title, color, stem, slowed) in zip(axes.flat, PANELS):
     lines = [(stem if stem != "birdmae_base" else "birdmae_base_speed1", "1", color)]
     lines += [(f"{stem}_speed{s}", s, greyed(color, 0.35 + 0.5 * i / max(1, len(slowed) - 1)))
               for i, s in enumerate(slowed)]
@@ -54,18 +54,18 @@ for axis, (title, color, stem, slowed) in zip(axes, PANELS):
         print(f"{condition:34s} best L{max(LAYERS, key=lambda l: y[l])} {max(y):.1f}")
     if slowed:
         handles, labels = axis.get_legend_handles_labels()
-        axis.legend(handles[::-1], labels[::-1], fontsize=9, frameon=False, loc="lower right",
+        axis.legend(handles[::-1], labels[::-1], fontsize=8, frameon=False, loc="lower right",
                     ncol=2 if len(slowed) > 2 else 1, handlelength=1.2, columnspacing=0.8, labelspacing=0.3)
-    axis.set_title(title, fontsize=14)
+    axis.set_title(title, fontsize=13)
     axis.set_xticks(LAYERS)
     axis.set_xticklabels([str(l) if l % 2 == 0 else "" for l in LAYERS])
     axis.set_box_aspect(1)
     axis.grid(alpha=0.18)
     axis.set_axisbelow(True)
-    axis.tick_params(labelsize=12)
-axes[0].set_ylabel("Macro kNN purity (%) ↑", fontsize=14)
-fig.supxlabel("Encoder layer", y=0.03, fontsize=14)
-fig.subplots_adjust(left=0.06, right=0.995, bottom=0.2, top=0.86, wspace=0.08)
+    axis.tick_params(labelsize=11)
+fig.supylabel("Macro kNN purity (%) ↑", x=0.02, fontsize=13)
+fig.supxlabel("Encoder layer", y=0.02, fontsize=13)
+fig.subplots_adjust(left=0.1, right=0.995, bottom=0.09, top=0.93, wspace=0.08, hspace=0.18)
 out = REV / "latex/figures/main_figure_4_layers.png"
 fig.savefig(out, dpi=300, bbox_inches="tight")
 fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
