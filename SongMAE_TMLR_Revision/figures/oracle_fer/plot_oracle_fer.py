@@ -16,34 +16,34 @@ plt.rcParams["font.family"] = "DejaVu Sans"
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE.parents[1] / "results" / "oracle"
 SPECIES = ("canary", "zf", "bf")
+STYLE = {"canary": ("Canary", "#E69F00"), "zf": ("Zebra finch", "#CC79A7"), "bf": ("Bengalese finch", "#009E73")}
 
 
 def oracle_curves():
+    """Macro-optimal oracle (the lower bound): bin widths, per-species Macro FER (birds averaged), and their mean."""
     rows = {s: [json.loads(p.read_text())["rows"] for p in sorted((RESULTS / s).glob("*.json"))] for s in SPECIES}
-    curves = {}
-    for oracle in ("majority", "macro_optimal"):
-        idx = [i for i, r in enumerate(rows["zf"][0]) if r["oracle"] == oracle]
-        mean = lambda i, k: st.mean(100 * st.mean(b[i][k] for b in rows[s]) for s in SPECIES)
-        curves[oracle] = ([rows["zf"][0][i]["bin_ms"] for i in idx],
-                          [mean(i, "macro_fer") for i in idx], [mean(i, "macro_parsing_error") for i in idx])
-    return curves
+    idx = [i for i, r in enumerate(rows["zf"][0]) if r["oracle"] == "macro_optimal"]
+    per = {s: [100 * st.mean(b[i]["macro_fer"] for b in rows[s]) for i in idx] for s in SPECIES}
+    return [rows["zf"][0][i]["bin_ms"] for i in idx], per, [st.mean(v) for v in zip(*per.values())]
 
 
 def main():
-    curves = oracle_curves()
+    x, per, mean = oracle_curves()
     fig, axis = plt.subplots(figsize=(4.3, 4.1), dpi=200)
-    x, fer, _ = curves["macro_optimal"]  # lowest Macro FER reachable on each output grid
-    axis.plot(x, fer, color="#222222", linewidth=2.2, marker="o", markersize=4.5, zorder=3)
+    for s in SPECIES:
+        axis.plot(x, per[s], color=STYLE[s][1], linewidth=1.8, marker="o", markersize=4, label=STYLE[s][0])
+    axis.plot(x, mean, color="#222222", linewidth=2.2, marker="o", markersize=4.5, zorder=3, label="Mean")
+    axis.legend(frameon=False, fontsize=9, loc="upper left")
     axis.set_xscale("log")
     axis.set_yscale("log")
     axis.set_xticks([5, 20, 40, 80, 160])
     axis.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
     axis.xaxis.set_minor_formatter(NullFormatter())
-    axis.set_yticks([0.5, 1, 2, 5, 10, 20])
+    axis.set_yticks([0.2, 0.5, 1, 2, 5, 10, 20])
     axis.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
     axis.yaxis.set_minor_formatter(NullFormatter())
     axis.set_xlim(4, 200)
-    axis.set_ylim(0.4, 25)
+    axis.set_ylim(0.2, 30)
     axis.set_title("Oracle lower bound", fontsize=13)
     axis.set_xlabel("Output bin (ms)")
     axis.set_ylabel("Macro FER (%) ↓")
@@ -52,6 +52,7 @@ def main():
     axis.set_axisbelow(True)
     for suffix, dpi in [(".png", 300), (".pdf", None), (".svg", None)]:
         fig.savefig(HERE / f"oracle_fer{suffix}", dpi=dpi, bbox_inches="tight")
+    fig.savefig(HERE.parents[1] / "latex/figures/supplement_figure_oracle_fer.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(HERE / "oracle_fer.png")
 
