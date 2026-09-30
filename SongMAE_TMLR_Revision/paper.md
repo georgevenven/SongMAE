@@ -236,6 +236,10 @@ Several limitations remain. We were limited by existing high-quality labeled dat
 
 Supplemental Table 1: **Temporal resolution relative to inter-syllable gaps.** Values show the percentage of gaps between adjacent annotated syllables shorter than each temporal resolution. We selected 5 ms because only 1.88% of inter-syllable gaps were shorter than this resolution, compared with 18.60% at 20 ms. Relative to 2 ms, 5 ms sacrifices only 0.74 percentage points while producing 2.5× fewer temporal tokens, providing a favorable resolution-efficiency trade-off.
 
+{{fig-s1}}
+
+Supplemental Figure 1: **Oracle lower bound on Macro FER by output resolution.** The lowest Macro FER any model can reach when it assigns one label per output bin, averaged over birds within species and then over species (canary, zebra finch, Bengalese finch).
+
 {{clearpage}}
 
 ## **A.2 Oracle Macro FER at output resolution**
@@ -243,10 +247,6 @@ Supplemental Table 1: **Temporal resolution relative to inter-syllable gaps.** V
 {placeholder}
 
 REVISION: compare with the observed 5 vs 20 ms parsing gap once the corrected probes are re-run.
-
-{{fig-s1}}
-
-Supplemental Figure 1: **Oracle lower bound on Macro FER by output resolution.** The lowest Macro FER any model can reach when it assigns one label per output bin, averaged over birds within species and then over species (canary, zebra finch, Bengalese finch).
 
 {{clearpage}}
 
