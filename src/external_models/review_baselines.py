@@ -82,7 +82,6 @@ def align_features(labels, features, timebin_ms, speed):
 
 
 def save_embeddings(args):
-    assert args.model == "birdmae" or args.speed in (1.0, 0.5, 0.25)
     assert not args.out_dir.exists(), f"output already exists: {args.out_dir}"
     dataset = WavFromSpectrogramDataset(
         args.spec_dir, args.wav_dir, args.annotation_file,
