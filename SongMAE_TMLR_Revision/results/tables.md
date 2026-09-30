@@ -1,0 +1,129 @@
+# Revision results
+
+Protocols: `loso`, where each species is scored at the layer selected on the other two, and `canary`, where layers
+are selected on canary (a development set; zf and bf are the test sets). Averaging is birds within species, then
+species. Spread: SD across birds within species, mean SD across the 3 folds, and SD across the 5 kNN sampling seeds.
+kNN purity leaves out classes in fewer than two recordings of a bird's kNN selection (results/knn_rare_classes.json).
+
+## Linear-probe Macro FER (%), leave-one-species-out
+
+Mean ± SD across birds. Parsing / identity are species-averaged; fold SD is the mean within-bird SD across folds.
+
+| Model | Canary | Zebra finch | Bengalese finch | Mean (3 spp.) | Mean (zf+bf) | Parsing | Identity | Fold SD |
+|---|---|---|---|---|---|---|---|---|
+| SongMAE-L 32×5 ms | 4.82 ± 1.45 | 8.64 ± 6.57 | 2.11 ± 0.48 | 5.19 | 5.37 | 1.87 | 3.31 | 0.61 |
+| SongMAE-L 32×20 ms | 7.01 ± 1.72 | 10.17 ± 6.16 | 5.02 ± 0.64 | 7.40 | 7.59 | 4.22 | 3.17 | 0.66 |
+| SongMAE-L 32×20 ms (2.5% seeds) | 6.92 ± 1.98 | 10.27 ± 6.07 | 5.09 ± 0.64 | 7.43 | 7.68 | 4.21 | 3.22 | 0.68 |
+| SongMAE-B 32×5 ms | 4.94 ± 1.76 | 9.03 ± 6.82 | 2.20 ± 0.50 | 5.39 | 5.61 | 1.87 | 3.51 | 0.72 |
+| SongMAE-B 32×20 ms | 7.20 ± 1.57 | 10.44 ± 6.19 | 5.13 ± 0.65 | 7.59 | 7.79 | 4.21 | 3.38 | 0.72 |
+| SongMAE-Micro 32×5 ms | 6.33 ± 1.47 | 11.03 ± 7.52 | 2.93 ± 0.70 | 6.76 | 6.98 | 1.91 | 4.85 | 0.69 |
+| SongMAE-Micro 32×20 ms | 8.10 ± 1.34 | 11.33 ± 6.65 | 5.29 ± 0.58 | 8.24 | 8.31 | 4.23 | 4.01 | 0.76 |
+| BirdAVES 1× | 7.50 ± 1.20 | 9.92 ± 6.08 | 5.00 ± 0.62 | 7.47 | 7.46 | 4.17 | 3.30 | 0.62 |
+| BirdAVES ½× | 7.16 ± 1.32 | 9.59 ± 6.19 | 3.04 ± 0.48 | 6.60 | 6.32 | 2.37 | 4.22 | 0.72 |
+| BirdAVES ¼× | 8.65 ± 1.22 | 10.49 ± 6.55 | 3.13 ± 0.59 | 7.42 | 6.81 | 1.92 | 5.50 | 0.72 |
+| HuBERT | 9.00 ± 1.35 | 11.69 ± 6.59 | 5.22 ± 0.62 | 8.64 | 8.46 | 4.33 | 4.31 | 0.69 |
+| BEATs 1× | 8.47 ± 2.02 | 40.95 ± 5.91 | 39.67 ± 4.54 | 29.70 | 40.31 | 18.31 | 11.39 | 0.96 |
+| BEATs ½× | 11.78 ± 3.10 | 21.77 ± 4.89 | 20.75 ± 2.51 | 18.10 | 21.26 | 13.69 | 4.41 | 0.78 |
+| BEATs ¼× | 11.91 ± 2.56 | 13.35 ± 4.86 | 10.39 ± 1.24 | 11.89 | 11.87 | 8.97 | 2.91 | 0.63 |
+| Bird-MAE 1× | 14.08 ± 2.33 | 39.70 ± 5.52 | 38.98 ± 4.52 | 30.92 | 39.34 | 20.89 | 10.02 | 0.83 |
+| Bird-MAE ½× | 16.26 ± 2.89 | 21.37 ± 4.71 | 20.61 ± 2.31 | 19.41 | 20.99 | 14.98 | 4.43 | 0.75 |
+| Bird-MAE ¼× | 14.19 ± 2.60 | 14.10 ± 5.48 | 10.47 ± 1.14 | 12.92 | 12.28 | 9.23 | 3.69 | 0.81 |
+| Bird-MAE ⅛× | 9.51 ± 2.29 | 11.85 ± 6.06 | 6.17 ± 0.70 | 9.18 | 9.01 | 4.62 | 4.56 | 0.59 |
+| Bird-MAE 1/16× | 9.53 ± 3.29 | 12.46 ± 6.11 | 5.66 ± 1.06 | 9.21 | 9.06 | 2.99 | 6.22 | 0.60 |
+| Bird-MAE 1/32× | 10.41 ± 2.53 | 13.75 ± 6.41 | 6.40 ± 1.44 | 10.19 | 10.07 | 2.25 | 7.94 | 0.65 |
+
+## Linear-probe Macro FER (%), canary-only selection (canary = development)
+
+Mean ± SD across birds. Parsing / identity are species-averaged; fold SD is the mean within-bird SD across folds.
+
+| Model | Canary | Zebra finch | Bengalese finch | Mean (3 spp.) | Mean (zf+bf) | Parsing | Identity | Fold SD |
+|---|---|---|---|---|---|---|---|---|
+| SongMAE-L 32×5 ms | 4.82 ± 1.45 | 8.64 ± 6.57 | 2.11 ± 0.48 | 5.19 | 5.37 | 1.87 | 3.31 | 0.61 |
+| SongMAE-L 32×20 ms | 7.01 ± 1.72 | 10.17 ± 6.16 | 5.02 ± 0.64 | 7.40 | 7.59 | 4.22 | 3.17 | 0.66 |
+| SongMAE-L 32×20 ms (2.5% seeds) | 6.92 ± 1.98 | 10.27 ± 6.07 | 5.09 ± 0.64 | 7.43 | 7.68 | 4.21 | 3.22 | 0.68 |
+| SongMAE-B 32×5 ms | 4.94 ± 1.76 | 9.03 ± 6.82 | 2.20 ± 0.50 | 5.39 | 5.61 | 1.87 | 3.51 | 0.72 |
+| SongMAE-B 32×20 ms | 7.24 ± 1.55 | 10.44 ± 6.19 | 5.13 ± 0.65 | 7.61 | 7.79 | 4.22 | 3.39 | 0.75 |
+| SongMAE-Micro 32×5 ms | 6.23 ± 1.50 | 11.03 ± 7.52 | 2.93 ± 0.70 | 6.73 | 6.98 | 1.91 | 4.82 | 0.68 |
+| SongMAE-Micro 32×20 ms | 8.10 ± 1.34 | 11.33 ± 6.65 | 5.29 ± 0.58 | 8.24 | 8.31 | 4.23 | 4.01 | 0.76 |
+| BirdAVES 1× | 7.89 ± 1.26 | 9.84 ± 5.94 | 5.00 ± 0.62 | 7.58 | 7.42 | 4.19 | 3.38 | 0.64 |
+| BirdAVES ½× | 6.61 ± 1.47 | 9.59 ± 6.19 | 3.04 ± 0.48 | 6.41 | 6.32 | 2.37 | 4.04 | 0.65 |
+| BirdAVES ¼× | 8.43 ± 1.12 | 11.04 ± 6.91 | 3.25 ± 0.63 | 7.57 | 7.14 | 1.92 | 5.65 | 0.74 |
+| HuBERT | 9.27 ± 1.68 | 12.19 ± 6.86 | 5.29 ± 0.67 | 8.92 | 8.74 | 4.17 | 4.75 | 0.67 |
+| BEATs 1× | 10.53 ± 2.61 | 41.94 ± 6.27 | 40.29 ± 4.53 | 30.92 | 41.12 | 19.69 | 11.23 | 0.88 |
+| BEATs ½× | 11.78 ± 3.10 | 21.77 ± 4.89 | 20.75 ± 2.51 | 18.10 | 21.26 | 13.69 | 4.41 | 0.78 |
+| BEATs ¼× | 11.87 ± 2.71 | 13.35 ± 4.86 | 10.40 ± 1.23 | 11.88 | 11.88 | 8.96 | 2.92 | 0.65 |
+| Bird-MAE 1× | 14.46 ± 2.61 | 39.70 ± 5.52 | 39.10 ± 4.53 | 31.08 | 39.40 | 21.03 | 10.05 | 0.83 |
+| Bird-MAE ½× | 16.40 ± 2.81 | 21.37 ± 4.71 | 20.61 ± 2.31 | 19.46 | 20.99 | 15.01 | 4.45 | 0.76 |
+| Bird-MAE ¼× | 13.83 ± 2.64 | 13.93 ± 5.31 | 10.46 ± 1.14 | 12.74 | 12.20 | 9.20 | 3.54 | 0.72 |
+| Bird-MAE ⅛× | 9.31 ± 2.08 | 11.94 ± 6.12 | 6.20 ± 0.69 | 9.15 | 9.07 | 4.62 | 4.53 | 0.57 |
+| Bird-MAE 1/16× | 9.08 ± 3.08 | 12.46 ± 6.11 | 5.66 ± 1.06 | 9.07 | 9.06 | 2.99 | 6.07 | 0.60 |
+| Bird-MAE 1/32× | 10.41 ± 2.53 | 13.75 ± 6.41 | 6.40 ± 1.44 | 10.19 | 10.07 | 2.25 | 7.94 | 0.65 |
+
+## Label budget: Macro FER (%) by labeled occurrences per class, leave-one-species-out
+
+| Model | N = 1 | N = 5 | N = 10 | N = 20 | N = 50 | N = 100 |
+|---|---|---|---|---|---|---|
+| SongMAE-L 32×5 ms | 44.42 | 18.08 | 11.31 | 7.90 | 6.34 | 5.87 |
+| SongMAE-L 32×20 ms | 46.54 | 22.53 | 15.38 | 11.12 | 8.74 | 8.06 |
+| BirdAVES 1× | 46.34 | 22.83 | 16.07 | 11.72 | 9.27 | 8.46 |
+| BirdAVES ½× | 45.03 | 22.01 | 15.44 | 11.35 | 8.76 | 7.88 |
+| BirdAVES ¼× | 45.66 | 23.02 | 16.51 | 12.39 | 9.89 | 8.93 |
+| HuBERT | 49.42 | 25.80 | 18.78 | 13.96 | 10.91 | 9.89 |
+
+## kNN purity (%, k = 100), leave-one-species-out
+
+Mean ± SD across birds (layer sweep, seed 42). Seed SD: SD across sampling seeds of the species-averaged purity, where available.
+
+| Model | Canary | Zebra finch | Bengalese finch | Mean (3 spp.) | Mean (zf+bf) | Seed SD |
+|---|---|---|---|---|---|---|
+| SongMAE-L 32×5 ms | 51.08 ± 7.26 | 57.84 ± 9.93 | 80.52 ± 3.15 | 63.15 | 69.18 | pending |
+| SongMAE-L 32×20 ms | 45.39 ± 8.28 | 53.49 ± 9.07 | 69.49 ± 2.07 | 56.13 | 61.49 | pending |
+| SongMAE-L 32×20 ms (2.5% seeds) | 45.02 ± 7.64 | 52.60 ± 8.90 | 67.37 ± 2.69 | 55.00 | 59.99 | pending |
+| SongMAE-B 32×5 ms | 50.66 ± 6.85 | 56.36 ± 9.45 | 78.17 ± 3.56 | 61.73 | 67.26 | pending |
+| SongMAE-B 32×20 ms | 43.63 ± 7.98 | 52.31 ± 8.72 | 66.97 ± 2.51 | 54.30 | 59.64 | pending |
+| SongMAE-Micro 32×5 ms | 44.61 ± 5.40 | 51.67 ± 8.75 | 70.36 ± 4.97 | 55.55 | 61.02 | pending |
+| SongMAE-Micro 32×20 ms | 40.84 ± 7.68 | 49.78 ± 8.31 | 64.24 ± 3.06 | 51.62 | 57.01 | pending |
+| BirdAVES 1× | 43.81 ± 6.36 | 53.25 ± 9.64 | 68.83 ± 2.55 | 55.30 | 61.04 | pending |
+| BirdAVES ½× | 43.93 ± 6.11 | 54.78 ± 9.95 | 73.21 ± 2.53 | 57.30 | 63.99 | pending |
+| BirdAVES ¼× | 46.09 ± 7.22 | 53.90 ± 10.09 | 71.04 ± 2.93 | 57.01 | 62.47 | pending |
+| HuBERT | 39.38 ± 6.91 | 48.82 ± 9.04 | 62.90 ± 3.35 | 50.37 | 55.86 | pending |
+| BEATs 1× | 48.46 ± 7.66 | 34.32 ± 5.26 | 44.19 ± 4.14 | 42.32 | 39.25 | pending |
+| BEATs ½× | 52.11 ± 7.13 | 41.04 ± 5.46 | 52.35 ± 2.96 | 48.50 | 46.69 | pending |
+| BEATs ¼× | 45.13 ± 8.24 | 44.33 ± 6.18 | 57.81 ± 2.77 | 49.09 | 51.07 | pending |
+| Bird-MAE 1× | 45.24 ± 8.17 | 34.13 ± 4.92 | 41.05 ± 3.87 | 40.14 | 37.59 | pending |
+| Bird-MAE ½× | 43.99 ± 8.36 | 39.82 ± 5.37 | 49.48 ± 3.36 | 44.43 | 44.65 | pending |
+| Bird-MAE ¼× | 39.68 ± 8.51 | 43.88 ± 6.21 | 54.34 ± 3.25 | 45.96 | 49.11 | pending |
+| Bird-MAE ⅛× | 37.77 ± 6.79 | 44.57 ± 6.70 | 55.23 ± 3.48 | 45.86 | 49.90 | pending |
+| Bird-MAE 1/16× | 34.07 ± 4.97 | 42.27 ± 6.46 | 52.61 ± 4.68 | 42.98 | 47.44 | pending |
+| Bird-MAE 1/32× | 29.34 ± 3.44 | 40.98 ± 6.56 | 49.09 ± 6.62 | 39.80 | 45.03 | pending |
+
+## K-means V-measure (K = classes + silence, PCA-128), leave-one-species-out
+
+| Model | Canary | Zebra finch | Bengalese finch | Mean (3 spp.) | Mean (zf+bf) |
+|---|---|---|---|---|---|
+| pending | | | | | |
+
+## Selected layers
+
+| Model | all | canary | test canary | test zf | test bf |
+|---|---|---|---|---|---|
+| SongMAE-L 32×5 ms | L11 | L11 | L11 | L11 | L11 |
+| SongMAE-L 32×20 ms | L10 | L10 | L10 | L10 | L10 |
+| SongMAE-L 32×20 ms (2.5% seeds) | L9 | L9 | L9 | L9 | L9 |
+| SongMAE-B 32×5 ms | L5 | L5 | L5 | L5 | L5 |
+| SongMAE-B 32×20 ms | L3 | L4 | L3 | L4 | L4 |
+| SongMAE-Micro 32×5 ms | L5 | L4 | L5 | L4 | L4 |
+| SongMAE-Micro 32×20 ms | L3 | L3 | L3 | L3 | L3 |
+| BirdAVES 1× | L7 | L3 | L7 | L7 | L3 |
+| BirdAVES ½× | L3 | L3 | L6 | L3 | L3 |
+| BirdAVES ¼× | L4 | L3 | L4 | L4 | L4 |
+| HuBERT | L0 | L3 | L0 | L0 | L0 |
+| BEATs 1× | L7 | L5 | L8 | L7 | L7 |
+| BEATs ½× | L8 | L8 | L8 | L8 | L8 |
+| BEATs ¼× | L8 | L9 | L8 | L9 | L8 |
+| Bird-MAE 1× | L10 | L8 | L10 | L8 | L10 |
+| Bird-MAE ½× | L9 | L9 | L10 | L9 | L9 |
+| Bird-MAE ¼× | L9 | L10 | L9 | L9 | L9 |
+| Bird-MAE ⅛× | L9 | L10 | L9 | L9 | L9 |
+| Bird-MAE 1/16× | L10 | L10 | L9 | L10 | L10 |
+| Bird-MAE 1/32× | L10 | L10 | L10 | L10 | L10 |
