@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Oracle Macro FER (R1) for every bird at 5/20/40/80/160 ms output grids, 8 birds in parallel (CPU only).
+# Oracle Macro FER (R1) for every bird at 1/2/5/20/40/80/160 ms output grids, 8 birds in parallel (CPU only).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PYTHON_BIN=${PYTHON_BIN:-/home/george-vengrovski/anaconda3/envs/mae/bin/python}

@@ -4,7 +4,54 @@
   "rows": [
     {
       "oracle": "majority",
-      "width_timebins": 1,
+      "bin_ms": 1.0,
+      "bins": 166725,
+      "macro_f1": 1.0,
+      "fer": 0.0,
+      "macro_fer": 0.0,
+      "macro_parsing_error": 0.0,
+      "macro_identity_error": 0.0,
+      "frames": 166725,
+      "classes": 9
+    },
+    {
+      "oracle": "macro_optimal",
+      "bin_ms": 1.0,
+      "bins": 166725,
+      "macro_f1": 1.0,
+      "fer": 0.0,
+      "macro_fer": 0.0,
+      "macro_parsing_error": 0.0,
+      "macro_identity_error": 0.0,
+      "frames": 166725,
+      "classes": 9
+    },
+    {
+      "oracle": "majority",
+      "bin_ms": 2.0,
+      "bins": 83386,
+      "macro_f1": 0.9922979179662964,
+      "fer": 0.007575348627980261,
+      "macro_fer": 0.012877360414928464,
+      "macro_parsing_error": 0.012877360414928464,
+      "macro_identity_error": 0.0,
+      "frames": 166725,
+      "classes": 9
+    },
+    {
+      "oracle": "macro_optimal",
+      "bin_ms": 2.0,
+      "bins": 83386,
+      "macro_f1": 0.9923789694908367,
+      "fer": 0.007575348627980261,
+      "macro_fer": 0.002444448315304801,
+      "macro_parsing_error": 0.002444448315304801,
+      "macro_identity_error": 0.0,
+      "frames": 166725,
+      "classes": 9
+    },
+    {
+      "oracle": "majority",
       "bin_ms": 5.0,
       "bins": 33345,
       "macro_f1": 0.9819452226771516,
@@ -17,7 +64,6 @@
     },
     {
       "oracle": "macro_optimal",
-      "width_timebins": 1,
       "bin_ms": 5.0,
       "bins": 33345,
       "macro_f1": 0.9732999596990636,
@@ -30,7 +76,6 @@
     },
     {
       "oracle": "majority",
-      "width_timebins": 4,
       "bin_ms": 20.0,
       "bins": 8368,
       "macro_f1": 0.9257768443076172,
@@ -43,7 +88,6 @@
     },
     {
       "oracle": "macro_optimal",
-      "width_timebins": 4,
       "bin_ms": 20.0,
       "bins": 8368,
       "macro_f1": 0.8999901923188612,
@@ -56,7 +100,6 @@
     },
     {
       "oracle": "majority",
-      "width_timebins": 8,
       "bin_ms": 40.0,
       "bins": 4211,
       "macro_f1": 0.8484824656503268,
@@ -69,7 +112,6 @@
     },
     {
       "oracle": "macro_optimal",
-      "width_timebins": 8,
       "bin_ms": 40.0,
       "bins": 4211,
       "macro_f1": 0.8107750221047398,
@@ -82,7 +124,6 @@
     },
     {
       "oracle": "majority",
-      "width_timebins": 16,
       "bin_ms": 80.0,
       "bins": 2127,
       "macro_f1": 0.7168408815810401,
@@ -95,7 +136,6 @@
     },
     {
       "oracle": "macro_optimal",
-      "width_timebins": 16,
       "bin_ms": 80.0,
       "bins": 2127,
       "macro_f1": 0.7024018938635975,
@@ -108,7 +148,6 @@
     },
     {
       "oracle": "majority",
-      "width_timebins": 32,
       "bin_ms": 160.0,
       "bins": 1091,
       "macro_f1": 0.5186074980940276,
@@ -121,7 +160,6 @@
     },
     {
       "oracle": "macro_optimal",
-      "width_timebins": 32,
       "bin_ms": 160.0,
       "bins": 1091,
       "macro_f1": 0.5307233595763673,

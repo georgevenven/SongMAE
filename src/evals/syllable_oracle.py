@@ -24,17 +24,14 @@ from src.core.utils import timebins_to_ms
 from src.evals.syllable_classification import confusion_matrix, ground_truth, load_units, metrics
 
 
-def spans_for_width(segments, width, audio_params):
+def spans_for_width(segments, bin_ms, audio_params):
     spans = []
     for segment in segments:
-        n = segment["spectrogram"].shape[1]
-        for start in range(0, n, width):
-            end = min(start + width, n)
-            spans.append((
-                segment["recording_stem"],
-                int(np.rint(segment["start_ms"] + timebins_to_ms(start, audio_params))),
-                int(np.rint(segment["start_ms"] + timebins_to_ms(end, audio_params))),
-            ))
+        duration = timebins_to_ms(segment["spectrogram"].shape[1], audio_params)
+        for k in range(int(np.ceil(duration / bin_ms - 1e-9))):
+            start, end = k * bin_ms, min((k + 1) * bin_ms, duration)
+            spans.append((segment["recording_stem"], int(np.rint(segment["start_ms"] + start)),
+                          int(np.rint(segment["start_ms"] + end))))
     return spans
 
 
@@ -42,7 +39,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in "spec_dir annotations bird".split():
         parser.add_argument(f"--{name}", required=True)
-    parser.add_argument("--widths", default="1,4,8,16,32", help="output bin widths in spectrogram timebins")
+    parser.add_argument("--bin_ms", default="1,2,5,20,40,80,160", help="output bin widths in ms")
     parser.add_argument("--num_timebins", type=int, default=720000)
     parser.add_argument("--balanced_events", type=int, default=3)
     parser.add_argument("--event_seed", type=int, default=42)
@@ -54,8 +51,8 @@ def main():
     })
     units = load_units(args.annotations)
     rows = []
-    for width in (int(w) for w in args.widths.split(",")):
-        spans = spans_for_width(extracted["segments"], width, extracted["audio_params"])
+    for bin_ms in (float(w) for w in args.bin_ms.split(",")):
+        spans = spans_for_width(extracted["segments"], bin_ms, extracted["audio_params"])
         truths = [ground_truth(units, *span) for span in spans]
         labels = sorted(set(np.concatenate(truths).tolist()))
         counts = [np.bincount(truth, minlength=labels[-1] + 1) for truth in truths]
@@ -66,8 +63,7 @@ def main():
             row = metrics(labels, confusion_matrix(predictions, spans, units, labels))
             for key in ("class_labels", "confusion_matrix", "per_class"):
                 del row[key]
-            rows.append({"oracle": oracle, "width_timebins": width,
-                         "bin_ms": timebins_to_ms(width, extracted["audio_params"]), "bins": len(spans), **row})
+            rows.append({"oracle": oracle, "bin_ms": bin_ms, "bins": len(spans), **row})
     print(json.dumps({"bird": args.bird, "segments": len(extracted["segments"]), "rows": rows}, indent=2))
 
 

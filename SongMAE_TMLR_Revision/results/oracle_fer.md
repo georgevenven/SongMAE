@@ -7,6 +7,8 @@ Probe data selection and 1 ms scoring; birds averaged within species, then speci
 
 | Bin | Canary FER | Zebra finch FER | Bengalese finch FER | Mean (3 spp.) | Mean (zf+bf) | Parsing (3 spp.) | Identity (3 spp.) |
 |---|---|---|---|---|---|---|---|
+| 1 ms | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 2 ms | 2.93 | 0.99 | 1.06 | 1.66 | 1.03 | 1.66 | 0.00 |
 | 5 ms | 3.64 | 1.45 | 1.59 | 2.23 | 1.52 | 2.22 | 0.01 |
 | 20 ms | 17.22 | 5.79 | 6.81 | 9.94 | 6.30 | 9.83 | 0.11 |
 | 40 ms | 26.34 | 11.18 | 12.38 | 16.63 | 11.78 | 16.19 | 0.44 |
@@ -17,6 +19,8 @@ Probe data selection and 1 ms scoring; birds averaged within species, then speci
 
 | Bin | Canary FER | Zebra finch FER | Bengalese finch FER | Mean (3 spp.) | Mean (zf+bf) | Parsing (3 spp.) | Identity (3 spp.) |
 |---|---|---|---|---|---|---|---|
+| 1 ms | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 2 ms | 0.09 | 0.21 | 0.26 | 0.19 | 0.24 | 0.19 | 0.00 |
 | 5 ms | 0.33 | 0.75 | 0.88 | 0.65 | 0.81 | 0.64 | 0.01 |
 | 20 ms | 1.43 | 2.97 | 3.75 | 2.72 | 3.36 | 2.58 | 0.13 |
 | 40 ms | 2.35 | 5.81 | 7.28 | 5.15 | 6.55 | 4.61 | 0.53 |
