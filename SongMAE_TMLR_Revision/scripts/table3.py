@@ -2,7 +2,7 @@
 """Table 3 (linear-probe Macro FER, leave-one-species-out) from results/tables.md -> latex/blocks/table-3.tex.
 
 Rows missing from tables.md (e.g. BEATs speeds still running) are skipped; rerun scripts/aggregate.py, then this.
-Slowed playback is written as the output resolution in original-audio time, with the speed in parentheses.
+Only native speed and slowdowns reaching 5 or 20 ms are kept. Slowed playback is written as the output resolution in original-audio time, with the speed in parentheses.
 """
 import re
 from pathlib import Path
@@ -35,7 +35,9 @@ def resolution(label, base):
     return f"{ms:g} ms" + (f" ({FRAC[speed]}×)" if FRAC[speed] else "")
 
 
-table = [(model, resolution(label, base), rows[label]) for model, base, labels in GROUPS for label in labels if label in rows]
+# Keep each model's native speed plus the slowdowns that land on SongMAE's 5 and 20 ms resolutions.
+table = [(model, resolution(label, base), rows[label]) for model, base, labels in GROUPS for label in labels
+         if label in rows and ("(" not in resolution(label, base) or resolution(label, base).split(" ms")[0] in ("5", "20"))]
 best = [min(r[2][i] for r in table) for i in range(6)]
 body, previous = [], None
 for model, res, values in table:
