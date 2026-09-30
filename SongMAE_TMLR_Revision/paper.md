@@ -72,7 +72,7 @@ We test three model sizes: Micro, Base, and Large (Table 1). We use the micro pr
 
 ## **4.1 Evaluation datasets**
 
-For syllable-level evaluation we use laboratory recordings of canary [@cohen2022canarydata] (3 birds; per bird ∼27 ± 5 evaluation classes, ∼493 ± 159 min), Bengalese finch [@koumura2016recognition] (11 birds; ∼9 ± 4 classes, ∼44 ± 22 min), and zebra finch [@koch2025avn] (36 birds; ∼9 ± 2 classes, ∼2 ± 1 min), totaling 10,186 recordings across 50 birds. Class counts include silence. These three are the only datasets we found with annotations usable at the unit level: labels marking every syllable onset and offset with a consistent class label, no overlapping vocalizations from other individuals, and enough renditions per syllable type per bird to fit and evaluate a probe. The three species span a wide range of repertoire size and vocal complexity, and none appear in the training partition; we moved all recordings with the corresponding eBird taxa from training to validation before pretraining, as detailed in Appendix A.4.
+For syllable-level evaluation we use laboratory recordings of canary [@cohen2022canarydata] (3 birds; per bird ∼27 ± 5 evaluation classes, ∼493 ± 159 min), Bengalese finch [@koumura2016recognition] (11 birds; ∼9 ± 4 classes, ∼44 ± 22 min), and zebra finch [@koch2025avn] (36 birds; ∼9 ± 2 classes, ∼2 ± 1 min), totaling 10,186 recordings across 50 birds. Class counts include silence. These three are the only datasets we found with annotations usable at the unit level: labels marking every syllable onset and offset with a consistent class label, no overlapping vocalizations from other individuals, and enough renditions per syllable type per bird to fit and evaluate a probe. The three species span a wide range of repertoire size and vocal complexity, and none appear in the training partition; we moved all recordings with the corresponding eBird taxa from training to validation before pretraining, as detailed in Appendix A.3.
 
 For clip-level species classification and detection, we use the BEANS benchmark [@hagiwara2023beans], following the evaluation harness and protocol of AVEX [@miron2026encoding], and take baseline scores directly from their paper. The CBI portion of BEANS is drawn from Xeno-Canto, the same source as our pretraining corpus, so some of those recordings were likely seen during pretraining. This applies equally to BirdAVES and Bird-MAE, which also pretrain on Xeno-Canto, so the comparison in Section 8 remains fair.
 
@@ -84,7 +84,7 @@ For all encoders, representations are taken from the output of the complete tran
 
 ## **4.3 Evaluation metrics**
 
-We use two metrics throughout. The first is kNN purity, which asks whether syllable-relevant information is locally organized in the learned representations; similar approaches assess representation quality in vision and bioacoustic encoders [@kather2025clustering; @caron2021dino; @vanmerrienboer2025perch]. It requires no fitting, so it is cheap enough to apply to all trained models in our patch and masking sweeps. Furthermore, high kNN purity also implies few-shot classification ability [@wang2019simpleshot] and latent spaces that cluster well, since kNN graph construction is one of the first steps for dimensionality reduction techniques like UMAP and spectral methods [@mcinnes2018umap; @vonluxburg2007spectral]. We detail the kNN probe protocol in Appendix A.5.
+We use two metrics throughout. The first is kNN purity, which asks whether syllable-relevant information is locally organized in the learned representations; similar approaches assess representation quality in vision and bioacoustic encoders [@kather2025clustering; @caron2021dino; @vanmerrienboer2025perch]. It requires no fitting, so it is cheap enough to apply to all trained models in our patch and masking sweeps. Furthermore, high kNN purity also implies few-shot classification ability [@wang2019simpleshot] and latent spaces that cluster well, since kNN graph construction is one of the first steps for dimensionality reduction techniques like UMAP and spectral methods [@mcinnes2018umap; @vonluxburg2007spectral]. We detail the kNN probe protocol in Appendix A.4.
 
 The second is frame error rate, an established and interpretable metric for birdsong analysis [@cohen2022tweetynet; @vengrovski2026tweetybert], which we extend into macro FER by weighting all classes equally. Here, a frame corresponds to one embedding used for prediction along the time axis. We decompose it into parsing error (P), the fraction of frames confused between silence and any syllable, and identity error (I), the fraction of frames where one syllable type is mistaken for another--- the two sum exactly to Macro FER. Because our central claim concerns temporal resolution, this split separates temporal parsing errors from syllable-identity errors.
 
@@ -110,7 +110,7 @@ Once Section 5.1 identifies the best fine and coarse configurations, we sweep th
 
 # **5. Model selection with kNN purity**
 
-We begin our analysis with kNN purity. We first use this approach to rank the ablations of SongMAE patch shape and masking parameters. We then use it to compare the effect of scaling SongMAE, and to identify the best layers in other bioacoustic encoders to ensure fair comparisons in later evaluations. We show purity metrics for k=100 across all analyses below, but model rankings are robust across a range of k (Appendix A.5).
+We begin our analysis with kNN purity. We first use this approach to rank the ablations of SongMAE patch shape and masking parameters. We then use it to compare the effect of scaling SongMAE, and to identify the best layers in other bioacoustic encoders to ensure fair comparisons in later evaluations. We show purity metrics for k=100 across all analyses below, but model rankings are robust across a range of k (Appendix A.4).
 
 ## **5.1 Ranking SongMAE ablations**
 
@@ -242,25 +242,17 @@ Supplemental Figure 1: **Oracle lower bound on Macro FER by output resolution.**
 
 {{clearpage}}
 
-## **A.2 Oracle Macro FER at output resolution**
-
-{placeholder}
-
-REVISION: compare with the observed 5 vs 20 ms parsing gap once the corrected probes are re-run.
-
-{{clearpage}}
-
-## **A.3 Voronoi masks**
+## **A.2 Voronoi masks**
 
 {{fig-s2}}
 
 Supplemental Figure 2: **Representative Voronoi masks across patch configurations and seed percentages.** Lower seed percentages produce fewer, larger contiguous masked regions, whereas higher seed percentages distribute the same 75% masking ratio across more numerous, smaller regions.
 
-## **A.4 Pretraining dataset exclusion**
+## **A.3 Pretraining dataset exclusion**
 
 Before pretraining, we moved all recordings in the XCL training partition whose eBird taxa corresponded to downstream evaluation species into the existing validation partition. Specifically, we excluded island canary / canary-related entries (comcan, islcan1, x01005), zebra finch entries (zebfin2, zebfin3, zebfin1, chefin1, x00906), Cassin's vireo entries (casvir, casvir1, casvir2, y00485, y00484, solvir1), American robin entries (amerob, amerob1, amerob2, amerob3, y00822), and Bengalese finch / white-rumped munia entries (whrmun, whrmun8, x01069). These training exclusions include the target species, domestic forms where applicable, identifiable subspecific or regional forms, and ambiguous hybrid or species-complex categories that could contain the held-out species. Cassin's vireo and American robin were excluded in anticipation of downstream evaluation, but the annotations we obtained for these species proved unsuitable for syllable-level analysis, so we held them out from pretraining, and they do not appear in our reported results.
 
-## **A.5 kNN protocol**
+## **A.4 kNN protocol**
 
 Spectrogram time bins are highly correlated, and models with finer output rates produce more embeddings per syllable, so we took two precautions to keep the comparison fair. We never compare query embeddings with embeddings from the same recording, and we only retain a single reference embedding per syllable occurrence. Purity@k is the fraction of the k nearest reference occurrences sharing the query label.
 
@@ -280,7 +272,7 @@ REVISION: numbers pending re-run: kNN purity; re-run with P2.
 
 Supplemental Figure 4: **kNN purity across neighborhood sizes for selected encoder layers.** kNN purity for k in {1, 5, 10, 50, 100} at each encoder's selected layer: Layer 11 for SongMAE-Large 32 mels × 5 ms, Layer 10 for SongMAE-Large 32 mels × 20 ms, Layer 7 for BirdAVES, and Layer 0 for HuBERT. SongMAE-Large 32 mels × 5 ms has the highest purity at every k; SongMAE-Large 32 mels × 20 ms and BirdAVES perform similarly, and both beat HuBERT.
 
-## **A.6 Extended BEANS results**
+## **A.5 Extended BEANS results**
 
 {{table-s2}}
 
