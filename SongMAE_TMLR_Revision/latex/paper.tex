@@ -1147,32 +1147,7 @@ Mean (\%)
 \subsection{\texorpdfstring{\textbf{A.2 Oracle Macro FER at output
 resolution}}{A.2 Oracle Macro FER at output resolution}}\label{app:a2}
 
-A model that emits one prediction per output bin cannot label the frames
-within a bin differently, so part of its error is unavoidable
-quantization. To measure this floor, we compute an oracle that sees the
-ground truth but must assign a single label to each output bin, using
-the same recordings, output grids, 1 ms expansion, and Macro FER scoring
-as the linear probes (Section 4.4). Because Macro FER averages per-class
-error rates, each frame of class \(c\) carries weight \(1/N_c\), where
-\(N_c\) is the number of frames of class \(c\) for that bird; the oracle
-therefore assigns each bin the label that maximizes its frame count in
-the bin divided by \(N_c\). Bins are independent and the objective is
-additive over frames, so this assignment attains the lowest Macro FER
-that any model with that output grid can reach. Assigning each bin its
-majority label is not a lower bound: it never predicts classes shorter
-than half a bin, each of which then contributes 100\% error to the macro
-average. We evaluate bins of 5 ms (SongMAE 32 mels × 5 ms), 20 ms
-(SongMAE 32 mels × 20 ms, BirdAVES, HuBERT, and Bird-MAE at one-eighth
-playback speed), 40 ms and 80 ms (Bird-MAE at one-quarter and one-half
-speed), and 160 ms (Bird-MAE at normal speed and BEATs).
-
-The floor rises steeply with bin width
-(\hyperref[fig:s1]{Supplemental Figure 1}). Averaged over birds within
-species and then over species, the lowest reachable Macro FER is 0.65\%
-at 5 ms, 2.72\% at 20 ms, 5.15\% at 40 ms, 9.03\% at 80 ms, and 16.31\%
-at 160 ms. Nearly all of this floor is parsing error (0.64\% at 5 ms and
-2.58\% at 20 ms), so moving from 5 ms to 20 ms output bins alone raises
-the unavoidable parsing error by 1.94 percentage points.
+\{placeholder\}
 
 % REVISION: compare with the observed 5 vs 20 ms parsing gap once the corrected probes are re-run.
 
