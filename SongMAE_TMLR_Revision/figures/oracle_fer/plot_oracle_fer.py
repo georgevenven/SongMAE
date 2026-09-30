@@ -16,7 +16,7 @@ plt.rcParams["font.family"] = "DejaVu Sans"
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE.parents[1] / "results" / "oracle"
 SPECIES = ("canary", "zf", "bf")
-STYLE = {"canary": ("Canary", "#E69F00"), "zf": ("Zebra finch", "#CC79A7"), "bf": ("Bengalese finch", "#009E73")}
+STYLE = {"canary": ("Canary",), "zf": ("Zebra finch",), "bf": ("Bengalese finch",)}
 
 
 def oracle_curves():
@@ -28,28 +28,26 @@ def oracle_curves():
 
 
 def main():
-    x, per, mean = oracle_curves()
-    fig, axis = plt.subplots(figsize=(4.3, 4.1), dpi=200)
-    for s in SPECIES:
-        axis.plot(x, per[s], color=STYLE[s][1], linewidth=1.8, marker="o", markersize=4, label=STYLE[s][0])
-    axis.plot(x, mean, color="#222222", linewidth=2.2, marker="o", markersize=4.5, zorder=3, label="Mean")
-    axis.legend(frameon=False, fontsize=9, loc="upper left")
-    axis.set_xscale("log")
-    axis.set_yscale("log")
-    axis.set_xticks([5, 20, 40, 80, 160])
-    axis.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
-    axis.xaxis.set_minor_formatter(NullFormatter())
-    axis.set_yticks([0.2, 0.5, 1, 2, 5, 10, 20])
-    axis.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
-    axis.yaxis.set_minor_formatter(NullFormatter())
-    axis.set_xlim(4, 200)
-    axis.set_ylim(0.2, 30)
-    axis.set_title("Oracle lower bound", fontsize=13)
-    axis.set_xlabel("Output bin (ms)")
-    axis.set_ylabel("Macro FER (%) ↓")
-    axis.set_box_aspect(1)
-    axis.grid(alpha=0.18)
-    axis.set_axisbelow(True)
+    x, per, _ = oracle_curves()
+    fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.6), dpi=200, sharey=True)
+    for axis, s in zip(axes, SPECIES):
+        axis.plot(x, per[s], color="#222222", linewidth=2.2, marker="o", markersize=4.5)
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_xticks([5, 20, 40, 80, 160])
+        axis.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        axis.xaxis.set_minor_formatter(NullFormatter())
+        axis.set_yticks([0.2, 0.5, 1, 2, 5, 10, 20])
+        axis.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        axis.yaxis.set_minor_formatter(NullFormatter())
+        axis.set_xlim(4, 200)
+        axis.set_ylim(0.2, 30)
+        axis.set_title(STYLE[s][0], fontsize=13)
+        axis.set_box_aspect(1)
+        axis.grid(alpha=0.18)
+        axis.set_axisbelow(True)
+    axes[0].set_ylabel("Macro FER (%) ↓", fontsize=12)
+    fig.supxlabel("Output bin (ms)", y=0.02)
     for suffix, dpi in [(".png", 300), (".pdf", None), (".svg", None)]:
         fig.savefig(HERE / f"oracle_fer{suffix}", dpi=dpi, bbox_inches="tight")
     fig.savefig(HERE.parents[1] / "latex/figures/supplement_figure_oracle_fer.png", dpi=300, bbox_inches="tight")
