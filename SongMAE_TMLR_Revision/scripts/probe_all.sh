@@ -23,43 +23,19 @@ c = [k for k in json.load(open(sys.argv[1])) if '_100k_' not in k]
 first = 'xcl_large_500k_p32x1_c005'
 print(' '.join(([first] if first in c else []) + [k for k in c if k != first]))" "$LAYERS_JSON")}
 COMMON=(--recording_mode events --num_timebins 720000 --balanced_events 3 --event_seed 42)
-selected() { [[ -z "$2" || " $2 " == *" $1 "* ]]; }
-speed_of() { local s=${1##*_speed}; [[ $1 == *_speed* ]] || s=1; s=${s/p/.}; [[ $s == .* ]] && s=0$s; echo "$s"; }
-
-extract() {  # condition layer specs annotations bird out
-  local c=$1 layer=$2 specs=$3 ann=$4 bird=$5 out=$6 speed; speed=$(speed_of "$1")
-  case $c in
-    xcl_*|Xcl_*)
-      "$PYTHON_BIN" -m src.core.extract_embedding --spec_dir "$specs" --run_dir "runs/$c" \
-        --checkpoint "$(ls "runs/$c/weights" | sort -V | tail -1)" --out_dir "$out" --json_path "$ann" --bird "$bird" \
-        --minimal --target_feature_type end_of_block --encoder_layer_idx "$layer" "${COMMON[@]}" ;;
-    birdaves_*)
-      "$PYTHON_BIN" src/external_models/aves.py --speed "$speed" --chunk_timebins "$("$PYTHON_BIN" -c "print(int(1000 * $speed))")" \
-        --aves_model_path files/birdaves-biox-base.torchaudio.pt --aves_config_path files/birdaves-biox-base.torchaudio.model_config.json \
-        --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$ann" --bird "$bird" --out_dir "$out" \
-        --encoder_layer_idx "$layer" "${COMMON[@]}" ;;
-    hubert_*)
-      "$PYTHON_BIN" src/external_models/hubert.py --model_name facebook/hubert-base-ls960 --audio_sr 16000 --chunk_timebins 1000 \
-        --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$ann" --bird "$bird" --out_dir "$out" \
-        --encoder_layer_idx "$layer" "${COMMON[@]}" ;;
-    beats_*|birdmae_*)
-      "$PYTHON_BIN" src/external_models/review_baselines.py --model "${c%%_*}" --speed "$speed" --chunk_timebins 1000 \
-        --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$ann" --bird "$bird" --out_dir "$out" \
-        --encoder_layer_idx "$layer" "${COMMON[@]}" ;;
-    *) echo "unknown condition $c" >&2; return 1 ;;
-  esac
-}
+SELECTION=("${COMMON[@]}")
+source SongMAE_TMLR_Revision/scripts/extract_lib.sh
 
 for row in "canary|canary_5ms" "zf|zebra_finch_5ms" "bf|bengalese_finch_5ms"; do
   IFS='|' read -r dataset specs <<< "$row"
   selected "$dataset" "$DATASET_FILTER" || continue
   ann="files/annotation jsons/${dataset}_annotations.json"
-  for bird in $("$PYTHON_BIN" -c "import json,sys;print(' '.join(sorted({r['recording']['bird_id'] for r in json.load(open(sys.argv[1]))['recordings']})))" "$ann"); do
+  for bird in $(birds_of "$ann"); do
     selected "$bird" "$BIRD_FILTER" || continue
     manifest=$OUT_ROOT/manifests/$dataset/$bird.json
     for c in $CONDITIONS; do
       caps=""; selected "$c" "$CAP_CONDITIONS" && caps=$CAPS
-      for layer in $("$PYTHON_BIN" -c "import json,sys;print(*json.load(open(sys.argv[1]))[sys.argv[2]]['union'])" "$LAYERS_JSON" "$c"); do
+      for layer in $(layers_of "$c"); do
         dir=$OUT_ROOT/$dataset/$bird/$c/layer_$layer
         todo=0; [[ -f $dir/metrics.json ]] || todo=1
         for cap in $caps; do [[ -f $dir/cap_$(printf %03d "$cap")/metrics.json ]] || todo=1; done
