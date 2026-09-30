@@ -13,14 +13,29 @@
 \sisetup{detect-weight=true, detect-family=true}
 \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}ll*{6}{S[table-format=2.2]}@{}}
 \toprule
-\multicolumn{1}{c}{\textbf{Model}} & \textbf{Patch size} & \multicolumn{4}{c}{\textbf{Macro FER (\%)}} & \multicolumn{2}{c}{\shortstack{\textbf{Macro FER}\\\textbf{breakdown (\%)}}} \\
+\multicolumn{1}{c}{\textbf{Model}} & \textbf{Temporal resolution} & \multicolumn{4}{c}{\textbf{Macro FER (\%)}} & \multicolumn{2}{c}{\shortstack{\textbf{Macro FER}\\\textbf{breakdown (\%)}}} \\
 \cmidrule(lr){3-6}\cmidrule(lr){7-8}
 & & {\textbf{canary}} & {\textbf{zebra finch}} & {\textbf{Bengalese finch}} & {\textbf{Mean}} & {\textbf{Parsing}} & {\textbf{Identity}} \\
 \midrule
-SongMAE-Large & 32 mels × 5 ms & \textbf{4.59} & \textbf{8.03} & \textbf{2.10} & \textbf{4.91} & \textbf{1.85} & 3.06 \\
-& 32 mels × 20 ms & 6.64 & 9.74 & 5.01 & 7.13 & 4.24 & \textbf{2.89} \\
-BirdAVES & -- & 7.45 & 9.56 & 4.92 & 7.31 & 4.16 & 3.15 \\
-HuBERT & -- & 8.75 & 11.43 & 5.21 & 8.46 & 4.32 & 4.14 \\
+SongMAE-Large & 5 ms & \textbf{4.82} & \textbf{8.64} & \textbf{2.11} & \textbf{5.19} & \textbf{1.87} & 3.31 \\
+ & 20 ms & 7.01 & 10.17 & 5.02 & 7.40 & 4.22 & 3.17 \\
+\addlinespace
+BirdAVES & 20 ms & 7.50 & 9.92 & 5.00 & 7.47 & 4.17 & 3.30 \\
+ & 10 ms (1/2×) & 7.16 & 9.59 & 3.04 & 6.60 & 2.37 & 4.22 \\
+ & 5 ms (1/4×) & 8.65 & 10.49 & 3.13 & 7.42 & 1.92 & 5.50 \\
+\addlinespace
+HuBERT & 20 ms & 9.00 & 11.69 & 5.22 & 8.64 & 4.33 & 4.31 \\
+\addlinespace
+BEATs & 160 ms & 8.47 & 40.95 & 39.67 & 29.70 & 18.31 & 11.39 \\
+ & 80 ms (1/2×) & 11.78 & 21.77 & 20.75 & 18.10 & 13.69 & 4.41 \\
+ & 40 ms (1/4×) & 11.91 & 13.35 & 10.39 & 11.89 & 8.97 & \textbf{2.91} \\
+\addlinespace
+Bird-MAE & 160 ms & 14.08 & 39.70 & 38.98 & 30.92 & 20.89 & 10.02 \\
+ & 80 ms (1/2×) & 16.26 & 21.37 & 20.61 & 19.41 & 14.98 & 4.43 \\
+ & 40 ms (1/4×) & 14.19 & 14.10 & 10.47 & 12.92 & 9.23 & 3.69 \\
+ & 20 ms (1/8×) & 9.51 & 11.85 & 6.17 & 9.18 & 4.62 & 4.56 \\
+ & 10 ms (1/16×) & 9.53 & 12.46 & 5.66 & 9.21 & 2.99 & 6.22 \\
+ & 5 ms (1/32×) & 10.41 & 13.75 & 6.40 & 10.19 & 2.25 & 7.94 \\
 \bottomrule
 \end{tabular*}
 \endgroup
