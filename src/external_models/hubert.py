@@ -109,7 +109,8 @@ def save_embeddings(args):
         args.model_name, args.random_init, args.seed, args.hidden_size
     )
     model = model.to(device)
-    samples_per_timebin = args.audio_sr * dataset.audio_params[2] / dataset.audio_params[0]
+    load_sr = round(args.audio_sr / args.speed)  # tape-style playback slowdown, as in aves.py
+    samples_per_timebin = load_sr * dataset.audio_params[2] / dataset.audio_params[0]
     geometry = convolution_geometry(model.config.conv_kernel, model.config.conv_stride, samples_per_timebin)
 
     rows = []
@@ -120,7 +121,7 @@ def save_embeddings(args):
         embeddings = extract_features(
             feature_extractor,
             model,
-            load_audio(item, args.audio_sr, audio_cache),
+            load_audio(item, load_sr, audio_cache),
             args.audio_sr,
             args.encoder_layer_idx,
             args.all_layers,
@@ -144,6 +145,7 @@ def save_embeddings(args):
         rows,
         model_name=args.model_name,
         audio_sr=args.audio_sr,
+        playback_speed=args.speed,
         encoder_layer_idx=args.encoder_layer_idx,
         all_layers=args.all_layers,
         chunk_timebins=args.chunk_timebins,
@@ -166,6 +168,7 @@ def parse_args():
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--model_name", default="facebook/hubert-base-ls960")
     parser.add_argument("--audio_sr", type=int, default=16000)
+    parser.add_argument("--speed", type=float, choices=[1.0, 0.5, 0.25], default=1.0)
     parser.add_argument("--recording_mode", default="events", choices=["events", "full_recordings"])
     parser.add_argument("--recording_stem")
     parser.add_argument("--bird")

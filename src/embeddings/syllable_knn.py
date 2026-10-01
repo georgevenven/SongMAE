@@ -198,7 +198,7 @@ def validate_protocol(store, args):
         assert metadata["model_num_timebins"] == CONTEXT_TIMEBINS
         return
     speed = metadata.get("playback_speed", 1.0)
-    assert speed == args.playback_speed and (args.model == "aves" or speed == 1.0)
+    assert speed == args.playback_speed
     assert metadata["chunk_timebins"] == int(CONTEXT_TIMEBINS * speed)
     assert metadata["feature_center_timebins"] == 2.5 * speed
     assert metadata["feature_stride_timebins"] == 4.0 * speed

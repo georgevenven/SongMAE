@@ -16,7 +16,8 @@ extract() {  # condition layer specs annotations bird out (uses SELECTION)
         --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$ann" --bird "$bird" --out_dir "$out" \
         --encoder_layer_idx "$layer" "${SELECTION[@]}" ;;
     hubert_*)
-      "$PYTHON_BIN" src/external_models/hubert.py --model_name facebook/hubert-base-ls960 --audio_sr 16000 --chunk_timebins 1000 \
+      "$PYTHON_BIN" src/external_models/hubert.py --model_name facebook/hubert-base-ls960 --audio_sr 16000 --speed "$speed" \
+        --chunk_timebins "$("$PYTHON_BIN" -c "print(int(1000 * $speed))")" \
         --spec_dir "$specs" --wav_dir "$WAV_ROOT" --annotation_file "$ann" --bird "$bird" --out_dir "$out" \
         --encoder_layer_idx "$layer" "${SELECTION[@]}" ;;
     beats_*|birdmae_*)

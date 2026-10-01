@@ -21,7 +21,7 @@ SPECIES = ("canary", "zf", "bf")
 NAMES = {"canary": "Canary", "zf": "Zebra finch", "bf": "Bengalese finch"}
 ORDER = ["xcl_large_500k_p32x1_c005", "xcl_large_500k_p32x4_c010", "xcl_large_500k_p32x4_c0025", "xcl_base_500k_p32x1_c005",
          "xcl_base_500k_p32x4_c010", "xcl_micro_500k_p32x1_c005", "xcl_micro_500k_p32x4_c010", "birdaves_biox_base",
-         "birdaves_biox_base_speed0p5", "birdaves_biox_base_speed0p25", "hubert_base_ls960", "beats_iter3_plus_as2m",
+         "birdaves_biox_base_speed0p5", "birdaves_biox_base_speed0p25", "hubert_base_ls960", "hubert_base_ls960_speed0p25", "beats_iter3_plus_as2m",
          "beats_iter3_plus_as2m_speed0p5", "beats_iter3_plus_as2m_speed0p25", "beats_iter3_plus_as2m_speed0p125",
          "beats_iter3_plus_as2m_speed0p0625", "beats_iter3_plus_as2m_speed0p03125", "birdmae_base_speed1", "birdmae_base_speed0p5",
          "birdmae_base_speed0p25", "birdmae_base_speed0p125", "birdmae_base_speed0p0625", "birdmae_base_speed0p03125"]
@@ -30,7 +30,7 @@ LABEL = {"xcl_large_500k_p32x1_c005": "SongMAE-L 32×5 ms", "xcl_large_500k_p32x
          "xcl_large_500k_p32x4_c0025": "SongMAE-L 32×20 ms (2.5% seeds)", "xcl_base_500k_p32x1_c005": "SongMAE-B 32×5 ms",
          "xcl_base_500k_p32x4_c010": "SongMAE-B 32×20 ms", "xcl_micro_500k_p32x1_c005": "SongMAE-Micro 32×5 ms",
          "xcl_micro_500k_p32x4_c010": "SongMAE-Micro 32×20 ms", "birdaves_biox_base": "BirdAVES 1×",
-         "birdaves_biox_base_speed0p5": "BirdAVES ½×", "birdaves_biox_base_speed0p25": "BirdAVES ¼×", "hubert_base_ls960": "HuBERT",
+         "birdaves_biox_base_speed0p5": "BirdAVES ½×", "birdaves_biox_base_speed0p25": "BirdAVES ¼×", "hubert_base_ls960": "HuBERT", "hubert_base_ls960_speed0p25": "HuBERT ¼×",
          "beats_iter3_plus_as2m": "BEATs 1×", "beats_iter3_plus_as2m_speed0p5": "BEATs ½×", "beats_iter3_plus_as2m_speed0p25": "BEATs ¼×",
          "beats_iter3_plus_as2m_speed0p125": "BEATs ⅛×", "beats_iter3_plus_as2m_speed0p0625": "BEATs 1/16×",
          "beats_iter3_plus_as2m_speed0p03125": "BEATs 1/32×",

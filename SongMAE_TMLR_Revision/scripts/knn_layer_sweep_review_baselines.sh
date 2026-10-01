@@ -37,6 +37,7 @@ MODELS=(
   "birdaves_biox_base_speed0p5|aves|0.5"
   "birdaves_biox_base_speed0p25|aves|0.25"
   "hubert_base_ls960|hubert|1.0"
+  "hubert_base_ls960_speed0p25|hubert|0.25"
   "xcl_large_500k_p32x1_c005|songmae:xcl_large_500k_p32x1_c005|1.0"
   "xcl_large_500k_p32x4_c010|songmae:xcl_large_500k_p32x4_c010|1.0"
   "xcl_large_500k_p32x4_c0025|songmae:xcl_large_500k_p32x4_c0025|1.0"
@@ -78,8 +79,8 @@ for dataset_row in "${DATASETS[@]}"; do
           --bird "$bird" --recording_mode events --minimal --target_feature_type end_of_block \
           --num_timebins "$NUM_TIMEBINS" --all_layers > "$out/extract.log" 2>&1
       elif [[ $model == hubert ]]; then
-        "$PYTHON_BIN" src/external_models/hubert.py --model_name facebook/hubert-base-ls960 --audio_sr 16000 \
-          --chunk_timebins 1000 "${common[@]}" > "$out/extract.log" 2>&1
+        "$PYTHON_BIN" src/external_models/hubert.py --model_name facebook/hubert-base-ls960 --audio_sr 16000 --speed "$speed" \
+          --chunk_timebins "$("$PYTHON_BIN" -c "print(int(1000 * $speed))")" "${common[@]}" > "$out/extract.log" 2>&1
       elif [[ $model == aves ]]; then  # same 5 s model input as the other baselines: 5 s x speed of original audio
         "$PYTHON_BIN" src/external_models/aves.py --speed "$speed" --chunk_timebins "$("$PYTHON_BIN" -c "print(int(1000 * $speed))")" \
           --aves_model_path files/birdaves-biox-base.torchaudio.pt --aves_config_path files/birdaves-biox-base.torchaudio.model_config.json \
