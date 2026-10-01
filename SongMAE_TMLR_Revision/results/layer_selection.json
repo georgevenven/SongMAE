@@ -71,6 +71,40 @@
       8
     ]
   },
+  "beats_iter3_plus_as2m_speed0p03125": {
+    "all": 10,
+    "canary": 11,
+    "test_canary": 10,
+    "test_zf": 10,
+    "test_bf": 10,
+    "union": [
+      10,
+      11
+    ]
+  },
+  "beats_iter3_plus_as2m_speed0p0625": {
+    "all": 10,
+    "canary": 10,
+    "test_canary": 8,
+    "test_zf": 10,
+    "test_bf": 10,
+    "union": [
+      8,
+      10
+    ]
+  },
+  "beats_iter3_plus_as2m_speed0p125": {
+    "all": 9,
+    "canary": 10,
+    "test_canary": 8,
+    "test_zf": 9,
+    "test_bf": 9,
+    "union": [
+      8,
+      9,
+      10
+    ]
+  },
   "beats_iter3_plus_as2m_speed0p25": {
     "all": 8,
     "canary": 9,
@@ -252,7 +286,119 @@
       10
     ]
   },
+  "xcl_micro_100k_p32x1_c0025_seed1": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_c0025_seed2": {
+    "all": 3,
+    "canary": 5,
+    "test_canary": 3,
+    "test_zf": 3,
+    "test_bf": 3,
+    "union": [
+      3,
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_c005_seed1": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_c005_seed2": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_c010_seed1": {
+    "all": 4,
+    "canary": 4,
+    "test_canary": 4,
+    "test_zf": 4,
+    "test_bf": 4,
+    "union": [
+      4
+    ]
+  },
+  "xcl_micro_100k_p32x1_c010_seed2": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
   "xcl_micro_100k_p32x1_random": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_random_seed1": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_random_seed2": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_time_seed0": {
+    "all": 5,
+    "canary": 5,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_time_seed1": {
+    "all": 5,
+    "canary": 4,
+    "test_canary": 5,
+    "test_zf": 5,
+    "test_bf": 5,
+    "union": [
+      4,
+      5
+    ]
+  },
+  "xcl_micro_100k_p32x1_time_seed2": {
     "all": 5,
     "canary": 5,
     "test_canary": 5,
