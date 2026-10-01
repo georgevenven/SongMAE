@@ -36,7 +36,9 @@ def resolution(label, base):
 
 
 # Keep each model's native speed plus the slowdowns that land on SongMAE's 5 and 20 ms resolutions.
-table = [(model, resolution(label, base), rows[label]) for model, base, labels in GROUPS for label in labels
+# Within each model, list the finest temporal resolution first.
+table = [(model, resolution(label, base), rows[label]) for model, base, labels in GROUPS
+         for label in sorted(labels, key=lambda label: float(resolution(label, base).split()[0]))
          if label in rows and ("(" not in resolution(label, base) or resolution(label, base).split(" ms")[0] in ("5", "20"))]
 best = [min(r[2][i] for r in table) for i in range(6)]
 body, previous = [], None
