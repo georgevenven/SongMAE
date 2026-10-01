@@ -14,7 +14,7 @@ for run; do
     [[ -f runs/$run/weights/$final ]] || sleep 300
   done
 done
-read -ra birds <<< "$(for d in canary zf bf; do $P -c "import json,sys;print(' '.join(sorted({r['recording']['bird_id'] for r in json.load(open(sys.argv[1]))['recordings']})))" "files/annotation jsons/${d}_annotations.json"; done)"
+read -ra birds <<< "$(for d in canary zf bf; do $P -c "import json,sys;print(' '.join(sorted({r['recording']['bird_id'] for r in json.load(open(sys.argv[1]))['recordings']})))" "files/annotation jsons/${d}_annotations.json"; done | tr "\n" " ")"
 for s in 0 1; do
   filter=$(for i in "${!birds[@]}"; do if (( i % 2 == s )); then printf '%s ' "${birds[$i]}"; fi; done)
   EXTRA_SONGMAE_RUNS="$*" MODEL_FILTER="$*" BIRD_FILTER=$filter PYTHON_BIN=$P \
